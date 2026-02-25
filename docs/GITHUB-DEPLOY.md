@@ -56,13 +56,16 @@ You can protect `main` (Settings → Branches → Add rule) so that only PRs (no
 
 Before the first successful prod deploy from CI:
 
-1. **Deploy prod stack once** (if not already done), so the stack and Secrets Manager secret exist:
+1. **Add AWS secrets** (see section 2) so the deploy job can run.
+2. **Deploy prod stack** — either let the first merge to `main` run the workflow (it will run `serverless deploy --stage prod`), or run once locally:
    ```bash
    npx serverless deploy --stage prod
    ```
-2. **Stripe (prod):** In AWS Secrets Manager, edit `apex-sports-prod-stripe-keys` and set prod Stripe keys (and `STRIPE_PUBLISHABLE_KEY` for the web build). See [STRIPE-DEPLOY.md](STRIPE-DEPLOY.md).
-3. **Cognito / API:** The stack creates the User Pool and API. After the first deploy, `env-from-stack.sh prod` in CI will read the API URL and Cognito IDs from the stack and write `.env` for the web build, so the built app points to prod.
-4. **Custom domain (optional):** If you use a prod domain (e.g. `prod.getapexsports.com`), configure it in the Serverless/custom domain config. You can set the **production** environment URL in GitHub (Settings → Environments → production) so it appears in the deploy summary.
+   That creates the stack and the Secrets Manager secret `apex-sports-prod-stripe-keys`.
+3. **Stripe (prod):** In AWS Secrets Manager, edit `apex-sports-prod-stripe-keys` and set **live** Stripe keys and `STRIPE_PUBLISHABLE_KEY`. See [STRIPE-DEPLOY.md](STRIPE-DEPLOY.md). Create a **live** webhook in Stripe pointing at your prod API URL and put its signing secret in the same secret.
+4. **Cognito / API:** The stack creates the User Pool and API. CI runs `env-from-stack.sh prod` so the web build gets the prod API URL and Cognito IDs from the stack.
+
+**Domains:** Prod uses **https://getapexsports.com** (root domain). Dev uses **https://dev.getapexsports.com**. Both are configured in `serverless.yml` per stage; no extra setup needed.
 
 ## 6. Deploying only dev (manual)
 
