@@ -93585,7 +93585,7 @@ var init_bookings = __esm({
       if (slot.status !== "available")
         return res.status(400).json({ error: "Slot is not available" });
       const myExisting = await prisma.booking.findFirst({
-        where: { slotId, athleteId: user.id }
+        where: { slotId, athleteId: user.id, status: { not: "cancelled" } }
       });
       if (myExisting)
         return res.status(409).json({ error: "You already have a pending request for this slot", code: "PENDING_REQUEST" });
