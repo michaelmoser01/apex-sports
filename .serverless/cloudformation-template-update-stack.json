@@ -250,7 +250,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/apex-sports/dev/1771996817948-2026-02-25T05:20:17.948Z/api.zip"
+          "S3Key": "serverless/apex-sports/dev/1771997534692-2026-02-25T05:32:14.692Z/api.zip"
         },
         "Handler": "apps/api/src/handler.handler",
         "Runtime": "nodejs20.x",
@@ -323,7 +323,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/apex-sports/dev/1771996817948-2026-02-25T05:20:17.948Z/migrate.zip"
+          "S3Key": "serverless/apex-sports/dev/1771997534692-2026-02-25T05:32:14.692Z/migrate.zip"
         },
         "Handler": "apps/api/src/migrate-handler.handler",
         "Runtime": "nodejs20.x",
@@ -380,7 +380,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/apex-sports/dev/1771996817948-2026-02-25T05:20:17.948Z/acmValidation.zip"
+          "S3Key": "serverless/apex-sports/dev/1771997534692-2026-02-25T05:32:14.692Z/acmValidation.zip"
         },
         "Handler": "apps/api/src/acm-validation-handler.handler",
         "Runtime": "nodejs20.x",
@@ -406,7 +406,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/apex-sports/dev/1771996817948-2026-02-25T05:20:17.948Z/seed.zip"
+          "S3Key": "serverless/apex-sports/dev/1771997534692-2026-02-25T05:32:14.692Z/seed.zip"
         },
         "Handler": "apps/api/src/seed-handler.handler",
         "Runtime": "nodejs20.x",
@@ -456,47 +456,47 @@
         "SeedLogGroup"
       ]
     },
-    "AcmValidationLambdaVersion9Zz2R8wsgAGcbuoFdlS7BVMgjnzNxxmuyfXOXM6o": {
+    "AcmValidationLambdaVersionXHJjRuU8KdAkgxv3xjkes3og1HERmacclrkF6Fq8": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "AcmValidationLambdaFunction"
         },
-        "CodeSha256": "hBh2XgVxZSr5xLbThBantrzSM93WGmSjPPemY+Vd7o0=",
+        "CodeSha256": "6Iyb4rzOIhm7trlikzU4qVghuIvx837pYl2dT224uhk=",
         "Description": "Creates Route 53 CNAME for ACM cert DNS validation (Custom Resource)"
       }
     },
-    "MigrateLambdaVersionhSEJnY7s4T53hGtQlTbGFCaWPqXaLiP9VxngcNqWdAc": {
+    "MigrateLambdaVersionxQfE5b95hCU0tbINym4n8r73fRR0ixhls4nB1GBUPA": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "MigrateLambdaFunction"
         },
-        "CodeSha256": "mJ9U/H0Xy8uDFj2VuTwSD1P3AL/vQLcCklxMwwh0LoM=",
+        "CodeSha256": "CN6Q+0krP/qMA5lwW+fmKgB456iqxX4J8+presd43P4=",
         "Description": "Runs Prisma migrations (Custom Resource) in VPC"
       }
     },
-    "SeedLambdaVersionDh1tRInamacALiLnK7UWw0yPuYTwsQSO7bxVJ4Xq4": {
+    "SeedLambdaVersioncigDKyDBE7W5R7rXRyb2UGOpAMQZjePJn7yhotoxsww": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "SeedLambdaFunction"
         },
-        "CodeSha256": "/+LGl0gTfccnvgaotvyPGBe9D/fQEUsFbBwcmkukbic=",
+        "CodeSha256": "N2GsOjS2tR80362Hymgwh1LVrDrkTmnBq0GkjFVstW0=",
         "Description": "Seed marketplace coaches (run in VPC against Aurora)"
       }
     },
-    "ApiLambdaVersionTqbyW8xxhssM7lxtCbruG5aqmHfUgTH3BvKbBF8LyI": {
+    "ApiLambdaVersiong09Yp0iFLchvcTzXQFsacsWva5zSpYFqMJdYTF6ocM": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "ApiLambdaFunction"
         },
-        "CodeSha256": "UA9esqSsUlT/Oc6HDi7p4E3L9HJ+8Q4jseBnOZydRpM=",
+        "CodeSha256": "sd7fjgrCe8zcrcTds01fnXjYGTlZwk7mJfvv2v6jRhQ=",
         "Description": "ApexSports API (Express)"
       }
     },
@@ -1314,7 +1314,7 @@
     "AcmValidationLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "AcmValidationLambdaVersion9Zz2R8wsgAGcbuoFdlS7BVMgjnzNxxmuyfXOXM6o"
+        "Ref": "AcmValidationLambdaVersionXHJjRuU8KdAkgxv3xjkes3og1HERmacclrkF6Fq8"
       },
       "Export": {
         "Name": "sls-apex-sports-dev-AcmValidationLambdaFunctionQualifiedArn"
@@ -1323,7 +1323,7 @@
     "MigrateLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "MigrateLambdaVersionhSEJnY7s4T53hGtQlTbGFCaWPqXaLiP9VxngcNqWdAc"
+        "Ref": "MigrateLambdaVersionxQfE5b95hCU0tbINym4n8r73fRR0ixhls4nB1GBUPA"
       },
       "Export": {
         "Name": "sls-apex-sports-dev-MigrateLambdaFunctionQualifiedArn"
@@ -1332,7 +1332,7 @@
     "SeedLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "SeedLambdaVersionDh1tRInamacALiLnK7UWw0yPuYTwsQSO7bxVJ4Xq4"
+        "Ref": "SeedLambdaVersioncigDKyDBE7W5R7rXRyb2UGOpAMQZjePJn7yhotoxsww"
       },
       "Export": {
         "Name": "sls-apex-sports-dev-SeedLambdaFunctionQualifiedArn"
@@ -1341,7 +1341,7 @@
     "ApiLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "ApiLambdaVersionTqbyW8xxhssM7lxtCbruG5aqmHfUgTH3BvKbBF8LyI"
+        "Ref": "ApiLambdaVersiong09Yp0iFLchvcTzXQFsacsWva5zSpYFqMJdYTF6ocM"
       },
       "Export": {
         "Name": "sls-apex-sports-dev-ApiLambdaFunctionQualifiedArn"
