@@ -48,6 +48,10 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_DEFAULT_REGION || 'us-east-1' }}
+      - name: Build shared package and Prisma
+        run: |
+          npm run db:generate
+          npm run build --workspace=@apex-sports/shared
       - name: Deploy API
         run: npx serverless deploy --stage prod
       - name: Write .env from stack
