@@ -14,7 +14,14 @@ cd "$ROOT_DIR"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 BUCKET="apex-sports-uploads-${STAGE}-${ACCOUNT_ID}"
 
-echo "Configuring uploads bucket: $BUCKET"
+# Web origin for this stage (browser sends this as Origin when uploading from the app)
+if [ "$STAGE" = "prod" ]; then
+  WEB_ORIGIN="https://getapexsports.com"
+else
+  WEB_ORIGIN="https://dev.getapexsports.com"
+fi
+
+echo "Configuring uploads bucket: $BUCKET (origin: $WEB_ORIGIN)"
 
 # Allow object ACLs (required for presigned PUT with public-read)
 aws s3api put-bucket-ownership-controls --bucket "$BUCKET" \
@@ -22,18 +29,19 @@ aws s3api put-bucket-ownership-controls --bucket "$BUCKET" \
 
 echo "Setting CORS..."
 
-aws s3api put-bucket-cors --bucket "$BUCKET" --cors-configuration '{
-  "CORSRules": [
+aws s3api put-bucket-cors --bucket "$BUCKET" --cors-configuration "{
+  \"CORSRules\": [
     {
-      "AllowedHeaders": ["*"],
-      "AllowedMethods": ["GET", "PUT", "HEAD"],
-      "AllowedOrigins": [
-        "https://d36rrgq6wyjuf8.cloudfront.net",
-        "http://localhost:5173",
-        "http://localhost:3000"
+      \"AllowedHeaders\": [\"*\"],
+      \"AllowedMethods\": [\"GET\", \"PUT\", \"HEAD\"],
+      \"AllowedOrigins\": [
+        \"$WEB_ORIGIN\",
+        \"https://d36rrgq6wyjuf8.cloudfront.net\",
+        \"http://localhost:5173\",
+        \"http://localhost:3000\"
       ]
     }
   ]
-}'
+}"
 
 echo "Done. CORS is set on $BUCKET"

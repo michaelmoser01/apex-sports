@@ -445,11 +445,22 @@ resources:
         BucketName: ${self:custom.webBucketName}
 
     # S3 for coach profile photo uploads (presigned PUT; objects with public-read ACL).
-    # ObjectOwnership and CORS are not in-template (EarlyValidation hook rejects them). Apply after deploy via: npm run configure-uploads-cors
     UploadsBucket:
       Type: AWS::S3::Bucket
       Properties:
         BucketName: ${self:custom.uploadsBucketName}
+        OwnershipControls:
+          Rules:
+            - ObjectOwnership: BucketOwnerPreferred
+        CorsConfiguration:
+          CorsRules:
+            - AllowedHeaders: ["*"]
+              AllowedMethods: [GET, PUT, HEAD]
+              AllowedOrigins:
+                - https://${self:custom.webDomainName}
+                - https://d36rrgq6wyjuf8.cloudfront.net
+                - http://localhost:5173
+                - http://localhost:3000
         PublicAccessBlockConfiguration:
           BlockPublicAcls: false
           IgnorePublicAcls: false
