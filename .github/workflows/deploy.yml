@@ -1,0 +1,54 @@
+# Apex Sports – CI/CD
+# - Push/PR: validate (build)
+# - Push to main: deploy API + web to production (stage=prod)
+
+name: CI / Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+defaults:
+  run:
+    working-directory: .
+
+jobs:
+  validate:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run build
+
+  deploy-prod:
+    name: Deploy production
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION || 'us-east-1' }}
+      - name: Deploy API
+        run: npx serverless deploy --stage prod
+      - name: Write .env from stack
+        run: ./scripts/env-from-stack.sh prod
+      - name: Deploy web
+        run: ./scripts/deploy-web.sh prod

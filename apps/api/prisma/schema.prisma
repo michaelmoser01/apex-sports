@@ -1,0 +1,126 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String   @id @default(uuid())
+  email            String   @unique
+  cognitoSub       String?  @unique @map("cognito_sub")
+  name             String?
+  signupRole       String?  @map("signup_role") // "coach" | "athlete" set once on welcome
+  stripeCustomerId String?  @unique @map("stripe_customer_id") // for saved payment methods
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  coachProfile      CoachProfile?
+  bookingsAsAthlete Booking[]      @relation("AthleteBookings")
+  reviews           Review[]
+}
+
+model CoachProfile {
+  id                    String   @id @default(uuid())
+  userId                String   @unique @map("user_id")
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName           String   @map("display_name")
+  sports                String[] @default([])
+  serviceCities         String[] @default([]) @map("service_cities")
+  bio                   String   @default("")
+  hourlyRate            Decimal? @map("hourly_rate") @db.Decimal(10, 2)
+  verified              Boolean  @default(false)
+  backgroundCheckComplete Boolean @default(false) @map("background_check_complete")
+  credentials           Json?    @default("{}")
+  avatarUrl                 String?  @map("avatar_url")
+  phone                     String?  @db.Text
+  stripeConnectAccountId    String?  @unique @map("stripe_connect_account_id")
+  stripeOnboardingComplete  Boolean  @default(false) @map("stripe_onboarding_complete")
+
+  photos             CoachPhoto[]
+  availabilityRules  AvailabilityRule[]
+  availabilitySlots AvailabilitySlot[]
+  bookings          Booking[]         @relation("CoachBookings")
+  reviews            Review[]
+
+  @@map("coach_profiles")
+}
+
+model CoachPhoto {
+  id             String       @id @default(uuid())
+  coachProfileId String       @map("coach_profile_id")
+  coach          CoachProfile @relation(fields: [coachProfileId], references: [id], onDelete: Cascade)
+  url            String
+  sortOrder      Int          @default(0) @map("sort_order")
+
+  @@map("coach_photos")
+}
+
+model AvailabilityRule {
+  id               String   @id @default(uuid())
+  coachId          String   @map("coach_id")
+  coach            CoachProfile @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  firstStartTime   DateTime @map("first_start_time")
+  durationMinutes Int      @map("duration_minutes")
+  recurrence      String   @default("weekly")
+  endDate         DateTime @map("end_date")
+
+  slots AvailabilitySlot[]
+
+  @@map("availability_rules")
+}
+
+model AvailabilitySlot {
+  id         String   @id @default(uuid())
+  coachId    String   @map("coach_id")
+  coach      CoachProfile @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  ruleId     String?  @map("rule_id")
+  rule       AvailabilityRule? @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  startTime  DateTime @map("start_time")
+  endTime    DateTime @map("end_time")
+  recurrence String   @default("none")
+  status     String   @default("available")
+
+  bookings Booking[]
+
+  @@map("availability_slots")
+}
+
+model Booking {
+  id                    String   @id @default(uuid())
+  athleteId             String   @map("athlete_id")
+  athlete               User     @relation("AthleteBookings", fields: [athleteId], references: [id], onDelete: Cascade)
+  coachId               String   @map("coach_id")
+  coach                 CoachProfile @relation("CoachBookings", fields: [coachId], references: [id], onDelete: Cascade)
+  slotId                String   @map("slot_id")
+  slot                  AvailabilitySlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  message               String?  @db.Text
+  status                String   @default("pending")
+  amountCents           Int?     @map("amount_cents")
+  currency              String   @default("usd")
+  stripePaymentIntentId String?  @map("stripe_payment_intent_id")
+  paymentStatus         String?  @map("payment_status") // authorized, succeeded, refunded, failed, canceled
+  createdAt             DateTime @default(now()) @map("created_at")
+  completedAt           DateTime? @map("completed_at")
+
+  review Review?
+
+  @@map("bookings")
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  bookingId String   @unique @map("booking_id")
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  coachId   String   @map("coach_id")
+  coach     CoachProfile @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  athleteId String   @map("athlete_id")
+  athlete   User     @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  rating    Int
+  comment   String   @default("")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("reviews")
+}

@@ -1,0 +1,11 @@
+{
+  "name": "apex-sports",
+  "version": "1.0.0",
+  "description": "Packaged externals for apex-sports",
+  "private": true,
+  "scripts": {},
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "pg": "^8.13.0"
+  }
+}

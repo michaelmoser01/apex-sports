@@ -1,0 +1,36 @@
+{
+  "name": "apex-sports",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run api",
+    "build": "npm run db:generate && npm run build --workspace=@apex-sports/shared && npm run build --workspace=web",
+    "deploy": "npm run db:generate && npx serverless deploy",
+    "deploy:api": "npm run db:generate && npx serverless deploy function -f api",
+    "deploy:web": "./scripts/deploy-web.sh",
+    "env-from-stack": "./scripts/env-from-stack.sh",
+    "configure-uploads-cors": "./scripts/configure-uploads-bucket-cors.sh",
+    "deploy:invalidate": "./scripts/invalidate-cloudfront.sh",
+    "db:migrate": "cd apps/api && npx prisma migrate deploy",
+    "db:generate": "cd apps/api && npx prisma generate",
+    "db:push": "cd apps/api && npx prisma db push",
+    "db:seed": "cd apps/api && npx prisma db seed",
+    "web": "npm run dev --workspace=web",
+    "api": "npm run dev --workspace=api",
+    "start:all": "./scripts/setup-and-run.sh",
+    "deploy:retain-og-handler": "./scripts/deploy-retain-og-handler.sh"
+  },
+  "devDependencies": {
+    "serverless": "^3.38.0",
+    "serverless-esbuild": "^1.52.0",
+    "serverless-finch": "^2.6.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

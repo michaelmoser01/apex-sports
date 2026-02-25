@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-surface: 220 14% 96%;
+  --color-ink: 220 13% 18%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+}
+
+@keyframes hero-zoom {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+.animate-hero-zoom {
+  animation: hero-zoom 20s ease-in-out infinite;
+}

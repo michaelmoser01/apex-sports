@@ -1,0 +1,612 @@
+service: apex-sports
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: us-east-1
+  stage: ${opt:stage, 'dev'}
+  memorySize: 512
+  timeout: 30
+  httpApi:
+    cors:
+      allowedOrigins:
+        - https://d36rrgq6wyjuf8.cloudfront.net
+        - https://${self:custom.webDomainName}
+        - http://localhost:5173
+        - http://localhost:3000
+      allowedHeaders:
+        - Content-Type
+        - Authorization
+        - X-Dev-User-Id
+      allowedMethods:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+      allowCredentials: true
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action: secretsmanager:GetSecretValue
+          Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${self:service}-${self:provider.stage}-*"
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:PutObjectAcl
+          Resource: !Sub ["arn:aws:s3:::${Bucket}/*", { Bucket: !Ref UploadsBucket }]
+        - Effect: Allow
+          Action:
+            - ses:SendEmail
+            - ses:SendRawEmail
+          Resource: "*"
+        - Effect: Allow
+          Action: sns:Publish
+          Resource: "*"
+        - Effect: Allow
+          Action: acm:DescribeCertificate
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - route53:ChangeResourceRecordSets
+            - route53:ListResourceRecordSets
+          Resource: "arn:aws:route53:::hostedzone/${self:custom.hostedZoneId}"
+plugins:
+  - serverless-esbuild
+  - serverless-finch
+
+package:
+  individually: true
+  patterns:
+    # Prisma generated client + engine (must be in build node_modules for Lambda)
+    - "node_modules/.prisma/client/**"
+
+custom:
+  # Bump this when you add a new Prisma migration so the migrate Lambda runs on next deploy.
+  migrationsVersion: "15"
+  esbuild:
+    bundle: true
+    packager: npm
+    packagePath: ./apps/api/package.json
+    entryPoints:
+      - apps/api/src/handler.ts
+      - apps/api/src/migrate-handler.ts
+      - apps/api/src/seed-handler.ts
+      - apps/api/src/acm-validation-handler.ts
+    outputWorkFolder: .esbuild
+    outputBuildFolder: .serverless
+    target: node20
+    platform: node
+    nativeZip: true
+    # Prisma: do not bundle; load from node_modules so the query engine can be found
+    # pg: used by migrate Lambda; native bindings so keep external
+    external:
+      - "@prisma/client"
+      - "pg"
+  finch:
+    dist: apps/web/dist
+    bucket: ${self:custom.webBucketName}
+    invalidate: true
+    deleteRemoved: true
+    distribution: ${self:custom.cloudFrontId}
+    noAuth: true
+  # serverless-finch plugin reads custom.client (not finch)
+  client:
+    bucketName: ${self:custom.webBucketName}
+    distributionFolder: apps/web/dist
+    manageResources: false
+  webBucketName: apex-sports-web-${self:provider.stage}-${aws:accountId}
+  uploadsBucketName: apex-sports-uploads-${self:provider.stage}-${aws:accountId}
+  cloudFrontId: ${cf:${self:service}-${self:provider.stage}.WebDistributionId, ''}
+  # Custom domain: dev.getapexsports.com for dev; set per stage for prod later
+  hostedZoneId: Z08901643QM46BK2W9N4A
+  webDomainName: ${self:provider.stage}.getapexsports.com
+
+functions:
+  api:
+    handler: apps/api/src/handler.handler
+    description: ApexSports API (Express)
+    environment:
+      NODE_ENV: ${self:provider.stage}
+      COGNITO_REGION: us-east-1
+      DB_SECRET_ARN: !Ref DbSecret
+      DB_CLUSTER_ENDPOINT: !GetAtt AuroraCluster.Endpoint.Address
+      DB_NAME: apexsports
+      COGNITO_USER_POOL_ID: !Ref AuthUserPool
+      COGNITO_CLIENT_ID: !Ref AuthUserPoolClient
+      UPLOADS_BUCKET: !Ref UploadsBucket
+      NOTIFICATION_FROM_EMAIL: "Apex Sports <no-reply@getapexsports.com>"
+      APP_URL: https://${self:custom.webDomainName}
+      NOTIFICATION_TIMEZONE: America/Los_Angeles
+      # Stripe: secret created per stage (apex-sports-<stage>-stripe-keys); paste key values in console
+      STRIPE_SECRET_ARN: !Ref StripeSecret
+      STRIPE_PLATFORM_FEE_PERCENT: "10"
+    package:
+      patterns:
+        # Include Prisma generated client + rhel query engine (required for Lambda)
+        - "node_modules/.prisma/client/**"
+    vpc:
+      securityGroupIds:
+        - !Ref LambdaSecurityGroup
+      subnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+    events:
+      - httpApi:
+          path: /{proxy+}
+          method: ANY
+      - httpApi:
+          path: /
+          method: ANY
+
+  migrate:
+    handler: apps/api/src/migrate-handler.handler
+    description: Runs Prisma migrations (Custom Resource) in VPC
+    timeout: 300
+    memorySize: 256
+    environment:
+      NODE_ENV: ${self:provider.stage}
+      COGNITO_REGION: us-east-1
+      DB_SECRET_ARN: !Ref DbSecret
+      DB_CLUSTER_ENDPOINT: !GetAtt AuroraCluster.Endpoint.Address
+      DB_NAME: apexsports
+    vpc:
+      securityGroupIds:
+        - !Ref LambdaSecurityGroup
+      subnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+    package:
+      patterns:
+        - "apps/api/prisma/migrations/**"
+
+  acmValidation:
+    handler: apps/api/src/acm-validation-handler.handler
+    description: Creates Route 53 CNAME for ACM cert DNS validation (Custom Resource)
+    timeout: 300
+    memorySize: 256
+
+  seed:
+    handler: apps/api/src/seed-handler.handler
+    description: Seed marketplace coaches (run in VPC against Aurora)
+    timeout: 120
+    memorySize: 512
+    environment:
+      NODE_ENV: ${self:provider.stage}
+      COGNITO_REGION: us-east-1
+      DB_SECRET_ARN: !Ref DbSecret
+      DB_CLUSTER_ENDPOINT: !GetAtt AuroraCluster.Endpoint.Address
+      DB_NAME: apexsports
+    vpc:
+      securityGroupIds:
+        - !Ref LambdaSecurityGroup
+      subnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+    package:
+      patterns:
+        - "node_modules/.prisma/client/**"
+
+resources:
+  Resources:
+    # VPC
+    Vpc:
+      Type: AWS::EC2::VPC
+      Properties:
+        CidrBlock: 10.0.0.0/16
+        EnableDnsHostnames: true
+        EnableDnsSupport: true
+        Tags:
+          - Key: Name
+            Value: ${self:service}-${self:provider.stage}-vpc
+
+    InternetGateway:
+      Type: AWS::EC2::InternetGateway
+      Properties:
+        Tags:
+          - Key: Name
+            Value: ${self:service}-${self:provider.stage}-igw
+
+    AttachGateway:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        VpcId: !Ref Vpc
+        InternetGatewayId: !Ref InternetGateway
+
+    PublicSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref Vpc
+        CidrBlock: 10.0.1.0/24
+        AvailabilityZone: !Select [0, !GetAZs ""]
+        MapPublicIpOnLaunch: true
+        Tags:
+          - Key: Name
+            Value: ${self:service}-${self:provider.stage}-public-1
+
+    PublicSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref Vpc
+        CidrBlock: 10.0.2.0/24
+        AvailabilityZone: !Select [1, !GetAZs ""]
+        MapPublicIpOnLaunch: true
+        Tags:
+          - Key: Name
+            Value: ${self:service}-${self:provider.stage}-public-2
+
+    PrivateSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref Vpc
+        CidrBlock: 10.0.10.0/24
+        AvailabilityZone: !Select [0, !GetAZs ""]
+        Tags:
+          - Key: Name
+            Value: ${self:service}-${self:provider.stage}-private-1
+
+    PrivateSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref Vpc
+        CidrBlock: 10.0.11.0/24
+        AvailabilityZone: !Select [1, !GetAZs ""]
+        Tags:
+          - Key: Name
+            Value: ${self:service}-${self:provider.stage}-private-2
+
+    NatGatewayEip:
+      Type: AWS::EC2::EIP
+      DependsOn: AttachGateway
+      Properties:
+        Domain: vpc
+
+    NatGateway:
+      Type: AWS::EC2::NatGateway
+      Properties:
+        AllocationId: !GetAtt NatGatewayEip.AllocationId
+        SubnetId: !Ref PublicSubnet1
+
+    PublicRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref Vpc
+        Tags:
+          - Key: Name
+            Value: ${self:service}-${self:provider.stage}-public-rt
+
+    DefaultPublicRoute:
+      Type: AWS::EC2::Route
+      DependsOn: AttachGateway
+      Properties:
+        RouteTableId: !Ref PublicRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        GatewayId: !Ref InternetGateway
+
+    PublicSubnet1RouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PublicSubnet1
+        RouteTableId: !Ref PublicRouteTable
+
+    PublicSubnet2RouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PublicSubnet2
+        RouteTableId: !Ref PublicRouteTable
+
+    PrivateRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref Vpc
+        Tags:
+          - Key: Name
+            Value: ${self:service}-${self:provider.stage}-private-rt
+
+    DefaultPrivateRoute:
+      Type: AWS::EC2::Route
+      Properties:
+        RouteTableId: !Ref PrivateRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        NatGatewayId: !Ref NatGateway
+
+    PrivateSubnet1RouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PrivateSubnet1
+        RouteTableId: !Ref PrivateRouteTable
+
+    PrivateSubnet2RouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PrivateSubnet2
+        RouteTableId: !Ref PrivateRouteTable
+
+    # Security groups
+    LambdaSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Lambda SG
+        VpcId: !Ref Vpc
+        SecurityGroupEgress:
+          - IpProtocol: -1
+            CidrIp: 0.0.0.0/0
+        Tags:
+          - Key: Name
+            Value: ${self:service}-${self:provider.stage}-lambda-sg
+
+    DbSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Aurora SG
+        VpcId: !Ref Vpc
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: 5432
+            ToPort: 5432
+            SourceSecurityGroupId: !Ref LambdaSecurityGroup
+        Tags:
+          - Key: Name
+            Value: ${self:service}-${self:provider.stage}-db-sg
+
+    # DB secret
+    DbSecret:
+      Type: AWS::SecretsManager::Secret
+      Properties:
+        Name: ${self:service}-${self:provider.stage}-db-password
+        GenerateSecretString:
+          SecretStringTemplate: '{"username":"postgres"}'
+          GenerateStringKey: password
+          PasswordLength: 32
+          ExcludeCharacters: '"@/\'
+
+    # Stripe keys (per stage: dev = test mode keys, prod = live keys); paste values in console after deploy
+    StripeSecret:
+      Type: AWS::SecretsManager::Secret
+      Properties:
+        Name: ${self:service}-${self:provider.stage}-stripe-keys
+        Description: Stripe API and webhook keys for Apex Sports API; STRIPE_PUBLISHABLE_KEY used at web build time
+        SecretString: '{"STRIPE_SECRET_KEY":"","STRIPE_WEBHOOK_SECRET":"","STRIPE_PUBLISHABLE_KEY":""}'
+
+    # Aurora Serverless v2
+    DbSubnetGroup:
+      Type: AWS::RDS::DBSubnetGroup
+      Properties:
+        DBSubnetGroupDescription: Subnets for Aurora
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+        Tags:
+          - Key: Name
+            Value: ${self:service}-${self:provider.stage}-db-subnet
+
+    AuroraCluster:
+      Type: AWS::RDS::DBCluster
+      DependsOn: DbSecret
+      Properties:
+        DBClusterIdentifier: ${self:service}-${self:provider.stage}-cluster
+        Engine: aurora-postgresql
+        EngineMode: provisioned
+        EngineVersion: "15.8"
+        DatabaseName: apexsports
+        MasterUsername: postgres
+        MasterUserPassword: !Sub '{{resolve:secretsmanager:${DbSecret}:SecretString:password}}'
+        DBSubnetGroupName: !Ref DbSubnetGroup
+        VpcSecurityGroupIds:
+          - !Ref DbSecurityGroup
+        ServerlessV2ScalingConfiguration:
+          MinCapacity: 0.5
+          MaxCapacity: 4
+        StorageEncrypted: true
+
+    AuroraInstance:
+      Type: AWS::RDS::DBInstance
+      Properties:
+        DBInstanceIdentifier: ${self:service}-${self:provider.stage}-instance
+        DBInstanceClass: db.serverless
+        Engine: aurora-postgresql
+        DBClusterIdentifier: !Ref AuroraCluster
+
+    # Cognito (separate User Pool and client per stage; dev and prod do not share users)
+    AuthUserPool:
+      Type: AWS::Cognito::UserPool
+      Properties:
+        UserPoolName: ${self:service}-${self:provider.stage}-pool
+        UsernameAttributes:
+          - email
+        AutoVerifiedAttributes:
+          - email
+        Schema:
+          - Name: email
+            Required: true
+            Mutable: true
+
+    AuthUserPoolClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        UserPoolId: !Ref AuthUserPool
+        ClientName: ${self:service}-${self:provider.stage}-web-client
+        GenerateSecret: false
+        ExplicitAuthFlows:
+          - ALLOW_USER_PASSWORD_AUTH
+          - ALLOW_REFRESH_TOKEN_AUTH
+          - ALLOW_USER_SRP_AUTH
+
+    # S3 for web (Finch will deploy here)
+    WebBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.webBucketName}
+
+    # S3 for coach profile photo uploads (presigned PUT; objects with public-read ACL).
+    # ObjectOwnership and CORS are not in-template (EarlyValidation hook rejects them). Apply after deploy via: npm run configure-uploads-cors
+    UploadsBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.uploadsBucketName}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: false
+          IgnorePublicAcls: false
+          BlockPublicPolicy: true
+          RestrictPublicBuckets: true
+
+    WebBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      DependsOn: WebOriginAccessIdentity
+      Properties:
+        Bucket: !Ref WebBucket
+        PolicyDocument:
+          Statement:
+            - Sid: AllowCloudFront
+              Effect: Allow
+              Principal:
+                AWS: !Sub ["arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${OAI}", { OAI: !Ref WebOriginAccessIdentity }]
+              Action: s3:GetObject
+              Resource: !Sub ["arn:aws:s3:::${Bucket}/*", { Bucket: !Ref WebBucket }]
+
+    # ACM certificate for custom domain (must be us-east-1 for CloudFront)
+    WebCertificate:
+      Type: AWS::CertificateManager::Certificate
+      Properties:
+        DomainName: ${self:custom.webDomainName}
+        ValidationMethod: DNS
+
+    # Route 53 CNAME for ACM DNS validation (via Lambda; GetAtt not supported on Certificate)
+    AcmValidationLambdaPermission:
+      Type: AWS::Lambda::Permission
+      Properties:
+        FunctionName: !GetAtt AcmValidationLambdaFunction.Arn
+        Action: lambda:InvokeFunction
+        Principal: cloudformation.amazonaws.com
+    WebCertificateValidation:
+      Type: AWS::CloudFormation::CustomResource
+      DependsOn:
+        - WebCertificate
+        - AcmValidationLambdaPermission
+      Properties:
+        ServiceToken: !GetAtt AcmValidationLambdaFunction.Arn
+        CertificateArn: !Ref WebCertificate
+        HostedZoneId: ${self:custom.hostedZoneId}
+
+    # CloudFront for web
+    WebOriginAccessIdentity:
+      Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+      Properties:
+        CloudFrontOriginAccessIdentityConfig:
+          Comment: OAI for ${self:service} web
+
+    WebDistribution:
+      Type: AWS::CloudFront::Distribution
+      DependsOn: WebCertificateValidation
+      Properties:
+        DistributionConfig:
+          Aliases:
+            - ${self:custom.webDomainName}
+          ViewerCertificate:
+            AcmCertificateArn: !Ref WebCertificate
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          Origins:
+            - DomainName: !GetAtt WebBucket.RegionalDomainName
+              Id: S3Origin
+              S3OriginConfig:
+                OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${WebOriginAccessIdentity}"
+          Enabled: true
+          DefaultRootObject: index.html
+          DefaultCacheBehavior:
+            TargetOriginId: S3Origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          CustomErrorResponses:
+            - ErrorCode: 404
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+            - ErrorCode: 403
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+          PriceClass: PriceClass_100
+
+    # Route 53 A record (alias) for custom domain -> CloudFront
+    WebDomainRecord:
+      Type: AWS::Route53::RecordSet
+      DependsOn: WebDistribution
+      Properties:
+        HostedZoneId: ${self:custom.hostedZoneId}
+        Name: ${self:custom.webDomainName}.
+        Type: A
+        AliasTarget:
+          HostedZoneId: Z2FDTNDATAQYW2
+          DNSName: !GetAtt WebDistribution.DomainName
+          EvaluateTargetHealth: false
+
+    # Run Prisma migrations after Aurora is ready (Custom Resource)
+    MigrateLambdaPermission:
+      Type: AWS::Lambda::Permission
+      DependsOn: MigrateLambdaFunction
+      Properties:
+        FunctionName: !Ref MigrateLambdaFunction
+        Action: lambda:InvokeFunction
+        Principal: cloudformation.amazonaws.com
+    DbMigrateCustomResource:
+      Type: AWS::CloudFormation::CustomResource
+      DependsOn:
+        - AuroraInstance
+        - MigrateLambdaPermission
+      Properties:
+        ServiceToken: !GetAtt MigrateLambdaFunction.Arn
+        # Change when you add migrations so CloudFormation re-invokes the migrate Lambda (otherwise it only runs on stack Create).
+        MigrationsVersion: ${self:custom.migrationsVersion}
+
+  Outputs:
+    ApiUrl:
+      Description: API Gateway URL
+      Value: !Sub ["https://${ApiId}.execute-api.${AWS::Region}.amazonaws.com", { ApiId: !Ref HttpApi }]
+      Export:
+        Name: ${self:service}-${self:provider.stage}-ApiUrl
+    WebUrl:
+      Description: CloudFront URL
+      Value: !Sub ["https://${Domain}", { Domain: !GetAtt WebDistribution.DomainName }]
+      Export:
+        Name: ${self:service}-${self:provider.stage}-WebUrl
+    WebDomainUrl:
+      Description: Custom domain URL for web app
+      Value: https://${self:custom.webDomainName}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-WebDomainUrl
+    WebDistributionId:
+      Description: CloudFront Distribution ID
+      Value: !Ref WebDistribution
+      Export:
+        Name: ${self:service}-${self:provider.stage}-WebDistributionId
+    WebBucketName:
+      Description: S3 bucket for web assets
+      Value: !Ref WebBucket
+      Export:
+        Name: ${self:service}-${self:provider.stage}-WebBucketName
+    UserPoolId:
+      Value: !Ref AuthUserPool
+      Export:
+        Name: ${self:service}-${self:provider.stage}-UserPoolId
+    UserPoolClientId:
+      Value: !Ref AuthUserPoolClient
+      Export:
+        Name: ${self:service}-${self:provider.stage}-UserPoolClientId
+    DbSecretArn:
+      Value: !Ref DbSecret
+      Export:
+        Name: ${self:service}-${self:provider.stage}-DbSecretArn
+    AuroraClusterEndpoint:
+      Value: !GetAtt AuroraCluster.Endpoint.Address
+      Export:
+        Name: ${self:service}-${self:provider.stage}-AuroraEndpoint
