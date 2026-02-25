@@ -62,6 +62,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
 
 // Create Stripe Connect Express account (if needed) and return Account Link for onboarding
 router.post("/me/connect-account-link", authMiddleware(), async (req, res) => {
+  console.log("[coaches] connect-account-link requested");
   const user = (req as { user?: { id: string } }).user;
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
@@ -109,13 +110,13 @@ router.post("/me/connect-account-link", authMiddleware(), async (req, res) => {
     res.json({ url: accountLink.url });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    console.error("[coaches] connect-account-link error:", message, err);
     if (message.includes("signed up for Connect") || message.includes("Connect")) {
       return res.status(400).json({
         error: "Stripe Connect not enabled",
         detail: "Enable Connect for your Stripe account at https://dashboard.stripe.com/connect/accounts/overview then try again.",
       });
     }
-    console.error("[coaches] connect-account-link error:", err);
     return res.status(502).json({
       error: "Payment setup failed",
       detail: message,

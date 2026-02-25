@@ -193,6 +193,7 @@ router.post("/", auth, async (req, res) => {
         paymentMethodId: paymentMethodId || undefined,
         idempotencyKey: booking.id,
         metadata: { bookingId: booking.id },
+        connectAccountId: booking.coach.stripeConnectAccountId ?? undefined,
       });
       // When we had a payment method, we confirmed on the server: requires_capture = done; requires_action = 3DS on client.
       clientSecret = piStatus === "requires_action" ? secret : null;
@@ -315,12 +316,16 @@ router.patch("/:id", auth, async (req, res) => {
       const pi = await stripe.paymentIntents.retrieve(booking.stripePaymentIntentId);
       if (pi.status === "requires_capture") {
         await capturePaymentIntent(booking.stripePaymentIntentId);
-        await transferToConnectAccount({
-          amountCents: booking.amountCents,
-          currency: booking.currency ?? "usd",
-          connectAccountId: booking.coach.stripeConnectAccountId,
-          transferGroup: booking.id,
-        });
+        // If this was a destination charge, Stripe already splits on capture. Otherwise transfer from platform balance.
+        const isDestinationCharge = !!pi.transfer_data?.destination;
+        if (!isDestinationCharge && booking.coach.stripeConnectAccountId) {
+          await transferToConnectAccount({
+            amountCents: booking.amountCents,
+            currency: booking.currency ?? "usd",
+            connectAccountId: booking.coach.stripeConnectAccountId,
+            transferGroup: booking.id,
+          });
+        }
         paymentCapturedOrSucceeded = true;
       } else if (pi.status === "succeeded") {
         paymentCapturedOrSucceeded = true;

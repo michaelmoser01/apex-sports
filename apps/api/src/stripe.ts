@@ -25,7 +25,8 @@ export async function getOrCreateStripeCustomerId(
 }
 
 /** Create a PaymentIntent with manual capture (auth hold only).
- * When paymentMethodId is provided, attaches it to the customer then confirms on the server. */
+ * When paymentMethodId is provided, attaches it to the customer then confirms on the server.
+ * When connectAccountId is set, uses a destination charge so Stripe splits on capture (no platform balance needed). */
 export async function createPaymentIntentAuthOnly(params: {
   amountCents: number;
   currency: string;
@@ -33,6 +34,9 @@ export async function createPaymentIntentAuthOnly(params: {
   paymentMethodId?: string;
   idempotencyKey: string;
   metadata: { bookingId: string };
+  /** If set, destination charge: on capture Stripe sends (amount - applicationFeeCents) to this Connect account and keeps the fee on the platform. */
+  connectAccountId?: string;
+  applicationFeeCents?: number;
 }): Promise<{ clientSecret: string | null; paymentIntentId: string; status: string }> {
   if (!stripe) throw new Error("Stripe not configured");
   const confirm = !!params.paymentMethodId;
@@ -46,20 +50,23 @@ export async function createPaymentIntentAuthOnly(params: {
       if (msg !== "resource_already_attached_to_customer") throw err;
     }
   }
-  const pi = await stripe.paymentIntents.create(
-    {
-      amount: params.amountCents,
-      currency: params.currency,
-      customer: params.customerId,
-      payment_method: params.paymentMethodId || undefined,
-      capture_method: "manual",
-      metadata: params.metadata,
-      confirm,
-      // Card-only; no redirect-based methods so we don't need return_url.
-      automatic_payment_methods: { enabled: true, allow_redirects: "never" },
-    },
-    { idempotencyKey: params.idempotencyKey }
-  );
+  const feeCents =
+    params.applicationFeeCents ?? (params.connectAccountId ? Math.round((params.amountCents * FEE_PERCENT) / 100) : 0);
+  const piParams: Stripe.PaymentIntentCreateParams = {
+    amount: params.amountCents,
+    currency: params.currency,
+    customer: params.customerId,
+    payment_method: params.paymentMethodId || undefined,
+    capture_method: "manual",
+    metadata: params.metadata,
+    confirm,
+    automatic_payment_methods: { enabled: true, allow_redirects: "never" },
+  };
+  if (params.connectAccountId && feeCents >= 0 && feeCents < params.amountCents) {
+    piParams.transfer_data = { destination: params.connectAccountId };
+    piParams.application_fee_amount = feeCents;
+  }
+  const pi = await stripe.paymentIntents.create(piParams, { idempotencyKey: params.idempotencyKey });
   return {
     clientSecret: pi.client_secret ?? null,
     paymentIntentId: pi.id,

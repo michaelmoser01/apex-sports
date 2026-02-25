@@ -92728,20 +92728,22 @@ async function createPaymentIntentAuthOnly(params) {
       if (msg !== "resource_already_attached_to_customer") throw err;
     }
   }
-  const pi = await stripe.paymentIntents.create(
-    {
-      amount: params.amountCents,
-      currency: params.currency,
-      customer: params.customerId,
-      payment_method: params.paymentMethodId || void 0,
-      capture_method: "manual",
-      metadata: params.metadata,
-      confirm,
-      // Card-only; no redirect-based methods so we don't need return_url.
-      automatic_payment_methods: { enabled: true, allow_redirects: "never" }
-    },
-    { idempotencyKey: params.idempotencyKey }
-  );
+  const feeCents = params.applicationFeeCents ?? (params.connectAccountId ? Math.round(params.amountCents * FEE_PERCENT / 100) : 0);
+  const piParams = {
+    amount: params.amountCents,
+    currency: params.currency,
+    customer: params.customerId,
+    payment_method: params.paymentMethodId || void 0,
+    capture_method: "manual",
+    metadata: params.metadata,
+    confirm,
+    automatic_payment_methods: { enabled: true, allow_redirects: "never" }
+  };
+  if (params.connectAccountId && feeCents >= 0 && feeCents < params.amountCents) {
+    piParams.transfer_data = { destination: params.connectAccountId };
+    piParams.application_fee_amount = feeCents;
+  }
+  const pi = await stripe.paymentIntents.create(piParams, { idempotencyKey: params.idempotencyKey });
   return {
     clientSecret: pi.client_secret ?? null,
     paymentIntentId: pi.id,
@@ -92833,6 +92835,7 @@ var init_coaches = __esm({
       });
     });
     router2.post("/me/connect-account-link", authMiddleware(), async (req, res) => {
+      console.log("[coaches] connect-account-link requested");
       const user = req.user;
       if (!user) return res.status(401).json({ error: "Unauthorized" });
       if (!isStripeEnabled() || !stripe) {
@@ -92873,13 +92876,13 @@ var init_coaches = __esm({
         res.json({ url: accountLink.url });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        console.error("[coaches] connect-account-link error:", message, err);
         if (message.includes("signed up for Connect") || message.includes("Connect")) {
           return res.status(400).json({
             error: "Stripe Connect not enabled",
             detail: "Enable Connect for your Stripe account at https://dashboard.stripe.com/connect/accounts/overview then try again."
           });
         }
-        console.error("[coaches] connect-account-link error:", err);
         return res.status(502).json({
           error: "Payment setup failed",
           detail: message
@@ -93622,7 +93625,8 @@ var init_bookings = __esm({
             customerId,
             paymentMethodId: paymentMethodId || void 0,
             idempotencyKey: booking.id,
-            metadata: { bookingId: booking.id }
+            metadata: { bookingId: booking.id },
+            connectAccountId: booking.coach.stripeConnectAccountId ?? void 0
           });
           clientSecret = piStatus === "requires_action" ? secret : null;
           await prisma.booking.update({
@@ -93726,12 +93730,15 @@ var init_bookings = __esm({
           const pi = await stripe.paymentIntents.retrieve(booking.stripePaymentIntentId);
           if (pi.status === "requires_capture") {
             await capturePaymentIntent(booking.stripePaymentIntentId);
-            await transferToConnectAccount({
-              amountCents: booking.amountCents,
-              currency: booking.currency ?? "usd",
-              connectAccountId: booking.coach.stripeConnectAccountId,
-              transferGroup: booking.id
-            });
+            const isDestinationCharge = !!pi.transfer_data?.destination;
+            if (!isDestinationCharge && booking.coach.stripeConnectAccountId) {
+              await transferToConnectAccount({
+                amountCents: booking.amountCents,
+                currency: booking.currency ?? "usd",
+                connectAccountId: booking.coach.stripeConnectAccountId,
+                transferGroup: booking.id
+              });
+            }
             paymentCapturedOrSucceeded = true;
           } else if (pi.status === "succeeded") {
             paymentCapturedOrSucceeded = true;
