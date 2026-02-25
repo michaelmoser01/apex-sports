@@ -142,7 +142,14 @@ export async function sendBookingRequestedToCoach(params: BookingRequestedToCoac
       })
     );
   } catch (err) {
-    console.error("[notifications] sendBookingRequestedToCoach email failed:", err);
+    const sesErr = err as { name?: string; message?: string; Code?: string };
+    console.error(
+      "[notifications] sendBookingRequestedToCoach email failed:",
+      sesErr?.name ?? sesErr?.Code,
+      sesErr?.message ?? err,
+      "from:",
+      fromEmail
+    );
   }
 
   if (sendSms && coachPhone?.trim()) {
@@ -216,7 +223,14 @@ export async function sendBookingRequestSubmittedToAthlete(params: BookingReques
       })
     );
   } catch (err) {
-    console.error("[notifications] sendBookingRequestSubmittedToAthlete failed:", err);
+    const sesErr = err as { name?: string; message?: string; Code?: string };
+    console.error(
+      "[notifications] sendBookingRequestSubmittedToAthlete failed:",
+      sesErr?.name ?? sesErr?.Code,
+      sesErr?.message ?? err,
+      "from:",
+      fromEmail
+    );
   }
 }
 
@@ -322,6 +336,13 @@ export async function sendBookingStatusToAthlete(params: BookingStatusToAthleteP
       })
     );
   } catch (err) {
-    console.error("[notifications] sendBookingStatusToAthlete failed:", err);
+    const sesErr = err as { name?: string; message?: string; Code?: string };
+    console.error(
+      "[notifications] sendBookingStatusToAthlete failed:",
+      sesErr?.name ?? sesErr?.Code,
+      sesErr?.message ?? err,
+      "from:",
+      fromEmail
+    );
   }
 }
