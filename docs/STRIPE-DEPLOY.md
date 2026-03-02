@@ -62,6 +62,8 @@ Each stage gets its own secret: `apex-sports-dev-stripe-keys`, `apex-sports-prod
 
 **If you see "Plan pricing is not set up yet":** The API could not find `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, or `STRIPE_PRICE_ELITE`. For **local** dev, add all three to `apps/api/.env` (see `.env.example`). For **deploy**, add them to the same Stripe secret in Secrets Manager (edit the JSON and include the three keys). Ensure you use Price IDs from the same Stripe mode (test vs live) as your API keys.
 
+**If you see "Payment form is not configured. Set VITE_STRIPE_PUBLISHABLE_KEY":** The **web app** needs the Stripe publishable key at **build time** (it is baked into the bundle). For **prod**: (1) Add `STRIPE_PUBLISHABLE_KEY` to the same Stripe secret in Secrets Manager (`apex-sports-prod-stripe-keys`), using your **live** publishable key (`pk_live_...` from [Stripe Dashboard → API keys](https://dashboard.stripe.com/apikeys) with Live mode on). (2) **Redeploy the web app** so it is rebuilt with the key—run `./scripts/deploy-web.sh prod` locally (with AWS credentials that can read the secret) or re-run the deploy workflow in GitHub Actions. The API secrets you set do not affect the web build; the deploy script reads the publishable key from the secret only when building the web app.
+
 ---
 
 ## 3. Webhook URL (domain: dev.getapexsports.com)

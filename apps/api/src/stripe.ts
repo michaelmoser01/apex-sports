@@ -128,7 +128,7 @@ export async function createPlanCheckoutSession(params: {
   return { url };
 }
 
-/** Create a subscription for a coach plan using an existing payment method (inline card form). Returns clientSecret if 3DS is required. */
+/** Create a subscription for a coach plan using an existing payment method (inline card form). Confirms the first invoice's payment intent so the card is charged; returns clientSecret if 3DS is required. */
 export async function createCoachPlanSubscription(params: {
   customerId: string;
   paymentMethodId: string;
@@ -152,13 +152,28 @@ export async function createCoachPlanSubscription(params: {
     metadata: params.metadata,
     expand: ["latest_invoice.payment_intent"],
   });
-  const invoice = sub.latest_invoice as Stripe.Invoice & { payment_intent?: Stripe.PaymentIntent };
-  const pi = invoice?.payment_intent as Stripe.PaymentIntent | undefined;
+  let pi = (sub.latest_invoice as Stripe.Invoice & { payment_intent?: Stripe.PaymentIntent })?.payment_intent as Stripe.PaymentIntent | undefined;
+
+  if (pi?.id && pi.status === "requires_confirmation") {
+    const confirmed = await stripe.paymentIntents.confirm(pi.id, {
+      payment_method: params.paymentMethodId,
+    });
+    pi = confirmed;
+  }
+
+  const subUpdated =
+    sub.status === "active"
+      ? sub
+      : await stripe.subscriptions.retrieve(sub.id, { expand: ["latest_invoice.payment_intent"] });
+  const invoiceUpdated = subUpdated.latest_invoice as Stripe.Invoice & { payment_intent?: Stripe.PaymentIntent };
+  const piUpdated = invoiceUpdated?.payment_intent as Stripe.PaymentIntent | undefined;
+  const status = subUpdated.status;
   const clientSecret =
-    pi?.status === "requires_action" && pi.client_secret ? pi.client_secret : undefined;
+    piUpdated?.status === "requires_action" && piUpdated.client_secret ? piUpdated.client_secret : undefined;
+
   return {
     subscriptionId: sub.id,
     clientSecret: clientSecret ?? undefined,
-    status: sub.status,
+    status,
   };
 }
