@@ -38,6 +38,10 @@ model CoachProfile {
   phone                     String?  @db.Text
   stripeConnectAccountId    String?  @unique @map("stripe_connect_account_id")
   stripeOnboardingComplete  Boolean  @default(false) @map("stripe_onboarding_complete")
+  assistantDisplayName     String?  @map("assistant_display_name")
+  assistantPhoneNumber     String?  @map("assistant_phone_number")
+  assistantCapabilities    Json?    @map("assistant_capabilities") // e.g. { "scheduling": true, "bookings": true }
+  planId                   String?  @map("plan_id") // "starter" | "pro" | "elite"
 
   photos             CoachPhoto[]
   availabilityRules  AvailabilityRule[]

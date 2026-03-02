@@ -54,6 +54,15 @@ provider:
             - route53:ChangeResourceRecordSets
             - route53:ListResourceRecordSets
           Resource: "arn:aws:route53:::hostedzone/${self:custom.hostedZoneId}"
+        - Effect: Allow
+          Action: bedrock:InvokeModel
+          Resource: !Sub "arn:aws:bedrock:${AWS::Region}:*:foundation-model/*"
+        # Required for Bedrock Marketplace models (e.g. Anthropic Claude): subscription can be completed on first invoke
+        - Effect: Allow
+          Action:
+            - aws-marketplace:ViewSubscriptions
+            - aws-marketplace:Subscribe
+          Resource: "*"
 plugins:
   - serverless-esbuild
   - serverless-finch
@@ -66,7 +75,7 @@ package:
 
 custom:
   # Bump this when you add a new Prisma migration so the migrate Lambda runs on next deploy.
-  migrationsVersion: "16"
+  migrationsVersion: "18"
   esbuild:
     bundle: true
     packager: npm
@@ -127,6 +136,9 @@ functions:
       # Stripe: secret created per stage (apex-sports-<stage>-stripe-keys); paste key values in console
       STRIPE_SECRET_ARN: !Ref StripeSecret
       STRIPE_PLATFORM_FEE_PERCENT: "10"
+      # Bedrock: set BEDROCK_MODEL_ID / BEDROCK_REGION when running serverless deploy to override
+      BEDROCK_REGION: ${env:BEDROCK_REGION, 'us-east-1'}
+      BEDROCK_MODEL_ID: ${env:BEDROCK_MODEL_ID, 'anthropic.claude-3-haiku-20240307-v1:0'}
     package:
       patterns:
         # Include Prisma generated client + rhel query engine (required for Lambda)
@@ -371,8 +383,8 @@ resources:
       Type: AWS::SecretsManager::Secret
       Properties:
         Name: ${self:service}-${self:provider.stage}-stripe-keys
-        Description: Stripe API and webhook keys for Apex Sports API; STRIPE_PUBLISHABLE_KEY used at web build time
-        SecretString: '{"STRIPE_SECRET_KEY":"","STRIPE_WEBHOOK_SECRET":"","STRIPE_PUBLISHABLE_KEY":""}'
+        Description: Stripe API, webhook, and coach plan price IDs; fill STRIPE_PRICE_* for onboarding plan step
+        SecretString: '{"STRIPE_SECRET_KEY":"","STRIPE_WEBHOOK_SECRET":"","STRIPE_PUBLISHABLE_KEY":"","STRIPE_PRICE_STARTER":"","STRIPE_PRICE_PRO":"","STRIPE_PRICE_ELITE":""}'
 
     # Aurora Serverless v2
     DbSubnetGroup:

@@ -35,7 +35,7 @@ export class CoachDetailErrorBoundary extends Component<Props, State> {
           )}
           <div className="mt-4">
             <Link
-              to="/coaches"
+              to="/find"
               className="text-brand-600 hover:underline font-medium"
             >
               ← Back to coaches

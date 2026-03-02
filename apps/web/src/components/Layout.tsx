@@ -1,15 +1,23 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Outlet, Link, useLocation, Navigate } from "react-router-dom";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { signOut } from "aws-amplify/auth";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { api } from "@/lib/api";
 
 function DevLayout() {
   const { devUser, setDevUser } = useAuth();
+  const queryClient = useQueryClient();
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
   const { data: currentUser, isLoading: currentUserLoading } = useCurrentUser(!!devUser);
+
+  const handleDevSignOut = () => {
+    queryClient.clear();
+    setDevUser(null);
+  };
 
   useEffect(() => {
     setMenuOpen(false);
@@ -31,7 +39,7 @@ function DevLayout() {
     const to =
       currentUser!.signupRole === "coach" || currentUser!.coachProfile
         ? "/dashboard/profile"
-        : "/coaches";
+        : "/find";
     return <Navigate to={to} replace />;
   }
 
@@ -44,10 +52,16 @@ function DevLayout() {
           </Link>
           <nav className="hidden md:flex items-center gap-6">
             <Link
-              to="/coaches"
+              to="/find"
               className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
             >
               Find Coaches
+            </Link>
+            <Link
+              to="/coaches"
+              className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+            >
+              For Coaches
             </Link>
             {devUser ? (
               <>
@@ -74,7 +88,7 @@ function DevLayout() {
                   </>
                 )}
                 <button
-                  onClick={() => setDevUser(null)}
+                  onClick={handleDevSignOut}
                   className="text-slate-600 hover:text-slate-900 text-sm font-medium transition-colors"
                 >
                   Sign out
@@ -114,11 +128,18 @@ function DevLayout() {
             <div className="absolute left-0 right-0 top-16 z-50 md:hidden bg-white border-b border-slate-200 shadow-lg py-4 px-4">
               <nav className="flex flex-col gap-1">
                 <Link
-                  to="/coaches"
+                  to="/find"
                   className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
                   onClick={() => setMenuOpen(false)}
                 >
                   Find Coaches
+                </Link>
+                <Link
+                  to="/coaches"
+                  className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  For Coaches
                 </Link>
                 {devUser ? (
                   <>
@@ -149,7 +170,7 @@ function DevLayout() {
                     )}
                     <button
                       onClick={() => {
-                        setDevUser(null);
+                        handleDevSignOut();
                         setMenuOpen(false);
                       }}
                       className="py-3 px-3 text-left text-slate-700 font-medium rounded-lg hover:bg-slate-100"
@@ -180,10 +201,10 @@ function DevLayout() {
             ApexSports
           </Link>
           <div className="flex gap-8 text-slate-600 text-sm">
-            <Link to="/coaches" className="hover:text-slate-900 transition-colors">
+            <Link to="/find" className="hover:text-slate-900 transition-colors">
               Find Coaches
             </Link>
-            <Link to="/dashboard/profile" className="hover:text-slate-900 transition-colors">
+            <Link to="/coaches" className="hover:text-slate-900 transition-colors">
               For Coaches
             </Link>
           </div>
@@ -202,13 +223,43 @@ function CognitoLayout() {
   const location = useLocation();
   const isAuthenticated = authStatus === "authenticated";
   const { data: currentUser, isLoading: currentUserLoading } = useCurrentUser(isAuthenticated);
+  const queryClient = useQueryClient();
+  const setCoachRoleAttempted = useRef(false);
+
+  const setCoachRoleMutation = useMutation({
+    mutationFn: () =>
+      api("/auth/me", {
+        method: "PATCH",
+        body: JSON.stringify({ signupRole: "coach" }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+    },
+  });
 
   useEffect(() => {
     setMenuOpen(false);
   }, [location.pathname]);
 
-  const handleSignOut = () => {
-    signOut();
+  const isOnOnboarding = location.pathname.startsWith("/dashboard/onboarding");
+  const shouldSetCoachAndStay =
+    isAuthenticated &&
+    !currentUserLoading &&
+    (!currentUser || !currentUser.signupRole) &&
+    isOnOnboarding;
+  useEffect(() => {
+    if (!shouldSetCoachAndStay || setCoachRoleAttempted.current) return;
+    setCoachRoleAttempted.current = true;
+    setCoachRoleMutation.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only run once when landing on onboarding without role
+  }, [shouldSetCoachAndStay]);
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+    } finally {
+      queryClient.clear();
+    }
   };
 
   const redirectToWelcome =
@@ -227,7 +278,7 @@ function CognitoLayout() {
     const to =
       currentUser!.signupRole === "coach" || currentUser!.coachProfile
         ? "/dashboard/profile"
-        : "/coaches";
+        : "/find";
     return <Navigate to={to} replace />;
   }
 
@@ -240,10 +291,16 @@ function CognitoLayout() {
           </Link>
           <nav className="hidden md:flex items-center gap-6">
             <Link
-              to="/coaches"
+              to="/find"
               className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
             >
               Find Coaches
+            </Link>
+            <Link
+              to="/coaches"
+              className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+            >
+              For Coaches
             </Link>
             {authStatus === "authenticated" ? (
               <>
@@ -310,11 +367,18 @@ function CognitoLayout() {
             <div className="absolute left-0 right-0 top-16 z-50 md:hidden bg-white border-b border-slate-200 shadow-lg py-4 px-4">
               <nav className="flex flex-col gap-1">
                 <Link
-                  to="/coaches"
+                  to="/find"
                   className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
                   onClick={() => setMenuOpen(false)}
                 >
                   Find Coaches
+                </Link>
+                <Link
+                  to="/coaches"
+                  className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  For Coaches
                 </Link>
                 {authStatus === "authenticated" ? (
                   <>
@@ -382,7 +446,11 @@ function CognitoLayout() {
         )}
       </header>
       <main className="flex-1">
-        {redirectToWelcome ? <Navigate to="/welcome" replace /> : <Outlet />}
+        {redirectToWelcome && !isOnOnboarding && location.pathname !== "/sign-up" ? (
+          <Navigate to="/welcome" replace />
+        ) : (
+          <Outlet />
+        )}
       </main>
       <footer className="border-t border-slate-200 bg-white py-10">
         <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -390,10 +458,10 @@ function CognitoLayout() {
             ApexSports
           </Link>
           <div className="flex gap-8 text-slate-600 text-sm">
-            <Link to="/coaches" className="hover:text-slate-900 transition-colors">
+            <Link to="/find" className="hover:text-slate-900 transition-colors">
               Find Coaches
             </Link>
-            <Link to="/dashboard/profile" className="hover:text-slate-900 transition-colors">
+            <Link to="/coaches" className="hover:text-slate-900 transition-colors">
               For Coaches
             </Link>
           </div>

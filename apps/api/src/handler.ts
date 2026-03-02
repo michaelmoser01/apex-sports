@@ -28,12 +28,10 @@ async function ensureStripeSecrets(): Promise<void> {
 
   const client = new SecretsManagerClient({});
   const res = await client.send(new GetSecretValueCommand({ SecretId: secretArn }));
-  const secret = JSON.parse(res.SecretString ?? "{}") as {
-    STRIPE_SECRET_KEY?: string;
-    STRIPE_WEBHOOK_SECRET?: string;
-  };
-  if (secret.STRIPE_SECRET_KEY) process.env.STRIPE_SECRET_KEY = secret.STRIPE_SECRET_KEY;
-  if (secret.STRIPE_WEBHOOK_SECRET) process.env.STRIPE_WEBHOOK_SECRET = secret.STRIPE_WEBHOOK_SECRET;
+  const secret = JSON.parse(res.SecretString ?? "{}") as Record<string, string>;
+  for (const [key, value] of Object.entries(secret)) {
+    if (value != null && value !== "") process.env[key] = value;
+  }
 }
 
 async function getApp(): Promise<Application> {

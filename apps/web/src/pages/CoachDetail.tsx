@@ -21,6 +21,7 @@ import { api } from "@/lib/api";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { BookingPaymentForm } from "@/components/BookingPaymentForm";
+import ReactMarkdown from "react-markdown";
 
 const stripePk = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
 const stripePromise = stripePk ? loadStripe(stripePk) : null;
@@ -221,7 +222,7 @@ export default function CoachDetail() {
         )}
         <div className="mt-4 flex gap-3">
           <Link
-            to="/coaches"
+            to="/find"
             className="text-brand-600 hover:underline font-medium"
           >
             ← Back to coaches
@@ -312,7 +313,9 @@ export default function CoachDetail() {
           </p>
         )}
         {coach.bio != null && String(coach.bio).trim() !== "" && (
-          <p className="text-slate-600 mt-4 whitespace-pre-wrap">{String(coach.bio)}</p>
+          <div className="mt-4 text-slate-600 [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mt-4 [&_h2]:mb-2 [&_h2:first-child]:mt-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_p]:my-2 [&_strong]:font-semibold [&_strong]:text-slate-800">
+            <ReactMarkdown>{String(coach.bio)}</ReactMarkdown>
+          </div>
         )}
       </div>
 

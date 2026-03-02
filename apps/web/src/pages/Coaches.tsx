@@ -294,7 +294,9 @@ export default function Coaches() {
                             </p>
                           ) : null}
                           {coach.bio && (
-                            <p className="text-slate-600 mt-2 line-clamp-2">{coach.bio}</p>
+                            <p className="text-slate-600 mt-2 line-clamp-2">
+                              {coach.bio.replace(/#{1,6}\s*/g, "").replace(/\*\*/g, "").trim()}
+                            </p>
                           )}
                         </div>
                         <div className="text-right">

@@ -1,9 +1,11 @@
 import { Link, useLocation, Navigate } from "react-router-dom";
+import { getNextOnboardingStep } from "@/config/onboarding";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { ALLOWED_SPORTS, DURATION_MINUTES_OPTIONS } from "@apex-sports/shared";
 import { searchServiceCities } from "@apex-sports/shared";
+import ReactMarkdown from "react-markdown";
 
 interface CoachPhoto {
   id: string;
@@ -24,6 +26,9 @@ interface CoachProfile {
   photos?: CoachPhoto[];
   stripeConnectAccountId?: string | null;
   stripeOnboardingComplete?: boolean;
+  assistantDisplayName?: string | null;
+  assistantPhoneNumber?: string | null;
+  planId?: string | null;
 }
 
 interface AvailabilityRule {
@@ -46,187 +51,6 @@ interface OneOffSlot {
 interface AvailabilityResponse {
   rules: AvailabilityRule[];
   oneOffSlots: OneOffSlot[];
-}
-
-function CreateProfileFormInline({
-  createProfileMutation,
-}: {
-  createProfileMutation: { mutate: (data: { displayName: string; sports: string[]; serviceCities: string[]; bio?: string; hourlyRate?: number; phone?: string }) => void; isPending: boolean; error: Error | null };
-}) {
-  const [displayName, setDisplayName] = useState("");
-  const [sports, setSports] = useState<string[]>([]);
-  const [serviceCities, setServiceCities] = useState<string[]>([]);
-  const [bio, setBio] = useState("");
-  const [hourlyRate, setHourlyRate] = useState("");
-  const [phone, setPhone] = useState("");
-  const [cityInput, setCityInput] = useState("");
-  const [citySuggestions, setCitySuggestions] = useState<string[]>([]);
-  const [showCitySuggestions, setShowCitySuggestions] = useState(false);
-
-  const updateCitySuggestions = (q: string) => {
-    setCitySuggestions(searchServiceCities(q, 10));
-    setShowCitySuggestions(true);
-  };
-
-  const addCity = (city: string) => {
-    if (city && !serviceCities.includes(city)) {
-      setServiceCities((prev) => [...prev, city]);
-      setCityInput("");
-      setCitySuggestions([]);
-      setShowCitySuggestions(false);
-    }
-  };
-
-  const removeCity = (city: string) => {
-    setServiceCities((prev) => prev.filter((c) => c !== city));
-  };
-
-  const toggleSport = (sport: string) => {
-    setSports((prev) =>
-      prev.includes(sport) ? prev.filter((s) => s !== sport) : [...prev, sport]
-    );
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (sports.length === 0 || serviceCities.length === 0) return;
-    createProfileMutation.mutate({
-      displayName,
-      sports,
-      serviceCities,
-      bio: bio || undefined,
-      hourlyRate: hourlyRate ? parseFloat(hourlyRate) : undefined,
-      phone: phone.trim() || undefined,
-    });
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Display name</label>
-        <input
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          required
-          className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-          placeholder="John Smith"
-        />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Sports (select at least one)</label>
-        <div className="flex flex-wrap gap-3">
-          {ALLOWED_SPORTS.map((sport) => (
-            <label key={sport} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={sports.includes(sport)}
-                onChange={() => toggleSport(sport)}
-                className="rounded border-slate-300"
-              />
-              <span>{sport}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Service areas (cities, at least one)</label>
-        <div className="flex flex-wrap gap-2 mb-2">
-          {serviceCities.map((city) => (
-            <span
-              key={city}
-              className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 rounded text-sm"
-            >
-              {city}
-              <button
-                type="button"
-                onClick={() => removeCity(city)}
-                className="text-slate-500 hover:text-slate-700"
-                aria-label={`Remove ${city}`}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-        <div className="relative">
-          <input
-            type="text"
-            value={cityInput}
-            onChange={(e) => {
-              setCityInput(e.target.value);
-              updateCitySuggestions(e.target.value);
-            }}
-            onFocus={() => cityInput && updateCitySuggestions(cityInput)}
-            onBlur={() => setTimeout(() => setShowCitySuggestions(false), 150)}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-            placeholder="Type to search cities..."
-          />
-          {showCitySuggestions && citySuggestions.length > 0 && (
-            <ul className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto">
-              {citySuggestions
-                .filter((c) => !serviceCities.includes(c))
-                .map((city) => (
-                  <li key={city}>
-                    <button
-                      type="button"
-                      className="w-full text-left px-3 py-2 hover:bg-slate-50"
-                      onMouseDown={() => addCity(city)}
-                    >
-                      {city}
-                    </button>
-                  </li>
-                ))}
-            </ul>
-          )}
-        </div>
-        <p className="text-slate-500 text-xs mt-1">Bay Area cities. Add all areas you serve.</p>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Bio</label>
-        <textarea
-          value={bio}
-          onChange={(e) => setBio(e.target.value)}
-          rows={4}
-          className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-          placeholder="Tell athletes about your experience..."
-        />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Hourly rate ($)</label>
-        <input
-          type="number"
-          min={0}
-          step={5}
-          value={hourlyRate}
-          onChange={(e) => setHourlyRate(e.target.value)}
-          className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-          placeholder="75"
-        />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Phone (optional, for SMS booking alerts)</label>
-        <input
-          type="tel"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-          placeholder="+1 555 123 4567"
-        />
-      </div>
-      <button
-        type="submit"
-        disabled={createProfileMutation.isPending || sports.length === 0 || serviceCities.length === 0}
-        className="bg-brand-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50"
-      >
-        {createProfileMutation.isPending ? "Creating..." : "Create profile"}
-      </button>
-      {createProfileMutation.error != null && (
-        <p className="mt-3 text-red-600 text-sm" role="alert">
-          {createProfileMutation.error?.message}
-        </p>
-      )}
-    </form>
-  );
 }
 
 function EditProfileFormInline({
@@ -365,7 +189,7 @@ function EditProfileFormInline({
         </div>
       </div>
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Bio</label>
+        <label className="block text-sm font-medium text-slate-700 mb-1">About Me</label>
         <textarea
           value={bio}
           onChange={(e) => setBio(e.target.value)}
@@ -385,7 +209,7 @@ function EditProfileFormInline({
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Phone (optional, for SMS booking alerts)</label>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Phone (for SMS booking alerts)</label>
         <input
           type="tel"
           value={phone}
@@ -433,6 +257,7 @@ export default function CoachDashboard() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [photosSaveSkippedMessage, setPhotosSaveSkippedMessage] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState(false);
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
 
   const {
     data: profile,
@@ -460,25 +285,6 @@ export default function CoachDashboard() {
   });
   const rules = availability?.rules ?? [];
   const oneOffSlots = availability?.oneOffSlots ?? [];
-
-  const createProfileMutation = useMutation({
-    mutationFn: (data: {
-      displayName: string;
-      sports: string[];
-      serviceCities: string[];
-      bio?: string;
-      hourlyRate?: number;
-      phone?: string;
-    }) =>
-      api("/coaches/me", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
-      queryClient.invalidateQueries({ queryKey: ["auth"] });
-    },
-  });
 
   const updateProfileMutation = useMutation({
     mutationFn: (data: {
@@ -579,6 +385,15 @@ export default function CoachDashboard() {
     },
   });
 
+  const verifyMutation = useMutation({
+    mutationFn: () => api<{ verified: boolean }>("/coaches/me/verify", { method: "POST" }),
+    onSuccess: () => {
+      setShowVerifyModal(false);
+      queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
+      queryClient.invalidateQueries({ queryKey: ["auth"] });
+    },
+  });
+
   const connectAccountLinkMutation = useMutation({
     mutationFn: () =>
       api<{ url: string }>("/coaches/me/connect-account-link", { method: "POST" }),
@@ -636,26 +451,39 @@ export default function CoachDashboard() {
   }
 
   if (noProfile) {
-    if (view === "availability") {
-      return <Navigate to="/dashboard/profile" replace />;
-    }
-    return (
-      <div className="max-w-2xl mx-auto px-4 py-12">
-        <h1 className="text-2xl font-bold text-slate-900 mb-6">
-          Create your coach profile
-        </h1>
-        <CreateProfileFormInline
-          createProfileMutation={createProfileMutation}
-        />
-      </div>
-    );
+    return <Navigate to="/dashboard/onboarding/basic" replace />;
   }
 
   const coach = profile as CoachProfile;
+  const nextOnboardingStep = getNextOnboardingStep({
+    hasProfile: true,
+    hasBio: !!(coach.bio?.trim()),
+    stripeComplete: coach.stripeOnboardingComplete ?? false,
+    hasAssistant: !!(coach.assistantPhoneNumber?.trim()),
+    hasPlan: !!(coach.planId?.trim()),
+  });
+  if (nextOnboardingStep) {
+    return <Navigate to={nextOnboardingStep} replace />;
+  }
 
   if (view === "availability") {
     return (
+      <>
       <div className="max-w-4xl mx-auto px-4 py-12">
+        {!coach.verified && (
+          <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-amber-800 font-medium">
+              Complete your verification (background check) to appear in Find Coaches.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowVerifyModal(true)}
+              className="px-4 py-2 rounded-lg bg-amber-600 text-white font-medium hover:bg-amber-700 transition"
+            >
+              Complete verification
+            </button>
+          </div>
+        )}
         <h1 className="text-2xl font-bold text-slate-900 mb-8">
           Availability
         </h1>
@@ -937,16 +765,59 @@ export default function CoachDashboard() {
           page.
         </p>
       </div>
+      {showVerifyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" aria-modal="true" role="dialog">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Background check</h2>
+            <p className="text-slate-600 text-sm mb-6">
+              This is where the background check will happen. We&apos;ll use Chekr later to run verification. For now you can mark yourself as verified.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowVerifyModal(false)}
+                className="px-4 py-2 text-slate-700 font-medium hover:bg-slate-100 rounded-lg transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => verifyMutation.mutate()}
+                disabled={verifyMutation.isPending}
+                className="px-4 py-2 bg-brand-500 text-white font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50 transition"
+              >
+                {verifyMutation.isPending ? "Verifying…" : "Get verified"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
     );
   }
 
   return (
+    <>
     <div className="max-w-4xl mx-auto px-4 py-12">
+      {!coach.verified && (
+        <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-amber-800 font-medium">
+            Complete your verification (background check) to appear in Find Coaches.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowVerifyModal(true)}
+            className="px-4 py-2 rounded-lg bg-amber-600 text-white font-medium hover:bg-amber-700 transition"
+          >
+            Complete verification
+          </button>
+        </div>
+      )}
       <h1 className="text-2xl font-bold text-slate-900 mb-8">
         Profile
       </h1>
 
-      <section className="mb-12 p-6 bg-white rounded-xl border border-slate-200">
+      <section className="mb-8 p-6 bg-white rounded-xl border border-slate-200">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold text-slate-900">Profile</h2>
           {!editingProfile && (
@@ -981,47 +852,9 @@ export default function CoachDashboard() {
                 <span className="font-medium">Rate:</span> ${coach.hourlyRate}/hr
               </p>
             )}
-            {coach.bio && <p className="text-slate-600 mt-2">{coach.bio}</p>}
           </div>
         )}
       </section>
-
-      {coach.hourlyRate && (
-        <section className="mb-12 p-6 bg-white rounded-xl border border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">
-            Payments
-          </h2>
-          {connectStatusSyncing ? (
-            <p className="text-slate-500 text-sm">Checking payment setup…</p>
-          ) : coach.stripeOnboardingComplete ? (
-            <p className="text-slate-600 text-sm flex items-center gap-2">
-              <span className="text-emerald-600 font-medium">Payments set up</span>
-              You’ll receive session payments after the platform fee.
-            </p>
-          ) : (
-            <>
-              <p className="text-slate-600 text-sm mb-3">
-                Set up Stripe to receive payments when athletes book sessions. You’ll be charged only when you mark a session complete.
-              </p>
-              <button
-                type="button"
-                onClick={() => connectAccountLinkMutation.mutate()}
-                disabled={connectAccountLinkMutation.isPending}
-                className="bg-brand-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50"
-              >
-                {connectAccountLinkMutation.isPending ? "Redirecting…" : "Set up payments"}
-              </button>
-              {connectAccountLinkMutation.isError && (
-                <p className="text-red-600 text-sm mt-2" role="alert">
-                  {connectAccountLinkMutation.error instanceof Error
-                    ? connectAccountLinkMutation.error.message
-                    : "Failed to start setup."}
-                </p>
-              )}
-            </>
-          )}
-        </section>
-      )}
 
       <section className="mb-12 p-6 bg-white rounded-xl border border-slate-200">
         <h2 className="text-lg font-semibold text-slate-900 mb-4">
@@ -1177,6 +1010,62 @@ export default function CoachDashboard() {
         </div>
       </section>
 
+      <section className="mb-12 p-6 bg-white rounded-xl border border-slate-200">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-semibold text-slate-900">About Me</h2>
+          <Link
+            to="/dashboard/onboarding/bio"
+            className="text-brand-600 font-medium hover:underline"
+          >
+            Edit
+          </Link>
+        </div>
+        {coach.bio ? (
+          <div className="text-slate-600 [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mt-4 [&_h2]:mb-2 [&_h2:first-child]:mt-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_p]:my-2 [&_strong]:font-semibold [&_strong]:text-slate-800">
+            <ReactMarkdown>{coach.bio}</ReactMarkdown>
+          </div>
+        ) : (
+          <p className="text-slate-500 text-sm">No about section yet. Add one to help athletes get to know you.</p>
+        )}
+      </section>
+
+      {coach.hourlyRate && (
+        <section className="mb-12 p-6 bg-white rounded-xl border border-slate-200">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">
+            Payments
+          </h2>
+          {connectStatusSyncing ? (
+            <p className="text-slate-500 text-sm">Checking payment setup…</p>
+          ) : coach.stripeOnboardingComplete ? (
+            <p className="text-slate-600 text-sm flex items-center gap-2">
+              <span className="text-emerald-600 font-medium">Payments set up</span>
+              You’ll receive session payments after the platform fee.
+            </p>
+          ) : (
+            <>
+              <p className="text-slate-600 text-sm mb-3">
+                Set up Stripe to receive payments when athletes book sessions. You’ll be charged only when you mark a session complete.
+              </p>
+              <button
+                type="button"
+                onClick={() => connectAccountLinkMutation.mutate()}
+                disabled={connectAccountLinkMutation.isPending}
+                className="bg-brand-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50"
+              >
+                {connectAccountLinkMutation.isPending ? "Redirecting…" : "Set up payments"}
+              </button>
+              {connectAccountLinkMutation.isError && (
+                <p className="text-red-600 text-sm mt-2" role="alert">
+                  {connectAccountLinkMutation.error instanceof Error
+                    ? connectAccountLinkMutation.error.message
+                    : "Failed to start setup."}
+                </p>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
       <p className="mt-6 text-slate-500 text-sm">
         Manage your schedule on the{" "}
         <Link to="/dashboard/availability" className="text-brand-600 hover:underline">
@@ -1188,5 +1077,33 @@ export default function CoachDashboard() {
         </Link>.
       </p>
     </div>
+    {showVerifyModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" aria-modal="true" role="dialog">
+        <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+          <h2 className="text-lg font-semibold text-slate-900 mb-2">Background check</h2>
+          <p className="text-slate-600 text-sm mb-6">
+            This is where the background check will happen. We&apos;ll use Chekr later to run verification. For now you can mark yourself as verified.
+          </p>
+          <div className="flex gap-3 justify-end">
+            <button
+              type="button"
+              onClick={() => setShowVerifyModal(false)}
+              className="px-4 py-2 text-slate-700 font-medium hover:bg-slate-100 rounded-lg transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => verifyMutation.mutate()}
+              disabled={verifyMutation.isPending}
+              className="px-4 py-2 bg-brand-500 text-white font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50 transition"
+            >
+              {verifyMutation.isPending ? "Verifying…" : "Get verified"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </>
   );
 }

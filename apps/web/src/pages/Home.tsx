@@ -92,13 +92,13 @@ export default function Home() {
           </p>
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <Link
-              to="/coaches"
+              to="/find"
               className="inline-flex items-center justify-center rounded-xl bg-brand-500 px-8 py-4 text-base font-semibold text-white shadow-lg shadow-brand-500/40 hover:bg-brand-600 transition-all hover:scale-[1.02]"
             >
               Browse coaches
             </Link>
             <Link
-              to="/dashboard/profile"
+              to="/coaches"
               className="inline-flex items-center justify-center rounded-xl border-2 border-white/80 bg-white/10 px-8 py-4 text-base font-semibold text-white backdrop-blur-sm hover:bg-white/20 transition-colors"
             >
               I'm a coach — get started
@@ -158,7 +158,7 @@ export default function Home() {
               ))}
             </ul>
             <Link
-              to="/dashboard/profile"
+              to="/coaches"
               className="mt-8 inline-flex items-center rounded-xl bg-slate-900 px-6 py-3 text-base font-semibold text-white hover:bg-slate-800 transition-colors"
             >
               Set up coach profile
@@ -185,7 +185,7 @@ export default function Home() {
             Browse by sport and location — no signup required to explore.
           </p>
           <Link
-            to="/coaches"
+            to="/find"
             className="mt-6 inline-flex items-center rounded-xl bg-white px-8 py-4 text-base font-semibold text-brand-600 shadow-lg hover:bg-brand-50 transition-colors"
           >
             Browse coaches

@@ -12,7 +12,8 @@ import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "node:crypto";
 import { sendBookingStatusToAthlete } from "../notifications.js";
-import { stripe, isStripeEnabled } from "../stripe.js";
+import { stripe, isStripeEnabled, createPlanCheckoutSession, createCoachPlanSubscription, getOrCreateStripeCustomerId } from "../stripe.js";
+import { invokeBioDraft, isBedrockConfigured } from "../bedrock.js";
 
 const router = Router();
 const s3Client = new S3Client({ region: process.env.AWS_REGION ?? "us-east-1" });
@@ -54,9 +55,14 @@ router.get("/me", authMiddleware(), async (req, res) => {
     hourlyRate: profile.hourlyRate?.toString(),
     verified: profile.verified,
     avatarUrl: profile.avatarUrl,
+    phone: profile.phone ?? null,
     photos,
     stripeConnectAccountId: profile.stripeConnectAccountId ?? null,
     stripeOnboardingComplete: profile.stripeOnboardingComplete ?? false,
+    assistantDisplayName: profile.assistantDisplayName ?? null,
+    assistantPhoneNumber: profile.assistantPhoneNumber ?? null,
+    assistantCapabilities: profile.assistantCapabilities ?? null,
+    planId: profile.planId ?? null,
   });
 });
 
@@ -81,8 +87,10 @@ router.post("/me/connect-account-link", authMiddleware(), async (req, res) => {
     return res.status(404).json({ error: "Coach profile not found" });
 
   const appUrl = process.env.APP_URL || "http://localhost:5173";
-  const returnUrl = `${appUrl}/dashboard/profile?connect=return`;
-  const refreshUrl = `${appUrl}/dashboard/profile?connect=refresh`;
+  const returnPath = (req.body as { returnPath?: string })?.returnPath?.trim();
+  const path = returnPath && returnPath.startsWith("/") ? returnPath : "/dashboard/profile";
+  const returnUrl = `${appUrl}${path}?connect=return`;
+  const refreshUrl = `${appUrl}${path}?connect=refresh`;
 
   let connectAccountId = profile.stripeConnectAccountId;
 
@@ -158,6 +166,278 @@ router.get("/me/connect-status", authMiddleware(), async (req, res) => {
     stripeConnectAccountId: profile.stripeConnectAccountId,
     stripeOnboardingComplete: onboardingComplete,
   });
+});
+
+// Setup assistant (mocked: provisions a fake number; real Twilio later)
+router.post("/me/assistant", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const body = req.body as {
+    displayName?: string;
+    coachPhone?: string;
+    capabilities?: Record<string, boolean>;
+  };
+  const displayName = typeof body.displayName === "string" ? body.displayName.trim() : "";
+  const coachPhone = typeof body.coachPhone === "string" ? body.coachPhone.replace(/\D/g, "") : "";
+  const capabilities =
+    body.capabilities && typeof body.capabilities === "object" && !Array.isArray(body.capabilities)
+      ? (body.capabilities as Record<string, boolean>)
+      : undefined;
+
+  if (!displayName) return res.status(400).json({ error: "displayName is required" });
+
+  const profile = await prisma.coachProfile.findUnique({
+    where: { userId: user.id },
+  });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  // Mock: derive area code from coach phone or use default 415
+  const areaCode = coachPhone.length >= 3 ? coachPhone.slice(0, 3) : "415";
+  const mockNumber = `+1${areaCode}555${String(profile.id.replace(/-/g, "").slice(0, 4)).padStart(4, "0")}`;
+
+  await prisma.coachProfile.update({
+    where: { userId: user.id },
+    data: {
+      assistantDisplayName: displayName,
+      assistantPhoneNumber: mockNumber,
+      ...(coachPhone && { phone: coachPhone.length >= 10 ? `+1${coachPhone}` : null }),
+      ...(capabilities != null && { assistantCapabilities: capabilities }),
+    },
+  });
+
+  res.json({ assistantPhoneNumber: mockNumber });
+});
+
+const PLAN_PRICE_ENV_KEYS: Record<string, string> = {
+  starter: "STRIPE_PRICE_STARTER",
+  pro: "STRIPE_PRICE_PRO",
+  elite: "STRIPE_PRICE_ELITE",
+};
+
+// Create Stripe Checkout Session for plan subscription (monthly fee charged to coach via platform Stripe)
+router.post("/me/plan/checkout", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  if (!isStripeEnabled() || !stripe) {
+    return res.status(501).json({ error: "Payments not configured" });
+  }
+
+  const body = req.body as { planId?: string; successUrl?: string; cancelUrl?: string };
+  const planId = body.planId === "starter" || body.planId === "pro" || body.planId === "elite" ? body.planId : null;
+  if (!planId) return res.status(400).json({ error: "planId must be starter, pro, or elite" });
+
+  const priceEnvKey = PLAN_PRICE_ENV_KEYS[planId];
+  const priceId = priceEnvKey ? process.env[priceEnvKey] : null;
+  if (!priceId || !priceId.trim()) {
+    console.error(`[coaches] Plan pricing missing: set ${priceEnvKey} (Stripe Price ID) for the ${planId} plan`);
+    return res.status(503).json({
+      error: "Plan pricing is not set up yet. Please try again later or contact support.",
+    });
+  }
+
+  const dbUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { email: true },
+  });
+  if (!dbUser?.email) return res.status(400).json({ error: "User email is required for checkout" });
+
+  const base = typeof body.successUrl === "string" && body.successUrl.trim() ? body.successUrl.trim() : null;
+  const cancel = typeof body.cancelUrl === "string" && body.cancelUrl.trim() ? body.cancelUrl.trim() : null;
+  if (!base || !cancel) return res.status(400).json({ error: "successUrl and cancelUrl are required" });
+
+  try {
+    const { url } = await createPlanCheckoutSession({
+      customerEmail: dbUser.email,
+      priceId: priceId.trim(),
+      successUrl: base.includes("?") ? `${base}&session_id={CHECKOUT_SESSION_ID}` : `${base}?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: cancel,
+      metadata: { userId: user.id, planId },
+    });
+    res.json({ url });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[coaches] plan checkout error:", message);
+    res.status(500).json({ error: "Failed to create checkout session", detail: message });
+  }
+});
+
+// Verify Stripe Checkout Session or Subscription after plan payment and set planId on coach profile
+router.get("/me/plan/checkout-success", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const sessionId = typeof req.query.session_id === "string" ? req.query.session_id.trim() : null;
+  const subscriptionId = typeof req.query.subscription_id === "string" ? req.query.subscription_id.trim() : null;
+
+  if (!stripe) return res.status(501).json({ error: "Payments not configured" });
+
+  try {
+    let planId: string | null = null;
+
+    if (subscriptionId) {
+      const sub = await stripe.subscriptions.retrieve(subscriptionId, {
+        expand: ["latest_invoice.payment_intent"],
+      });
+      const metadata = sub.metadata as { userId?: string; planId?: string } | null;
+      if (!metadata?.userId || metadata.userId !== user.id) return res.status(403).json({ error: "Subscription does not belong to this user" });
+
+      let invoiceStatus: string | undefined;
+      let piStatus: string | undefined;
+      const rawInvoice = sub.latest_invoice;
+      if (typeof rawInvoice === "string") {
+        const inv = await stripe.invoices.retrieve(rawInvoice, { expand: ["payment_intent"] });
+        invoiceStatus = inv.status ?? undefined;
+        const pi = inv.payment_intent as { status?: string } | null;
+        piStatus = pi?.status;
+      } else if (rawInvoice && typeof rawInvoice === "object" && "status" in rawInvoice) {
+        invoiceStatus = (rawInvoice as { status?: string }).status;
+        const pi = (rawInvoice as { payment_intent?: string | { status?: string } }).payment_intent;
+        piStatus = typeof pi === "object" && pi?.status ? pi.status : undefined;
+      }
+      const paid =
+        sub.status === "active" ||
+        invoiceStatus === "paid" ||
+        (piStatus && ["succeeded", "requires_capture", "processing", "requires_confirmation"].includes(piStatus));
+      if (!paid) {
+        const debug = { subStatus: sub.status, invoiceStatus, piStatus };
+        console.warn("[coaches] checkout-success subscription not paid:", debug);
+        return res.status(400).json({
+          error: "Subscription not active",
+          detail: `Stripe: sub=${sub.status}, invoice=${invoiceStatus ?? "n/a"}, paymentIntent=${piStatus ?? "n/a"}`,
+        });
+      }
+      planId = metadata.planId === "starter" || metadata.planId === "pro" || metadata.planId === "elite" ? metadata.planId : null;
+    } else if (sessionId) {
+      const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["subscription"] });
+      if (session.payment_status !== "paid" && session.status !== "complete") return res.status(400).json({ error: "Checkout session not paid" });
+      const metadata = session.metadata as { userId?: string; planId?: string } | null;
+      if (!metadata?.userId || metadata.userId !== user.id) return res.status(403).json({ error: "Session does not belong to this user" });
+      planId = metadata.planId === "starter" || metadata.planId === "pro" || metadata.planId === "elite" ? metadata.planId : null;
+    } else {
+      return res.status(400).json({ error: "session_id or subscription_id is required" });
+    }
+
+    if (!planId) return res.status(400).json({ error: "Invalid plan" });
+
+    const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
+    if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+    await prisma.coachProfile.update({
+      where: { userId: user.id },
+      data: { planId },
+    });
+
+    res.json({ planId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[coaches] plan checkout-success error:", message);
+    res.status(500).json({ error: "Failed to verify payment", detail: message });
+  }
+});
+
+// Subscribe to a plan with inline card (payment method). Same UX as booking: card form on page.
+router.post("/me/plan/subscribe", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  if (!isStripeEnabled() || !stripe) return res.status(501).json({ error: "Payments not configured" });
+
+  const body = req.body as { planId?: string; paymentMethodId?: string };
+  const planId = body.planId === "starter" || body.planId === "pro" || body.planId === "elite" ? body.planId : null;
+  const paymentMethodId = typeof body.paymentMethodId === "string" ? body.paymentMethodId.trim() : null;
+  if (!planId) return res.status(400).json({ error: "planId must be starter, pro, or elite" });
+  if (!paymentMethodId) return res.status(400).json({ error: "paymentMethodId is required" });
+
+  const priceEnvKey = PLAN_PRICE_ENV_KEYS[planId];
+  const priceId = priceEnvKey ? process.env[priceEnvKey] : null;
+  if (!priceId?.trim()) {
+    console.error(`[coaches] Plan pricing missing: set ${priceEnvKey} (Stripe Price ID) in your Stripe secret or env`);
+    return res.status(503).json({ error: "Plan pricing is not set up yet. Please try again later or contact support." });
+  }
+
+  const dbUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { email: true, stripeCustomerId: true },
+  });
+  if (!dbUser?.email) return res.status(400).json({ error: "User email is required" });
+
+  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  try {
+    const customerId = await getOrCreateStripeCustomerId(
+      stripe,
+      user.id,
+      dbUser.email,
+      dbUser.stripeCustomerId
+    );
+    if (!dbUser.stripeCustomerId) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId: customerId },
+      });
+    }
+
+    const { subscriptionId, clientSecret, status } = await createCoachPlanSubscription({
+      customerId,
+      paymentMethodId,
+      priceId: priceId.trim(),
+      metadata: { userId: user.id, planId },
+    });
+
+    if (status === "active") {
+      await prisma.coachProfile.update({
+        where: { userId: user.id },
+        data: { planId },
+      });
+      return res.json({ planId, subscriptionId });
+    }
+
+    res.json({ subscriptionId, clientSecret });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[coaches] plan subscribe error:", message);
+    res.status(500).json({ error: "Payment failed", detail: message });
+  }
+});
+
+// Select plan (legacy: direct set without payment; prefer /me/plan/checkout for production)
+router.post("/me/plan", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const body = req.body as { planId?: string };
+  const planId = body.planId === "starter" || body.planId === "pro" || body.planId === "elite" ? body.planId : null;
+  if (!planId) return res.status(400).json({ error: "planId must be starter, pro, or elite" });
+
+  const profile = await prisma.coachProfile.findUnique({
+    where: { userId: user.id },
+  });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  await prisma.coachProfile.update({
+    where: { userId: user.id },
+    data: { planId },
+  });
+
+  res.json({ planId });
+});
+
+// Mock verification (background check). Later: integrate Chekr; for now just sets verified.
+router.post("/me/verify", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  await prisma.coachProfile.update({
+    where: { userId: user.id },
+    data: { verified: true },
+  });
+  res.json({ verified: true });
 });
 
 // Create or update own coach profile
@@ -267,8 +547,90 @@ router.put("/me", authMiddleware(), async (req, res) => {
     avatarUrl: out.avatarUrl,
     phone: out.phone ?? null,
     photos,
+    stripeConnectAccountId: out.stripeConnectAccountId ?? null,
+    stripeOnboardingComplete: out.stripeOnboardingComplete ?? false,
+    assistantDisplayName: out.assistantDisplayName ?? null,
+    assistantPhoneNumber: out.assistantPhoneNumber ?? null,
+    assistantCapabilities: out.assistantCapabilities ?? null,
+    planId: out.planId ?? null,
     ...(photosSaveSkipped && { photosSaveSkipped: true }),
   });
+});
+
+// Generate or refine coach bio draft using LLM (Bedrock). Auth required.
+router.post("/me/bio-draft", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  if (!isBedrockConfigured()) {
+    return res.status(503).json({
+      error: "Bio assistant not configured",
+      detail: "Set BEDROCK_MODEL_ID (and optionally BEDROCK_REGION) to enable the coaching bio interview.",
+    });
+  }
+
+  const body = req.body as {
+    messages?: unknown[];
+    currentBioPreview?: string;
+    mode?: "generate" | "enhance";
+    sourceText?: string;
+  };
+  const profile = await prisma.coachProfile.findUnique({
+    where: { userId: user.id },
+    select: { displayName: true, sports: true, serviceCities: true },
+  });
+  if (!profile) {
+    return res.status(404).json({ error: "Coach profile not found. Create your profile first." });
+  }
+
+  const coachContext = {
+    displayName: profile.displayName,
+    sports: profile.sports?.length ? profile.sports : undefined,
+    serviceCities: profile.serviceCities?.length ? profile.serviceCities : undefined,
+  };
+
+  const mode = body.mode === "generate" || body.mode === "enhance" ? body.mode : undefined;
+  if (mode === "enhance" && body.sourceText == null) {
+    return res.status(400).json({
+      error: "sourceText is required when mode is 'enhance'",
+      detail: "Send { mode: 'enhance', sourceText: string }",
+    });
+  }
+
+  let validMessages: Array<{ role: "user" | "assistant"; content: string }> | undefined;
+  if (!mode) {
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+    validMessages = messages
+      .filter((m): m is { role: string; content: string } => m != null && typeof m === "object" && "role" in m && "content" in m && typeof (m as { content: unknown }).content === "string")
+      .map((m) => ({
+        role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
+        content: (m as { content: string }).content,
+      }));
+    if (validMessages.length === 0) {
+      return res.status(400).json({
+        error: "At least one message is required, or use mode 'generate' or 'enhance'",
+        detail: "Send { messages: [...] } or { mode: 'generate' } or { mode: 'enhance', sourceText: string }",
+      });
+    }
+  }
+
+  try {
+    const result = await invokeBioDraft({
+      messages: validMessages,
+      currentBioPreview: typeof body.currentBioPreview === "string" ? body.currentBioPreview : undefined,
+      coachContext,
+      mode,
+      sourceText: typeof body.sourceText === "string" ? body.sourceText : undefined,
+    });
+    res.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[coaches] bio-draft error:", message, err);
+    res.status(502).json({
+      error: "Bio assistant failed",
+      detail: message,
+    });
+  }
 });
 
 // Create coach profile (POST for initial creation)
@@ -686,7 +1048,7 @@ router.get("/", async (req, res) => {
   const page = Math.max(1, parseInt(String(pageRaw), 10) || 1);
   const limit = Math.min(50, Math.max(1, parseInt(String(limitRaw), 10) || 12));
 
-  const conditions: Prisma.CoachProfileWhereInput[] = [];
+  const conditions: Prisma.CoachProfileWhereInput[] = [{ verified: true }];
   if (sport) conditions.push({ sports: { has: sport } });
   if (city) conditions.push({ serviceCities: { has: city } });
   if (q) {
@@ -697,7 +1059,7 @@ router.get("/", async (req, res) => {
       ],
     });
   }
-  const where: Prisma.CoachProfileWhereInput = conditions.length > 0 ? { AND: conditions } : {};
+  const where: Prisma.CoachProfileWhereInput = { AND: conditions };
 
   const [coaches, total] = await Promise.all([
     prisma.coachProfile.findMany({

@@ -105,3 +105,60 @@ export async function cancelPaymentIntent(paymentIntentId: string): Promise<void
   if (!stripe) throw new Error("Stripe not configured");
   await stripe.paymentIntents.cancel(paymentIntentId);
 }
+
+/** Create a Stripe Checkout Session for a coach plan subscription. Charges the platform Stripe account (monthly fee). */
+export async function createPlanCheckoutSession(params: {
+  customerEmail: string;
+  priceId: string;
+  successUrl: string;
+  cancelUrl: string;
+  metadata: { userId: string; planId: string };
+}): Promise<{ url: string }> {
+  if (!stripe) throw new Error("Stripe not configured");
+  const session = await stripe.checkout.sessions.create({
+    mode: "subscription",
+    customer_email: params.customerEmail.trim() || undefined,
+    line_items: [{ price: params.priceId, quantity: 1 }],
+    success_url: params.successUrl,
+    cancel_url: params.cancelUrl,
+    metadata: params.metadata,
+  });
+  const url = session.url;
+  if (!url) throw new Error("Stripe did not return a checkout URL");
+  return { url };
+}
+
+/** Create a subscription for a coach plan using an existing payment method (inline card form). Returns clientSecret if 3DS is required. */
+export async function createCoachPlanSubscription(params: {
+  customerId: string;
+  paymentMethodId: string;
+  priceId: string;
+  metadata: { userId: string; planId: string };
+}): Promise<{ subscriptionId: string; clientSecret?: string; status: string }> {
+  if (!stripe) throw new Error("Stripe not configured");
+  try {
+    await stripe.paymentMethods.attach(params.paymentMethodId, {
+      customer: params.customerId,
+    });
+  } catch (err) {
+    const code = err && typeof err === "object" && "code" in err ? (err as { code: string }).code : "";
+    if (code !== "resource_already_attached_to_customer") throw err;
+  }
+  const sub = await stripe.subscriptions.create({
+    customer: params.customerId,
+    items: [{ price: params.priceId }],
+    default_payment_method: params.paymentMethodId,
+    payment_behavior: "default_incomplete",
+    metadata: params.metadata,
+    expand: ["latest_invoice.payment_intent"],
+  });
+  const invoice = sub.latest_invoice as Stripe.Invoice & { payment_intent?: Stripe.PaymentIntent };
+  const pi = invoice?.payment_intent as Stripe.PaymentIntent | undefined;
+  const clientSecret =
+    pi?.status === "requires_action" && pi.client_secret ? pi.client_secret : undefined;
+  return {
+    subscriptionId: sub.id,
+    clientSecret: clientSecret ?? undefined,
+    status: sub.status,
+  };
+}

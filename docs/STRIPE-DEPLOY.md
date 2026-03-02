@@ -49,7 +49,18 @@ Each stage gets its own secret: `apex-sports-dev-stripe-keys`, `apex-sports-prod
 5. Save. The next Lambda cold start will load the new values.
 
 - **Platform fee** is **10%** in `serverless.yml` (`STRIPE_PLATFORM_FEE_PERCENT`). Change there if needed.
+- **Coach plan subscriptions:** To charge coaches their monthly plan fee at the end of onboarding:
+  1. In [Stripe Dashboard → Products](https://dashboard.stripe.com/products), create three products (e.g. "Starter", "Pro", "Elite").
+  2. For each product, add a **recurring Price** (monthly): $19, $29, and $59/month.
+  3. Copy each Price ID (starts with `price_...`).
+  4. Add them to the **same secret** in Secrets Manager (edit the JSON and add these keys):
+     - `STRIPE_PRICE_STARTER` → Price ID for the $19/mo plan
+     - `STRIPE_PRICE_PRO` → Price ID for the $29/mo plan
+     - `STRIPE_PRICE_ELITE` → Price ID for the $59/mo plan
+  5. Save the secret. The next API request (or Lambda cold start) will load the new values. For **local** dev, add the same three keys to your `.env` file.
 - For **local** dev, use `.env` with `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (no `STRIPE_SECRET_ARN`).
+
+**If you see "Plan pricing is not set up yet":** The API could not find `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, or `STRIPE_PRICE_ELITE`. For **local** dev, add all three to `apps/api/.env` (see `.env.example`). For **deploy**, add them to the same Stripe secret in Secrets Manager (edit the JSON and include the three keys). Ensure you use Price IDs from the same Stripe mode (test vs live) as your API keys.
 
 ---
 
