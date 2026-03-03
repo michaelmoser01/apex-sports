@@ -17,6 +17,14 @@ export interface CurrentUser {
     avatarUrl: string | null;
     phone: string | null;
   } | null;
+  athleteProfile: {
+    id: string;
+    displayName: string;
+    serviceCity: string | null;
+    birthYear: number | null;
+    sports: string[];
+    level: string | null;
+  } | null;
 }
 
 export function useCurrentUser(enable: boolean) {

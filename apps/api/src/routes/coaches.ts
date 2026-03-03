@@ -1107,6 +1107,7 @@ router.get("/:id", async (req, res) => {
   const coach = await prisma.coachProfile.findUnique({
     where: { id: req.params.id },
     include: {
+      user: { select: { email: true } },
       photos: { orderBy: { sortOrder: "asc" } },
       availabilitySlots: {
         where: {
@@ -1139,6 +1140,10 @@ router.get("/:id", async (req, res) => {
   res.json({
     id: coach.id,
     displayName: coach.displayName,
+    // Expose coach email on public profile only in non-production for debugging
+    ...(process.env.NODE_ENV !== "production" && coach.user?.email
+      ? { email: coach.user.email }
+      : {}),
     sports: coach.sports,
     serviceCities: coach.serviceCities,
     bio: coach.bio,

@@ -35,6 +35,7 @@ interface CoachPhoto {
 interface CoachDetail {
   id: string;
   displayName: string;
+  email?: string;
   sports: string[];
   serviceCities: string[];
   bio: string;
@@ -299,6 +300,11 @@ export default function CoachDetail() {
         <p className="text-brand-600 font-medium">
           {Array.isArray(coach.sports) && coach.sports.length > 0 ? coach.sports.join(", ") : "—"}
         </p>
+        {coach.email && (
+          <p className="text-slate-500 text-xs mt-1">
+            <span className="font-semibold">Debug email:</span> {coach.email}
+          </p>
+        )}
         {Array.isArray(coach.serviceCities) && coach.serviceCities.length > 0 ? (
           <p className="text-slate-500 text-sm mt-1">{coach.serviceCities.join(", ")}</p>
         ) : null}

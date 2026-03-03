@@ -15,7 +15,7 @@ export default function Welcome() {
     onSuccess: (_, signupRole) => {
       // Navigate first so Layout doesn't redirect back to /welcome when invalidation refetches
       if (signupRole === "coach") navigate("/dashboard/onboarding/basic", { replace: true });
-      else navigate("/find", { replace: true });
+      else navigate("/athlete/profile", { replace: true });
       queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
     },
   });

@@ -9,8 +9,8 @@
   "scripts": {
     "dev": "npm run api",
     "build": "npm run db:generate && npm run build --workspace=@apex-sports/shared && npm run build --workspace=web",
-    "deploy": "npm run db:generate && npx serverless deploy",
-    "deploy:api": "npm run db:generate && npx serverless deploy function -f api",
+    "deploy": "npm run db:generate && npm run build --workspace=@apex-sports/shared && npx serverless deploy",
+    "deploy:api": "npm run db:generate && npm run build --workspace=@apex-sports/shared && npx serverless deploy function -f api",
     "deploy:web": "./scripts/deploy-web.sh",
     "env-from-stack": "./scripts/env-from-stack.sh",
     "configure-uploads-cors": "./scripts/configure-uploads-bucket-cors.sh",

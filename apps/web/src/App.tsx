@@ -11,6 +11,7 @@ import CoachDetail from "./pages/CoachDetail";
 import { CoachDetailErrorBoundary } from "./components/CoachDetailErrorBoundary";
 import Bookings from "./pages/Bookings";
 import CoachDashboard from "./pages/CoachDashboard";
+import AthleteProfilePage from "./pages/AthleteProfile";
 import CoachOnboardingBio from "./pages/CoachOnboardingBio";
 import Welcome from "./pages/Welcome";
 import OnboardingLayout from "./components/OnboardingLayout";
@@ -115,6 +116,20 @@ function AppContent() {
             ) : (
               <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
                 <CoachDashboard />
+              </Authenticator>
+            )
+          }
+        />
+        <Route
+          path="athlete/profile"
+          element={
+            isDevMode ? (
+              <DevLoginGate>
+                <AthleteProfilePage />
+              </DevLoginGate>
+            ) : (
+              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
+                <AthleteProfilePage />
               </Authenticator>
             )
           }

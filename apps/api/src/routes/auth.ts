@@ -49,6 +49,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
     where: { id: user.id },
     include: {
       coachProfile: true,
+      athleteProfile: true,
     },
   });
 
@@ -62,6 +63,21 @@ router.get("/me", authMiddleware(), async (req, res) => {
       data: { signupRole: "coach" },
     });
     signupRole = "coach";
+  }
+
+  // Backfill AthleteProfile for existing athletes (created before we added the profile model)
+  let athleteProfile = dbUser.athleteProfile ?? null;
+  if (signupRole === "athlete" && !athleteProfile) {
+    athleteProfile = await prisma.athleteProfile.create({
+      data: {
+        userId: dbUser.id,
+        displayName: dbUser.name ?? "",
+        serviceCity: null,
+        birthYear: null,
+        sports: [],
+        level: null,
+      },
+    });
   }
 
   res.json({
@@ -82,6 +98,16 @@ router.get("/me", authMiddleware(), async (req, res) => {
           phone: dbUser.coachProfile.phone ?? null,
         }
       : null,
+    athleteProfile: athleteProfile
+      ? {
+          id: athleteProfile.id,
+          displayName: athleteProfile.displayName,
+          serviceCity: athleteProfile.serviceCity,
+          birthYear: athleteProfile.birthYear,
+          sports: athleteProfile.sports,
+          level: athleteProfile.level,
+        }
+      : null,
   });
 });
 
@@ -95,7 +121,7 @@ router.patch("/me", authMiddleware(), async (req, res) => {
 
   const dbUser = await prisma.user.findUnique({
     where: { id: user.id },
-    select: { signupRole: true },
+    select: { signupRole: true, name: true },
   });
   if (!dbUser) return res.status(404).json({ error: "User not found" });
   if (dbUser.signupRole != null) return res.status(400).json({ error: "signupRole already set" });
@@ -104,6 +130,24 @@ router.patch("/me", authMiddleware(), async (req, res) => {
     where: { id: user.id },
     data: { signupRole },
   });
+
+  if (signupRole === "athlete") {
+    const existingAthleteProfile = await prisma.athleteProfile.findUnique({
+      where: { userId: user.id },
+    });
+    if (!existingAthleteProfile) {
+      await prisma.athleteProfile.create({
+        data: {
+          userId: user.id,
+          displayName: dbUser.name ?? "",
+          serviceCity: null,
+          birthYear: null,
+          sports: [],
+          level: null,
+        },
+      });
+    }
+  }
 
   res.json({ signupRole });
 });

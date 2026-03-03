@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import authRoutes from "./routes/auth.js";
 import coachesRoutes from "./routes/coaches.js";
+import athletesRoutes from "./routes/athletes.js";
 import bookingsRoutes from "./routes/bookings.js";
 import { stripeWebhookHandler } from "./routes/webhooks.js";
 import { prisma } from "./db.js";
@@ -47,6 +48,7 @@ app.get("/health/db", async (_req, res) => {
 
 app.use("/auth", authRoutes);
 app.use("/coaches", coachesRoutes);
+app.use("/athletes", athletesRoutes);
 app.use("/bookings", bookingsRoutes);
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

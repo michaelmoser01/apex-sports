@@ -34,6 +34,7 @@ function DevLayout() {
     location.pathname === "/welcome" &&
     (currentUser?.signupRole || currentUser?.coachProfile);
   const showCoachDashboard = !!currentUser?.coachProfile;
+  const showAthleteProfile = !!currentUser?.athleteProfile;
 
   if (redirectFromWelcome) {
     const to =
@@ -71,6 +72,14 @@ function DevLayout() {
                 >
                   Bookings
                 </Link>
+                {showAthleteProfile && (
+                  <Link
+                    to="/athlete/profile"
+                    className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+                  >
+                    Athlete profile
+                  </Link>
+                )}
                 {showCoachDashboard && (
                   <>
                     <Link
@@ -143,13 +152,22 @@ function DevLayout() {
                 </Link>
                 {devUser ? (
                   <>
-                    <Link
-                      to="/bookings"
-                      className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      Bookings
-                    </Link>
+                <Link
+                  to="/bookings"
+                  className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Bookings
+                </Link>
+                {showAthleteProfile && (
+                  <Link
+                    to="/athlete/profile"
+                    className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Athlete profile
+                  </Link>
+                )}
                     {showCoachDashboard && (
                       <>
                         <Link
@@ -273,12 +291,13 @@ function CognitoLayout() {
     location.pathname === "/welcome" &&
     (currentUser?.signupRole || currentUser?.coachProfile);
   const showCoachDashboard = !!currentUser?.coachProfile;
+  const showAthleteProfile = !!currentUser?.athleteProfile;
 
   if (redirectFromWelcome) {
     const to =
       currentUser!.signupRole === "coach" || currentUser!.coachProfile
         ? "/dashboard/profile"
-        : "/find";
+        : "/athlete/profile";
     return <Navigate to={to} replace />;
   }
 
@@ -310,6 +329,14 @@ function CognitoLayout() {
                 >
                   Bookings
                 </Link>
+                {showAthleteProfile && (
+                  <Link
+                    to="/athlete/profile"
+                    className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+                  >
+                    Athlete profile
+                  </Link>
+                )}
                 {showCoachDashboard && (
                   <>
                     <Link
@@ -389,6 +416,15 @@ function CognitoLayout() {
                     >
                       Bookings
                     </Link>
+                    {showAthleteProfile && (
+                      <Link
+                        to="/athlete/profile"
+                        className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        Athlete profile
+                      </Link>
+                    )}
                     {showCoachDashboard && (
                       <>
                         <Link
