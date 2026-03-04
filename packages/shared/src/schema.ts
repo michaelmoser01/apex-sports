@@ -44,6 +44,31 @@ export const coachProfileSchema = z.object({
 
 export const coachProfileUpdateSchema = coachProfileSchema.partial();
 
+// Athlete profile: single serviceCity, birthYear, sports, level
+const currentYear = new Date().getFullYear();
+export const athleteProfileSchema = z.object({
+  displayName: z.string().min(1, "Display name is required"),
+  serviceCity: z
+    .string()
+    .min(1, "City is required")
+    .refine((city) => isAllowedServiceCity(city), {
+      message: "City must be from the allowed list",
+    }),
+  birthYear: z
+    .number()
+    .int()
+    .min(1900, "Birth year must be 1900 or later")
+    .max(currentYear, "Birth year cannot be in the future")
+    .nullable()
+    .optional(),
+  sports: z
+    .array(sportEnum)
+    .min(1, "Select at least one sport"),
+  level: z.string().max(100).optional(),
+});
+
+export const athleteProfileUpdateSchema = athleteProfileSchema.partial();
+
 // Availability
 export const availabilitySlotSchema = z.object({
   startTime: z.string().datetime(),
@@ -106,6 +131,8 @@ export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type CoachProfile = z.infer<typeof coachProfileSchema>;
 export type CoachProfileUpdate = z.infer<typeof coachProfileUpdateSchema>;
+export type AthleteProfile = z.infer<typeof athleteProfileSchema>;
+export type AthleteProfileUpdate = z.infer<typeof athleteProfileUpdateSchema>;
 export type AvailabilitySlot = z.infer<typeof availabilitySlotSchema>;
 export type AvailabilitySlotCreate = z.infer<typeof availabilitySlotCreateSchema>;
 export type AvailabilityRuleCreate = z.infer<typeof availabilityRuleCreateSchema>;

@@ -1,6 +1,6 @@
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   addMonths,
   subMonths,
@@ -18,6 +18,11 @@ import {
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
 import { api } from "@/lib/api";
+import {
+  getStoredInviteSlug,
+  getStoredInviteCoachId,
+  clearStoredInviteSlug,
+} from "@/pages/Join";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { BookingPaymentForm } from "@/components/BookingPaymentForm";
@@ -35,6 +40,7 @@ interface CoachPhoto {
 interface CoachDetail {
   id: string;
   displayName: string;
+  email?: string;
   sports: string[];
   serviceCities: string[];
   bio: string;
@@ -81,12 +87,27 @@ export default function CoachDetail() {
   const [bookingMessage, setBookingMessage] = useState("");
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [bookingSuccess, setBookingSuccess] = useState<string | null>(null);
+  const connectInviteAttempted = useRef(false);
 
   useEffect(() => {
     if (!bookingSuccess) return;
     const t = setTimeout(() => setBookingSuccess(null), 5000);
     return () => clearTimeout(t);
   }, [bookingSuccess]);
+
+  useEffect(() => {
+    if (!id || !isAuthenticated || connectInviteAttempted.current) return;
+    const slug = getStoredInviteSlug();
+    const storedCoachId = getStoredInviteCoachId();
+    if (!slug || storedCoachId !== id) return;
+    connectInviteAttempted.current = true;
+    api("/auth/me/connect-invite", {
+      method: "POST",
+      body: JSON.stringify({ inviteSlug: slug }),
+    })
+      .then(() => clearStoredInviteSlug())
+      .catch(() => {});
+  }, [id, isAuthenticated]);
 
   const { data: coach, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["coach", id],
@@ -299,6 +320,11 @@ export default function CoachDetail() {
         <p className="text-brand-600 font-medium">
           {Array.isArray(coach.sports) && coach.sports.length > 0 ? coach.sports.join(", ") : "—"}
         </p>
+        {coach.email && (
+          <p className="text-slate-500 text-xs mt-1">
+            <span className="font-semibold">Debug email:</span> {coach.email}
+          </p>
+        )}
         {Array.isArray(coach.serviceCities) && coach.serviceCities.length > 0 ? (
           <p className="text-slate-500 text-sm mt-1">{coach.serviceCities.join(", ")}</p>
         ) : null}

@@ -19,6 +19,35 @@ const router = Router();
 const s3Client = new S3Client({ region: process.env.AWS_REGION ?? "us-east-1" });
 const UPLOADS_BUCKET = process.env.UPLOADS_BUCKET;
 
+const RESERVED_SLUGS = new Set(["join", "api", "auth", "coaches", "bookings", "find", "welcome", "sign-up", "dashboard", "athlete", "webhooks", "health", "invites"]);
+
+function slugify(displayName: string): string {
+  const s = displayName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return s.slice(0, 50) || "coach";
+}
+
+async function ensureUniqueInviteSlug(prisma: typeof import("../db.js").prisma, baseSlug: string, excludeCoachProfileId?: string): Promise<string> {
+  let slug = baseSlug;
+  let n = 1;
+  for (;;) {
+    const existing = await prisma.coachInvite.findFirst({
+      where: {
+        slug,
+        ...(excludeCoachProfileId ? { coachProfileId: { not: excludeCoachProfileId } } : {}),
+      },
+    });
+    if (!existing) return slug;
+    slug = `${baseSlug}-${n}`;
+    n++;
+  }
+}
+
 // Get own coach profile (resilient: if photos relation fails e.g. missing table, return profile with photos: [])
 router.get("/me", authMiddleware(), async (req, res) => {
   const user = (req as { user?: { id: string } }).user;
@@ -639,6 +668,17 @@ router.post("/me", authMiddleware(), async (req, res) => {
     const user = (req as { user?: { id: string } }).user;
     if (!user) return res.status(401).json({ error: "Unauthorized" });
 
+    const dbUser = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { signupRole: true },
+    });
+    if (!dbUser) return res.status(404).json({ error: "User not found" });
+    if (dbUser.signupRole === "athlete") {
+      return res.status(403).json({
+        error: "You signed up as an athlete. Use a different account to create a coach profile.",
+      });
+    }
+
     const parsed = coachProfileSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.flatten() });
@@ -671,6 +711,12 @@ router.post("/me", authMiddleware(), async (req, res) => {
         hourlyRate,
         phone: data.phone?.trim() || null,
       },
+    });
+
+    const baseSlug = slugify(data.displayName);
+    const inviteSlug = RESERVED_SLUGS.has(baseSlug) ? `coach-${baseSlug}` : await ensureUniqueInviteSlug(prisma, baseSlug);
+    await prisma.coachInvite.create({
+      data: { coachProfileId: profile.id, slug: inviteSlug },
     });
 
     if (photoUrls.length > 0) {
@@ -775,6 +821,93 @@ router.patch("/me/primary-photo", authMiddleware(), async (req, res) => {
   });
 
   res.json({ ok: true });
+});
+
+// Get or create invite link for the current coach (one per coach, friendly slug)
+router.get("/me/invites", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const profile = await prisma.coachProfile.findUnique({
+    where: { userId: user.id },
+    include: { invite: true },
+  });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  if (!profile.invite) {
+    const baseSlug = slugify(profile.displayName);
+    const slug = RESERVED_SLUGS.has(baseSlug) ? `coach-${baseSlug}` : await ensureUniqueInviteSlug(prisma, baseSlug);
+    const invite = await prisma.coachInvite.create({
+      data: { coachProfileId: profile.id, slug },
+    });
+    const appUrl = process.env.APP_URL || "http://localhost:5173";
+    return res.json({ slug: invite.slug, url: `${appUrl}/join/${invite.slug}` });
+  }
+
+  const appUrl = process.env.APP_URL || "http://localhost:5173";
+  res.json({ slug: profile.invite.slug, url: `${appUrl}/join/${profile.invite.slug}` });
+});
+
+// Update invite slug (coach can customize their link)
+router.patch("/me/invites", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const raw = (req.body as { slug?: string }).slug;
+  const slug = typeof raw === "string" ? raw.trim().toLowerCase().replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 50) : "";
+  if (!slug || slug.length < 2) return res.status(400).json({ error: "slug must be at least 2 characters (letters, numbers, hyphens only)" });
+  if (RESERVED_SLUGS.has(slug)) return res.status(400).json({ error: "This slug is reserved" });
+
+  const profile = await prisma.coachProfile.findUnique({
+    where: { userId: user.id },
+    include: { invite: true },
+  });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+  if (!profile.invite) return res.status(404).json({ error: "Invite not found; try refreshing" });
+
+  const existing = await prisma.coachInvite.findFirst({
+    where: { slug, coachProfileId: { not: profile.id } },
+  });
+  if (existing) return res.status(409).json({ error: "This link name is already taken" });
+
+  await prisma.coachInvite.update({
+    where: { id: profile.invite.id },
+    data: { slug },
+  });
+  const appUrl = process.env.APP_URL || "http://localhost:5173";
+  res.json({ slug, url: `${appUrl}/join/${slug}` });
+});
+
+// List connected athletes (invite-link signups)
+router.get("/me/athletes", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const profile = await prisma.coachProfile.findUnique({
+    where: { userId: user.id },
+  });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  const coachAthletes = await prisma.coachAthlete.findMany({
+    where: { coachProfileId: profile.id },
+    include: { athlete: true },
+    orderBy: { createdAt: "desc" },
+  });
+
+  res.json(
+    coachAthletes.map((ca) => ({
+      athleteProfileId: ca.athleteProfileId,
+      status: ca.status,
+      createdAt: ca.createdAt.toISOString(),
+      athlete: {
+        id: ca.athlete.id,
+        displayName: ca.athlete.displayName,
+        sports: ca.athlete.sports,
+        serviceCity: ca.athlete.serviceCity,
+        userId: ca.athlete.userId,
+      },
+    }))
+  );
 });
 
 // Availability: rules (recurring) + one-off slots
@@ -1107,6 +1240,7 @@ router.get("/:id", async (req, res) => {
   const coach = await prisma.coachProfile.findUnique({
     where: { id: req.params.id },
     include: {
+      user: { select: { email: true } },
       photos: { orderBy: { sortOrder: "asc" } },
       availabilitySlots: {
         where: {
@@ -1139,6 +1273,10 @@ router.get("/:id", async (req, res) => {
   res.json({
     id: coach.id,
     displayName: coach.displayName,
+    // Expose coach email on public profile only in non-production for debugging
+    ...(process.env.NODE_ENV !== "production" && coach.user?.email
+      ? { email: coach.user.email }
+      : {}),
     sports: coach.sports,
     serviceCities: coach.serviceCities,
     bio: coach.bio,

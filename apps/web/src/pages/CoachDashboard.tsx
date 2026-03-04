@@ -238,9 +238,33 @@ function EditProfileFormInline({
   );
 }
 
+interface BookingsData {
+  asCoach: {
+    id: string;
+    athlete: { id: string; name: string | null; email: string };
+    slot: { id: string; startTime: string; endTime: string };
+    status: string;
+    createdAt: string;
+  }[];
+}
+
+interface ConnectedAthlete {
+  athleteProfileId: string;
+  status: string;
+  createdAt: string;
+  athlete: { id: string; displayName: string; sports: string[]; serviceCity: string | null; userId: string };
+}
+
 export default function CoachDashboard() {
   const location = useLocation();
-  const view = location.pathname.endsWith("/availability") ? "availability" : "profile";
+  const view =
+    location.pathname === "/dashboard" || location.pathname === "/dashboard/"
+      ? "overview"
+      : location.pathname.endsWith("/availability")
+        ? "availability"
+        : location.pathname.endsWith("/athletes")
+          ? "athletes"
+          : "profile";
   const queryClient = useQueryClient();
   const [showAvailabilityForm, setShowAvailabilityForm] = useState(false);
   const [addMode, setAddMode] = useState<"one-off" | "recurring" | null>(null);
@@ -402,6 +426,37 @@ export default function CoachDashboard() {
     },
   });
 
+  const { data: inviteData } = useQuery({
+    queryKey: ["coachInvite"],
+    queryFn: () => api<{ slug: string; url: string }>("/coaches/me/invites"),
+    enabled: !!profile && !("error" in profile),
+  });
+  const [editingInviteSlug, setEditingInviteSlug] = useState(false);
+  const [inviteSlugInput, setInviteSlugInput] = useState("");
+  const updateInviteMutation = useMutation({
+    mutationFn: (slug: string) =>
+      api<{ slug: string; url: string }>("/coaches/me/invites", {
+        method: "PATCH",
+        body: JSON.stringify({ slug }),
+      }),
+    onSuccess: () => {
+      setEditingInviteSlug(false);
+      setInviteSlugInput("");
+      queryClient.invalidateQueries({ queryKey: ["coachInvite"] });
+    },
+  });
+
+  const { data: bookingsData } = useQuery({
+    queryKey: ["bookings"],
+    queryFn: () => api<BookingsData>("/bookings"),
+    enabled: !!profile && !("error" in profile) && (view === "overview" || view === "athletes"),
+  });
+  const { data: athletesData } = useQuery({
+    queryKey: ["coachAthletes"],
+    queryFn: () => api<ConnectedAthlete[]>("/coaches/me/athletes"),
+    enabled: !!profile && !("error" in profile) && (view === "overview" || view === "athletes"),
+  });
+
   useEffect(() => {
     if (profile && !("error" in profile) && "photos" in profile && Array.isArray(profile.photos)) {
       const urls = profile.photos.map((p) => p.url);
@@ -451,7 +506,7 @@ export default function CoachDashboard() {
   }
 
   if (noProfile) {
-    return <Navigate to="/dashboard/onboarding/basic" replace />;
+    return <Navigate to="/coach/onboarding/basic" replace />;
   }
 
   const coach = profile as CoachProfile;
@@ -464,6 +519,133 @@ export default function CoachDashboard() {
   });
   if (nextOnboardingStep) {
     return <Navigate to={nextOnboardingStep} replace />;
+  }
+
+  if (view === "overview") {
+    const asCoach = bookingsData?.asCoach ?? [];
+    const pending = asCoach.filter((b) => b.status === "pending");
+    const now = new Date();
+    const nextUp = asCoach
+      .filter((b) => (b.status === "pending" || b.status === "confirmed") && new Date(b.slot.endTime) >= now)
+      .sort((a, b) => new Date(a.slot.startTime).getTime() - new Date(b.slot.startTime).getTime())
+      .slice(0, 5);
+    const athletes = athletesData ?? [];
+    const recentAthletes = athletes.slice(0, 5);
+
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-12">
+        <h1 className="text-2xl font-bold text-slate-900 mb-8">Dashboard</h1>
+
+        <section className="mb-8 p-6 bg-white rounded-xl border border-slate-200">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-slate-900">Open booking requests</h2>
+            <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm">
+              View all
+            </Link>
+          </div>
+          {pending.length === 0 ? (
+            <p className="text-slate-500 text-sm">No pending requests.</p>
+          ) : (
+            <ul className="space-y-2">
+              {pending.slice(0, 5).map((b) => (
+                <li key={b.id} className="flex justify-between items-center text-sm">
+                  <span>
+                    {b.athlete.name ?? b.athlete.email} – {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                  </span>
+                  <Link to="/bookings" className="text-brand-600 hover:underline">View</Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="mb-8 p-6 bg-white rounded-xl border border-slate-200">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-slate-900">Connected athletes</h2>
+            <Link to="/dashboard/athletes" className="text-brand-600 font-medium hover:underline text-sm">
+              View all
+            </Link>
+          </div>
+          {recentAthletes.length === 0 ? (
+            <p className="text-slate-500 text-sm">No connected athletes yet. Share your invite link.</p>
+          ) : (
+            <ul className="space-y-2">
+              {recentAthletes.map((a) => (
+                <li key={a.athleteProfileId} className="flex justify-between items-center text-sm">
+                  <span>
+                    {a.athlete.displayName}
+                    {a.athlete.sports?.length ? ` · ${a.athlete.sports.join(", ")}` : ""}
+                  </span>
+                  <span className="text-slate-500">{new Date(a.createdAt).toLocaleDateString()}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="mb-8 p-6 bg-white rounded-xl border border-slate-200">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-slate-900">Next up</h2>
+            <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm">
+              View all
+            </Link>
+          </div>
+          {nextUp.length === 0 ? (
+            <p className="text-slate-500 text-sm">No upcoming sessions.</p>
+          ) : (
+            <ul className="space-y-2">
+              {nextUp.map((b) => (
+                <li key={b.id} className="flex justify-between items-center text-sm">
+                  <span>
+                    {b.athlete.name ?? b.athlete.email} – {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                  </span>
+                  <Link to="/bookings" className="text-brand-600 hover:underline">View</Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    );
+  }
+
+  if (view === "athletes") {
+    const athletes = athletesData ?? [];
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-12">
+        <h1 className="text-2xl font-bold text-slate-900 mb-8">Athletes</h1>
+        <p className="text-slate-600 text-sm mb-6">
+          Athletes who signed up via your invite link. View bookings to manage sessions.
+        </p>
+        {athletes.length === 0 ? (
+          <div className="p-6 bg-white rounded-xl border border-slate-200">
+            <p className="text-slate-500">No connected athletes yet. Share your invite link so athletes can sign up and appear here.</p>
+            <Link to="/dashboard/profile" className="inline-block mt-4 text-brand-600 font-medium hover:underline">
+              Get your invite link →
+            </Link>
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <ul className="divide-y divide-slate-200">
+              {athletes.map((a) => (
+                <li key={a.athleteProfileId} className="flex justify-between items-center px-6 py-4">
+                  <div>
+                    <p className="font-medium text-slate-900">{a.athlete.displayName}</p>
+                    {a.athlete.sports?.length ? (
+                      <p className="text-slate-500 text-sm">{a.athlete.sports.join(", ")}</p>
+                    ) : null}
+                    <p className="text-slate-400 text-xs mt-0.5">Connected {new Date(a.createdAt).toLocaleDateString()}</p>
+                  </div>
+                  <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm">
+                    View bookings
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
   }
 
   if (view === "availability") {
@@ -856,6 +1038,83 @@ export default function CoachDashboard() {
         )}
       </section>
 
+      <section className="mb-8 p-6 bg-white rounded-xl border border-slate-200">
+        <h2 className="text-lg font-semibold text-slate-900 mb-4">
+          Invite athletes
+        </h2>
+        <p className="text-slate-600 text-sm mb-4">
+          Share your link so new athletes can sign up and be associated with you. They’ll see this link when they text your number too.
+        </p>
+        {inviteData?.url ? (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                readOnly
+                value={inviteData.url}
+                className="flex-1 min-w-[200px] px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(inviteData.url);
+                }}
+                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-50"
+              >
+                Copy link
+              </button>
+            </div>
+            {!editingInviteSlug ? (
+              <p className="text-slate-500 text-sm">
+                Link name: <strong>{inviteData.slug}</strong>{" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInviteSlugInput(inviteData.slug);
+                    setEditingInviteSlug(true);
+                  }}
+                  className="text-brand-600 hover:underline font-medium"
+                >
+                  Edit link name
+                </button>
+              </p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={inviteSlugInput}
+                  onChange={(e) => setInviteSlugInput(e.target.value)}
+                  placeholder="my-name"
+                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm w-48"
+                />
+                <button
+                  type="button"
+                  onClick={() => updateInviteMutation.mutate(inviteSlugInput)}
+                  disabled={updateInviteMutation.isPending || !inviteSlugInput.trim() || inviteSlugInput.trim().length < 2}
+                  className="px-4 py-2 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 disabled:opacity-50"
+                >
+                  {updateInviteMutation.isPending ? "Saving…" : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setEditingInviteSlug(false); setInviteSlugInput(""); }}
+                  className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            {updateInviteMutation.isError && (
+              <p className="text-red-600 text-sm" role="alert">
+                {updateInviteMutation.error?.message ?? "Failed to update link name."}
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="text-slate-500 text-sm">Loading your invite link…</p>
+        )}
+      </section>
+
       <section className="mb-12 p-6 bg-white rounded-xl border border-slate-200">
         <h2 className="text-lg font-semibold text-slate-900 mb-4">
           Profile photos
@@ -1014,7 +1273,7 @@ export default function CoachDashboard() {
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold text-slate-900">About Me</h2>
           <Link
-            to="/dashboard/onboarding/bio"
+            to="/coach/onboarding/bio"
             className="text-brand-600 font-medium hover:underline"
           >
             Edit

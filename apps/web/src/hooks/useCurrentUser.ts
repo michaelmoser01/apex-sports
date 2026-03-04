@@ -17,6 +17,14 @@ export interface CurrentUser {
     avatarUrl: string | null;
     phone: string | null;
   } | null;
+  athleteProfile: {
+    id: string;
+    displayName: string;
+    serviceCity: string | null;
+    birthYear: number | null;
+    sports: string[];
+    level: string | null;
+  } | null;
 }
 
 export function useCurrentUser(enable: boolean) {
@@ -24,6 +32,9 @@ export function useCurrentUser(enable: boolean) {
     queryKey: ["auth", "me"],
     queryFn: () => api<CurrentUser>("/auth/me"),
     enabled: enable,
-    staleTime: 60_000,
+    // Always refetch on mount so switching accounts after sign-out
+    // doesn't reuse a "fresh" cached /auth/me from the prior user.
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 }

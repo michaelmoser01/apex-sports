@@ -12,6 +12,7 @@ const fromEmail = process.env.NOTIFICATION_FROM_EMAIL ?? "notifications@apexspor
 const sendSms = process.env.SEND_SMS !== "false";
 const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
 const myBookingsUrl = appUrl ? `${appUrl}/bookings` : "";
+const dashboardAthletesUrl = appUrl ? `${appUrl}/dashboard/athletes` : "";
 /** IANA timezone for email times (slot times are stored UTC). Default US/Pacific. */
 const notificationTimeZone = process.env.NOTIFICATION_TIMEZONE ?? "America/Los_Angeles";
 
@@ -45,12 +46,13 @@ function escapeHtml(s: string): string {
  * Shared HTML email wrapper: Apex Sports branding, content block, optional CTA.
  * Inline styles for email client compatibility.
  */
-function htmlEmail(contentHtml: string, ctaLabel?: string): string {
+function htmlEmail(contentHtml: string, ctaLabel?: string, ctaUrl?: string): string {
+  const href = (ctaUrl ?? myBookingsUrl) || "";
   const ctaBlock =
-    myBookingsUrl && ctaLabel
+    href && ctaLabel
       ? `
     <p style="margin: 28px 0 0; text-align: center;">
-      <a href="${escapeHtml(myBookingsUrl)}" style="display: inline-block; padding: 12px 24px; background: #0f766e; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 16px; border-radius: 8px;">${escapeHtml(ctaLabel)}</a>
+      <a href="${escapeHtml(href)}" style="display: inline-block; padding: 12px 24px; background: #0f766e; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 16px; border-radius: 8px;">${escapeHtml(ctaLabel)}</a>
     </p>`
       : "";
 
@@ -87,6 +89,63 @@ ${contentHtml}${ctaBlock}
   </table>
 </body>
 </html>`;
+}
+
+export interface NewAthleteConnectedToCoachParams {
+  coachEmail: string;
+  athleteDisplayName: string;
+}
+
+export async function sendNewAthleteConnectedToCoach(params: NewAthleteConnectedToCoachParams): Promise<void> {
+  const { coachEmail, athleteDisplayName } = params;
+  const name = athleteDisplayName?.trim() || "An athlete";
+
+  const subject = "A new athlete connected with you on Apex Sports";
+  const bodyText = [
+    "Hi,",
+    "",
+    `${name} signed up using your invite link and is now connected to you on Apex Sports.`,
+    "",
+    "They can view your profile and request sessions. You'll see them in your Athletes list.",
+    dashboardAthletesUrl ? `View your athletes: ${dashboardAthletesUrl}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const bodyHtml = htmlEmail(
+    [
+      "<p style=\"margin: 0 0 16px;\">Hi,</p>",
+      `<p style="margin: 0 0 16px;">${escapeHtml(name)} signed up using your invite link and is now connected to you on Apex Sports.</p>`,
+      "<p style=\"margin: 0 0 0;\">They can view your profile and request sessions. You'll see them in your Athletes list.</p>",
+    ].join("\n"),
+    "View your athletes",
+    dashboardAthletesUrl || undefined
+  );
+
+  try {
+    await ses.send(
+      new SendEmailCommand({
+        Source: fromEmail,
+        Destination: { ToAddresses: [coachEmail] },
+        Message: {
+          Subject: { Data: subject, Charset: "UTF-8" },
+          Body: {
+            Text: { Data: bodyText, Charset: "UTF-8" },
+            Html: { Data: bodyHtml, Charset: "UTF-8" },
+          },
+        },
+      })
+    );
+  } catch (err) {
+    const sesErr = err as { name?: string; message?: string; Code?: string };
+    console.error(
+      "[notifications] sendNewAthleteConnectedToCoach email failed:",
+      sesErr?.name ?? sesErr?.Code,
+      sesErr?.message ?? err,
+      "from:",
+      fromEmail
+    );
+  }
 }
 
 export interface BookingRequestedToCoachParams {

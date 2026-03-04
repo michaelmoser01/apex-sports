@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { api } from "@/lib/api";
+import { getStoredInviteSlug } from "@/pages/Join";
 
 function DevLayout() {
   const { devUser, setDevUser } = useAuth();
@@ -23,24 +24,23 @@ function DevLayout() {
     setMenuOpen(false);
   }, [location.pathname]);
 
+  const onAthleteOnboardingWithInvite =
+    location.pathname === "/athlete/onboarding" && !!getStoredInviteSlug();
   const redirectToWelcome =
     devUser &&
     !currentUserLoading &&
     location.pathname !== "/welcome" &&
+    !onAthleteOnboardingWithInvite &&
     (!currentUser || !currentUser.signupRole);
-  const redirectFromWelcome =
-    devUser &&
-    !currentUserLoading &&
-    location.pathname === "/welcome" &&
-    (currentUser?.signupRole || currentUser?.coachProfile);
   const showCoachDashboard = !!currentUser?.coachProfile;
+  const showAthleteProfile = !!currentUser?.athleteProfile;
+  const signedIn = !!devUser;
+  const showFindCoaches = !signedIn || (showAthleteProfile && !showCoachDashboard);
+  const showForCoaches = !signedIn;
+  const profileTo = showCoachDashboard ? "/dashboard/profile" : showAthleteProfile ? "/athlete/profile" : null;
 
-  if (redirectFromWelcome) {
-    const to =
-      currentUser!.signupRole === "coach" || currentUser!.coachProfile
-        ? "/dashboard/profile"
-        : "/find";
-    return <Navigate to={to} replace />;
+  if (redirectToWelcome) {
+    return <Navigate to="/welcome" replace />;
   }
 
   return (
@@ -51,18 +51,22 @@ function DevLayout() {
             ApexSports
           </Link>
           <nav className="hidden md:flex items-center gap-6">
-            <Link
-              to="/find"
-              className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
-            >
-              Find Coaches
-            </Link>
-            <Link
-              to="/coaches"
-              className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
-            >
-              For Coaches
-            </Link>
+            {showFindCoaches && (
+              <Link
+                to="/find"
+                className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+              >
+                Find Coaches
+              </Link>
+            )}
+            {showForCoaches && (
+              <Link
+                to="/coaches"
+                className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+              >
+                For Coaches
+              </Link>
+            )}
             {devUser ? (
               <>
                 <Link
@@ -71,13 +75,27 @@ function DevLayout() {
                 >
                   Bookings
                 </Link>
+                {profileTo && (
+                  <Link
+                    to={profileTo}
+                    className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+                  >
+                    Profile
+                  </Link>
+                )}
                 {showCoachDashboard && (
                   <>
                     <Link
-                      to="/dashboard/profile"
+                      to="/dashboard"
                       className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
                     >
-                      Profile
+                      Dashboard
+                    </Link>
+                    <Link
+                      to="/dashboard/athletes"
+                      className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+                    >
+                      Athletes
                     </Link>
                     <Link
                       to="/dashboard/availability"
@@ -127,20 +145,24 @@ function DevLayout() {
             />
             <div className="absolute left-0 right-0 top-16 z-50 md:hidden bg-white border-b border-slate-200 shadow-lg py-4 px-4">
               <nav className="flex flex-col gap-1">
-                <Link
-                  to="/find"
-                  className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  Find Coaches
-                </Link>
-                <Link
-                  to="/coaches"
-                  className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  For Coaches
-                </Link>
+                {showFindCoaches && (
+                  <Link
+                    to="/find"
+                    className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Find Coaches
+                  </Link>
+                )}
+                {showForCoaches && (
+                  <Link
+                    to="/coaches"
+                    className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    For Coaches
+                  </Link>
+                )}
                 {devUser ? (
                   <>
                     <Link
@@ -150,14 +172,30 @@ function DevLayout() {
                     >
                       Bookings
                     </Link>
+                    {profileTo && (
+                      <Link
+                        to={profileTo}
+                        className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        Profile
+                      </Link>
+                    )}
                     {showCoachDashboard && (
                       <>
                         <Link
-                          to="/dashboard/profile"
+                          to="/dashboard"
                           className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
                           onClick={() => setMenuOpen(false)}
                         >
-                          Profile
+                          Dashboard
+                        </Link>
+                        <Link
+                          to="/dashboard/athletes"
+                          className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          Athletes
                         </Link>
                         <Link
                           to="/dashboard/availability"
@@ -168,11 +206,11 @@ function DevLayout() {
                         </Link>
                       </>
                     )}
-                    <button
-                      onClick={() => {
-                        handleDevSignOut();
-                        setMenuOpen(false);
-                      }}
+                <button
+                  onClick={() => {
+                    handleDevSignOut();
+                    setMenuOpen(false);
+                  }}
                       className="py-3 px-3 text-left text-slate-700 font-medium rounded-lg hover:bg-slate-100"
                     >
                       Sign out
@@ -241,7 +279,7 @@ function CognitoLayout() {
     setMenuOpen(false);
   }, [location.pathname]);
 
-  const isOnOnboarding = location.pathname.startsWith("/dashboard/onboarding");
+  const isOnOnboarding = location.pathname.startsWith("/coach/onboarding");
   const shouldSetCoachAndStay =
     isAuthenticated &&
     !currentUserLoading &&
@@ -262,24 +300,23 @@ function CognitoLayout() {
     }
   };
 
+  const onAthleteOnboardingWithInvite =
+    location.pathname === "/athlete/onboarding" && !!getStoredInviteSlug();
   const redirectToWelcome =
     isAuthenticated &&
     !currentUserLoading &&
     location.pathname !== "/welcome" &&
+    !onAthleteOnboardingWithInvite &&
     (!currentUser || !currentUser.signupRole);
-  const redirectFromWelcome =
-    isAuthenticated &&
-    !currentUserLoading &&
-    location.pathname === "/welcome" &&
-    (currentUser?.signupRole || currentUser?.coachProfile);
   const showCoachDashboard = !!currentUser?.coachProfile;
+  const showAthleteProfile = !!currentUser?.athleteProfile;
+  const signedIn = authStatus === "authenticated";
+  const showFindCoaches = !signedIn || (showAthleteProfile && !showCoachDashboard);
+  const showForCoaches = !signedIn;
+  const profileTo = showCoachDashboard ? "/dashboard/profile" : showAthleteProfile ? "/athlete/profile" : null;
 
-  if (redirectFromWelcome) {
-    const to =
-      currentUser!.signupRole === "coach" || currentUser!.coachProfile
-        ? "/dashboard/profile"
-        : "/find";
-    return <Navigate to={to} replace />;
+  if (redirectToWelcome) {
+    return <Navigate to="/welcome" replace />;
   }
 
   return (
@@ -290,18 +327,22 @@ function CognitoLayout() {
             ApexSports
           </Link>
           <nav className="hidden md:flex items-center gap-6">
-            <Link
-              to="/find"
-              className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
-            >
-              Find Coaches
-            </Link>
-            <Link
-              to="/coaches"
-              className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
-            >
-              For Coaches
-            </Link>
+            {showFindCoaches && (
+              <Link
+                to="/find"
+                className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+              >
+                Find Coaches
+              </Link>
+            )}
+            {showForCoaches && (
+              <Link
+                to="/coaches"
+                className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+              >
+                For Coaches
+              </Link>
+            )}
             {authStatus === "authenticated" ? (
               <>
                 <Link
@@ -310,13 +351,27 @@ function CognitoLayout() {
                 >
                   Bookings
                 </Link>
+                {profileTo && (
+                  <Link
+                    to={profileTo}
+                    className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+                  >
+                    Profile
+                  </Link>
+                )}
                 {showCoachDashboard && (
                   <>
                     <Link
-                      to="/dashboard/profile"
+                      to="/dashboard"
                       className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
                     >
-                      Profile
+                      Dashboard
+                    </Link>
+                    <Link
+                      to="/dashboard/athletes"
+                      className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+                    >
+                      Athletes
                     </Link>
                     <Link
                       to="/dashboard/availability"
@@ -366,20 +421,24 @@ function CognitoLayout() {
             />
             <div className="absolute left-0 right-0 top-16 z-50 md:hidden bg-white border-b border-slate-200 shadow-lg py-4 px-4">
               <nav className="flex flex-col gap-1">
-                <Link
-                  to="/find"
-                  className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  Find Coaches
-                </Link>
-                <Link
-                  to="/coaches"
-                  className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  For Coaches
-                </Link>
+                {showFindCoaches && (
+                  <Link
+                    to="/find"
+                    className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Find Coaches
+                  </Link>
+                )}
+                {showForCoaches && (
+                  <Link
+                    to="/coaches"
+                    className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    For Coaches
+                  </Link>
+                )}
                 {authStatus === "authenticated" ? (
                   <>
                     <Link
@@ -389,14 +448,30 @@ function CognitoLayout() {
                     >
                       Bookings
                     </Link>
+                    {profileTo && (
+                      <Link
+                        to={profileTo}
+                        className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        Profile
+                      </Link>
+                    )}
                     {showCoachDashboard && (
                       <>
                         <Link
-                          to="/dashboard/profile"
+                          to="/dashboard"
                           className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
                           onClick={() => setMenuOpen(false)}
                         >
-                          Profile
+                          Dashboard
+                        </Link>
+                        <Link
+                          to="/dashboard/athletes"
+                          className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          Athletes
                         </Link>
                         <Link
                           to="/dashboard/availability"
@@ -426,23 +501,9 @@ function CognitoLayout() {
                     Sign in
                   </Link>
                 )}
-          </nav>
-          <button
-            type="button"
-            onClick={() => setMenuOpen((o) => !o)}
-            className="md:hidden p-2 -mr-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
-            aria-label={menuOpen ? "Close menu" : "Open menu"}
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-              {menuOpen ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              )}
-            </svg>
-          </button>
-        </div>
-        </>
+              </nav>
+            </div>
+          </>
         )}
       </header>
       <main className="flex-1">
