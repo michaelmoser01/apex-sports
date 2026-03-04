@@ -43,6 +43,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
     birthYear: profile.birthYear,
     sports: profile.sports,
     level: profile.level,
+    phone: profile.phone ?? null,
   });
 });
 
