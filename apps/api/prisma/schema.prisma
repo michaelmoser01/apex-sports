@@ -49,6 +49,9 @@ model CoachProfile {
   availabilitySlots AvailabilitySlot[]
   bookings          Booking[]         @relation("CoachBookings")
   reviews            Review[]
+  invite             CoachInvite?
+  coachAthletes     CoachAthlete[]    @relation("CoachAthletes")
+  phoneOptIns       CoachAthletePhoneOptIn[]
 
   @@map("coach_profiles")
 }
@@ -63,6 +66,8 @@ model AthleteProfile {
   sports      String[] @default([])
   level       String?
   createdAt   DateTime @default(now()) @map("created_at")
+
+  coachAssociations CoachAthlete[] @relation("AthleteCoaches")
 
   @@map("athlete_profiles")
 }
@@ -142,4 +147,39 @@ model Review {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("reviews")
+}
+
+model CoachInvite {
+  id             String       @id @default(uuid())
+  coachProfileId String       @unique @map("coach_profile_id")
+  coach          CoachProfile @relation(fields: [coachProfileId], references: [id], onDelete: Cascade)
+  slug           String       @unique
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@map("coach_invites")
+}
+
+model CoachAthlete {
+  id              String        @id @default(uuid())
+  coachProfileId  String        @map("coach_profile_id")
+  coach           CoachProfile  @relation("CoachAthletes", fields: [coachProfileId], references: [id], onDelete: Cascade)
+  athleteProfileId String       @map("athlete_profile_id")
+  athlete         AthleteProfile @relation("AthleteCoaches", fields: [athleteProfileId], references: [id], onDelete: Cascade)
+  status          String        @default("active") // active | pending | blocked
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  @@unique([coachProfileId, athleteProfileId])
+  @@map("coach_athletes")
+}
+
+model CoachAthletePhoneOptIn {
+  id             String       @id @default(uuid())
+  coachProfileId String       @map("coach_profile_id")
+  coach          CoachProfile @relation(fields: [coachProfileId], references: [id], onDelete: Cascade)
+  phoneE164      String       @map("phone_e164")
+  optedInAt      DateTime     @default(now()) @map("opted_in_at")
+  source         String       @default("sms_inbound") @map("source")
+
+  @@unique([coachProfileId, phoneE164])
+  @@map("coach_athlete_phone_opt_ins")
 }

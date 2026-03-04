@@ -1,7 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate, Navigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ALLOWED_SPORTS, searchServiceCities } from "@apex-sports/shared";
+import {
+  getStoredInviteSlug,
+  getStoredInviteCoachId,
+  clearStoredInviteSlug,
+} from "./Join";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { hasCompletedAthleteOnboarding } from "@/lib/athleteProfile";
 
 interface AthleteProfile {
   id: string;
@@ -12,15 +20,63 @@ interface AthleteProfile {
   level: string | null;
 }
 
-export default function AthleteProfilePage() {
+export default function AthleteOnboarding() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { data: currentUser, isLoading: currentUserLoading } = useCurrentUser(true);
+
+  const inviteSlug = getStoredInviteSlug();
+  const inviteCoachId = getStoredInviteCoachId();
+  const isAlreadyAthlete =
+    currentUser?.signupRole === "athlete" || !!currentUser?.athleteProfile;
+  const athleteProfileComplete = hasCompletedAthleteOnboarding(currentUser?.athleteProfile ?? null);
+  const needsRole = !!inviteSlug && !currentUser?.signupRole;
+  const setRoleAttempted = useRef(false);
+
+  if (inviteSlug && inviteCoachId && currentUserLoading) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-12">
+        <p className="text-slate-500">Loading…</p>
+      </div>
+    );
+  }
+  if (
+    inviteSlug &&
+    inviteCoachId &&
+    isAlreadyAthlete &&
+    athleteProfileComplete &&
+    !setRoleAttempted.current
+  ) {
+    return <Navigate to={`/coaches/${inviteCoachId}`} replace />;
+  }
+
+  const setRoleMutation = useMutation({
+    mutationFn: () => {
+      const slug = getStoredInviteSlug();
+      return api("/auth/me", {
+        method: "PATCH",
+        body: JSON.stringify({ signupRole: "athlete", ...(slug ? { inviteSlug: slug } : {}) }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+    },
+  });
+
+  useEffect(() => {
+    if (currentUserLoading || !needsRole || setRoleAttempted.current) return;
+    setRoleAttempted.current = true;
+    setRoleMutation.mutate();
+  }, [currentUserLoading, needsRole]);
+
   const {
     data: profile,
-    isLoading,
-    isError,
+    isLoading: profileLoading,
+    isError: profileError,
   } = useQuery({
     queryKey: ["athleteProfile"],
     queryFn: () => api<AthleteProfile>("/athletes/me"),
+    enabled: !needsRole && (!!currentUser?.signupRole || !!currentUser?.athleteProfile),
   });
 
   const [displayName, setDisplayName] = useState("");
@@ -47,6 +103,9 @@ export default function AthleteProfilePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["athleteProfile"] });
       queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      const coachId = getStoredInviteCoachId();
+      clearStoredInviteSlug();
+      navigate(coachId ? `/coaches/${coachId}` : "/find", { replace: true });
     },
   });
 
@@ -58,7 +117,7 @@ export default function AthleteProfilePage() {
     setLevel(p.level ?? "");
   };
 
-  if (!isLoading && profile && displayName === "" && sports.length === 0 && !serviceCity && !birthYear && !level) {
+  if (!profileLoading && profile && displayName === "" && sports.length === 0 && !serviceCity && !birthYear && !level) {
     initFromProfile(profile);
   }
 
@@ -97,18 +156,29 @@ export default function AthleteProfilePage() {
     updateProfileMutation.mutate(payload);
   };
 
-  if (isLoading && !profile) {
+  const settingRole = needsRole && !currentUser?.signupRole;
+  const showForm = !needsRole || !!currentUser?.signupRole;
+
+  if (settingRole || (needsRole && !showForm)) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-12">
-        <p className="text-slate-500">Loading your athlete profile…</p>
+        <p className="text-slate-500">Setting up your account…</p>
       </div>
     );
   }
 
-  if (isError) {
+  if (profileLoading && !profile) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-12">
-        <p className="text-slate-700 mb-4">Couldn&apos;t load your athlete profile.</p>
+        <p className="text-slate-500">Loading…</p>
+      </div>
+    );
+  }
+
+  if (profileError) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-12">
+        <p className="text-slate-700 mb-4">Couldn&apos;t load your profile.</p>
         <button
           type="button"
           onClick={() => queryClient.invalidateQueries({ queryKey: ["athleteProfile"] })}
@@ -122,7 +192,7 @@ export default function AthleteProfilePage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-12">
-      <h1 className="text-2xl font-bold text-slate-900 mb-2">Athlete profile</h1>
+      <h1 className="text-2xl font-bold text-slate-900 mb-2">Set up your athlete profile</h1>
       <p className="text-slate-600 mb-8">
         Tell us a bit about you so coaches can understand your sport, level, and where you train.
       </p>
@@ -229,10 +299,9 @@ export default function AthleteProfilePage() {
           disabled={updateProfileMutation.isPending || !displayName.trim() || !serviceCity.trim() || sports.length === 0}
           className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 disabled:opacity-50"
         >
-          {updateProfileMutation.isPending ? "Saving…" : "Save profile"}
+          {updateProfileMutation.isPending ? "Saving…" : "Save and continue"}
         </button>
       </form>
     </div>
   );
 }
-

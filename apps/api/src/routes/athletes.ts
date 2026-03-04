@@ -21,6 +21,9 @@ router.get("/me", authMiddleware(), async (req, res) => {
 
   let profile = dbUser.athleteProfile;
   if (!profile) {
+    if (dbUser.signupRole === "coach") {
+      return res.status(404).json({ error: "No athlete profile. You signed up as a coach." });
+    }
     profile = await prisma.athleteProfile.create({
       data: {
         userId: dbUser.id,

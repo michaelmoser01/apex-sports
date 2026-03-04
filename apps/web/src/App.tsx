@@ -12,8 +12,10 @@ import { CoachDetailErrorBoundary } from "./components/CoachDetailErrorBoundary"
 import Bookings from "./pages/Bookings";
 import CoachDashboard from "./pages/CoachDashboard";
 import AthleteProfilePage from "./pages/AthleteProfile";
+import AthleteOnboarding from "./pages/AthleteOnboarding";
 import CoachOnboardingBio from "./pages/CoachOnboardingBio";
 import Welcome from "./pages/Welcome";
+import Join from "./pages/Join";
 import OnboardingLayout from "./components/OnboardingLayout";
 import OnboardingBasic from "./pages/onboarding/OnboardingBasic";
 import OnboardingAbout from "./pages/onboarding/OnboardingAbout";
@@ -25,6 +27,10 @@ const hasCognito =
   !!import.meta.env.VITE_COGNITO_USER_POOL_ID &&
   !!import.meta.env.VITE_COGNITO_CLIENT_ID;
 const isDevMode = !hasCognito;
+
+function SignUpRedirect() {
+  return <Navigate to="/welcome" replace />;
+}
 
 const authenticatorFormFields = {
   signIn: {
@@ -65,6 +71,7 @@ function AppContent() {
         <Route path="coaches" element={<ForCoaches />} />
         <Route path="pricing" element={<Navigate to="/coaches#pricing" replace />} />
         <Route path="find" element={<Coaches />} />
+        <Route path="join/:slug" element={<Join />} />
         <Route
           path="coaches/:id"
           element={
@@ -88,11 +95,29 @@ function AppContent() {
           }
         />
         <Route
+          path="sign-in"
+          element={
+            isDevMode ? (
+              <DevLoginGate>
+                <Navigate to="/welcome" replace />
+              </DevLoginGate>
+            ) : (
+              <Authenticator
+                formFields={authenticatorFormFields}
+                signUpAttributes={["name"]}
+                initialState="signIn"
+              >
+                <Navigate to="/welcome" replace />
+              </Authenticator>
+            )
+          }
+        />
+        <Route
           path="sign-up"
           element={
             isDevMode ? (
               <DevLoginGate>
-                <Navigate to="/dashboard/onboarding/basic" replace />
+                <SignUpRedirect />
               </DevLoginGate>
             ) : (
               <Authenticator
@@ -100,12 +125,25 @@ function AppContent() {
                 signUpAttributes={["name"]}
                 initialState="signUp"
               >
-                <Navigate to="/dashboard/onboarding/basic" replace />
+                <SignUpRedirect />
               </Authenticator>
             )
           }
         />
-        <Route path="dashboard" element={<Navigate to="/dashboard/profile" replace />} />
+        <Route
+          path="dashboard"
+          element={
+            isDevMode ? (
+              <DevLoginGate>
+                <CoachDashboard />
+              </DevLoginGate>
+            ) : (
+              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
+                <CoachDashboard />
+              </Authenticator>
+            )
+          }
+        />
         <Route
           path="dashboard/profile"
           element={
@@ -116,6 +154,34 @@ function AppContent() {
             ) : (
               <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
                 <CoachDashboard />
+              </Authenticator>
+            )
+          }
+        />
+        <Route
+          path="dashboard/athletes"
+          element={
+            isDevMode ? (
+              <DevLoginGate>
+                <CoachDashboard />
+              </DevLoginGate>
+            ) : (
+              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
+                <CoachDashboard />
+              </Authenticator>
+            )
+          }
+        />
+        <Route
+          path="athlete/onboarding"
+          element={
+            isDevMode ? (
+              <DevLoginGate>
+                <AthleteOnboarding />
+              </DevLoginGate>
+            ) : (
+              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
+                <AthleteOnboarding />
               </Authenticator>
             )
           }
@@ -135,7 +201,7 @@ function AppContent() {
           }
         />
         <Route
-          path="dashboard/onboarding"
+          path="coach/onboarding"
           element={
             isDevMode ? (
               <DevLoginGate>
@@ -148,7 +214,7 @@ function AppContent() {
             )
           }
         >
-          <Route index element={<Navigate to="/dashboard/onboarding/basic" replace />} />
+          <Route index element={<Navigate to="/coach/onboarding/basic" replace />} />
           <Route path="basic" element={<OnboardingBasic />} />
           <Route path="about" element={<OnboardingAbout />} />
           <Route path="get-paid" element={<OnboardingGetPaid />} />
@@ -159,7 +225,7 @@ function AppContent() {
           </Route>
         </Route>
         <Route
-          path="dashboard/onboarding/bio"
+          path="coach/onboarding/bio"
           element={
             isDevMode ? (
               <DevLoginGate>

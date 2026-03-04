@@ -6,7 +6,7 @@ export const ONBOARDING_STEPS: readonly { path: string; label: string; stepLabel
   { path: "plan", label: "Plan", stepLabel: "Select Plan" },
 ];
 
-export const ONBOARDING_BASE = "/dashboard/onboarding";
+export const ONBOARDING_BASE = "/coach/onboarding";
 export const ONBOARDING_STEP_PATHS = ONBOARDING_STEPS.map((s) => `${ONBOARDING_BASE}/${s.path}`);
 
 export type OnboardingStepPath = (typeof ONBOARDING_STEP_PATHS)[number];
