@@ -24,6 +24,7 @@ export interface CurrentUser {
     birthYear: number | null;
     sports: string[];
     level: string | null;
+     phone: string | null;
   } | null;
 }
 

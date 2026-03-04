@@ -44,7 +44,7 @@ export const coachProfileSchema = z.object({
 
 export const coachProfileUpdateSchema = coachProfileSchema.partial();
 
-// Athlete profile: single serviceCity, birthYear, sports, level
+// Athlete profile: single serviceCity, birthYear, sports, level, phone
 const currentYear = new Date().getFullYear();
 export const athleteProfileSchema = z.object({
   displayName: z.string().min(1, "Display name is required"),
@@ -65,6 +65,7 @@ export const athleteProfileSchema = z.object({
     .array(sportEnum)
     .min(1, "Select at least one sport"),
   level: z.string().max(100).optional(),
+  phone: z.string().min(1, "Phone number is required"),
 });
 
 export const athleteProfileUpdateSchema = athleteProfileSchema.partial();

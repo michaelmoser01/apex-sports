@@ -10,6 +10,7 @@ interface AthleteProfile {
   birthYear: number | null;
   sports: string[];
   level: string | null;
+  phone: string | null;
 }
 
 export default function AthleteProfilePage() {
@@ -31,6 +32,7 @@ export default function AthleteProfilePage() {
   const [cityInput, setCityInput] = useState("");
   const [citySuggestions, setCitySuggestions] = useState<string[]>([]);
   const [showCitySuggestions, setShowCitySuggestions] = useState(false);
+  const [phone, setPhone] = useState("");
 
   const updateProfileMutation = useMutation({
     mutationFn: (data: {
@@ -39,6 +41,7 @@ export default function AthleteProfilePage() {
       birthYear?: number | null;
       sports: string[];
       level?: string | null;
+      phone: string;
     }) =>
       api<AthleteProfile>("/athletes/me", {
         method: "PUT",
@@ -56,6 +59,7 @@ export default function AthleteProfilePage() {
     setBirthYear(p.birthYear != null ? String(p.birthYear) : "");
     setSports(p.sports ?? []);
     setLevel(p.level ?? "");
+    setPhone(p.phone ?? "");
   };
 
   if (!isLoading && profile && displayName === "" && sports.length === 0 && !serviceCity && !birthYear && !level) {
@@ -75,7 +79,7 @@ export default function AthleteProfilePage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!displayName.trim() || !serviceCity.trim() || sports.length === 0) {
+    if (!displayName.trim() || !serviceCity.trim() || sports.length === 0 || !phone.trim()) {
       return;
     }
     const year = birthYear.trim() ? Number(birthYear.trim()) : null;
@@ -85,11 +89,13 @@ export default function AthleteProfilePage() {
       birthYear: number | null;
       sports: string[];
       level?: string;
+      phone: string;
     } = {
       displayName: displayName.trim(),
       serviceCity: serviceCity.trim(),
       birthYear: Number.isFinite(year as number) ? (year as number) : null,
       sports,
+      phone: phone.trim(),
     };
     if (level.trim()) {
       payload.level = level.trim();
@@ -224,9 +230,41 @@ export default function AthleteProfilePage() {
           </div>
         </div>
 
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">
+            Phone number
+          </label>
+          <p className="text-slate-500 text-xs mb-2">
+            We&apos;ll share this with your coach so you can coordinate sessions. Message and
+            data rates may apply. By continuing, you agree to our{" "}
+            <a href="#" className="underline">
+              Terms of Service
+            </a>{" "}
+            and{" "}
+            <a href="#" className="underline">
+              Privacy Policy
+            </a>
+            .
+          </p>
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            required
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+            placeholder="e.g. 201 555 0123"
+          />
+        </div>
+
         <button
           type="submit"
-          disabled={updateProfileMutation.isPending || !displayName.trim() || !serviceCity.trim() || sports.length === 0}
+          disabled={
+            updateProfileMutation.isPending ||
+            !displayName.trim() ||
+            !serviceCity.trim() ||
+            sports.length === 0 ||
+            !phone.trim()
+          }
           className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 disabled:opacity-50"
         >
           {updateProfileMutation.isPending ? "Saving…" : "Save profile"}

@@ -115,6 +115,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
           birthYear: athleteProfile.birthYear,
           sports: athleteProfile.sports,
           level: athleteProfile.level,
+          phone: athleteProfile.phone ?? null,
         }
       : null,
   });
