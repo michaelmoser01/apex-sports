@@ -6,6 +6,7 @@ export interface AthleteProfileShape {
   displayName: string;
   serviceCity: string | null;
   sports: string[];
+  phone?: string | null;
   [key: string]: unknown;
 }
 
@@ -21,5 +22,6 @@ export function hasCompletedAthleteOnboarding(
   const name = typeof profile.displayName === "string" ? profile.displayName.trim() : "";
   const city = typeof profile.serviceCity === "string" ? profile.serviceCity.trim() : "";
   const sports = Array.isArray(profile.sports) ? profile.sports : [];
-  return name.length > 0 && city.length > 0 && sports.length > 0;
+  const phone = typeof profile.phone === "string" ? profile.phone.trim() : "";
+  return name.length > 0 && city.length > 0 && sports.length > 0 && phone.length > 0;
 }

@@ -65,6 +65,7 @@ model AthleteProfile {
   birthYear   Int?     @map("birth_year")
   sports      String[] @default([])
   level       String?
+  phone       String?  @map("phone")
   createdAt   DateTime @default(now()) @map("created_at")
 
   coachAssociations CoachAthlete[] @relation("AthleteCoaches")

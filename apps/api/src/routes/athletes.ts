@@ -86,6 +86,7 @@ router.put("/me", authMiddleware(), async (req, res) => {
           : existing?.sports ?? [],
       level:
         data.level !== undefined ? data.level ?? null : existing?.level ?? null,
+      phone: data.phone ?? existing?.phone ?? null,
     },
     update: {
       ...(data.displayName !== undefined && { displayName: data.displayName }),
@@ -93,6 +94,7 @@ router.put("/me", authMiddleware(), async (req, res) => {
       ...(data.birthYear !== undefined && { birthYear: data.birthYear ?? null }),
       ...(data.sports !== undefined && { sports: data.sports }),
       ...(data.level !== undefined && { level: data.level ?? null }),
+      ...(data.phone !== undefined && { phone: data.phone ?? null }),
     },
   });
 
@@ -103,6 +105,7 @@ router.put("/me", authMiddleware(), async (req, res) => {
     birthYear: profile.birthYear,
     sports: profile.sports,
     level: profile.level,
+    phone: profile.phone ?? null,
   });
 });
 
