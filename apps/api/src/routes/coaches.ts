@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import { sendBookingStatusToAthlete } from "../notifications.js";
 import { stripe, isStripeEnabled, createPlanCheckoutSession, createCoachPlanSubscription, getOrCreateStripeCustomerId } from "../stripe.js";
 import { invokeBioDraft, isBedrockConfigured } from "../bedrock.js";
+import { invokeCoachAgent, type AgentChatRole } from "../coachAgent.js";
 
 const router = Router();
 const s3Client = new S3Client({ region: process.env.AWS_REGION ?? "us-east-1" });
@@ -236,6 +237,47 @@ router.post("/me/assistant", authMiddleware(), async (req, res) => {
   });
 
   res.json({ assistantPhoneNumber: mockNumber });
+});
+
+// Coach assistant agent chat (test harness: send as athlete or coach)
+router.post("/me/agent/chat", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const profile = await prisma.coachProfile.findUnique({
+    where: { userId: user.id },
+  });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  const body = req.body as { role?: string; message?: string; threadId?: string; athleteId?: string };
+  const role = body.role === "athlete" || body.role === "coach" ? (body.role as AgentChatRole) : null;
+  const message = typeof body.message === "string" ? body.message.trim() : "";
+  const threadId = typeof body.threadId === "string" ? body.threadId.trim() || undefined : undefined;
+  const athleteId = typeof body.athleteId === "string" ? body.athleteId.trim() || undefined : undefined;
+
+  if (!role) return res.status(400).json({ error: "role must be 'athlete' or 'coach'" });
+  if (!message) return res.status(400).json({ error: "message is required" });
+
+  try {
+    const result = await invokeCoachAgent({
+      role,
+      message,
+      coachId: profile.id,
+      threadId,
+      athleteId: role === "athlete" ? athleteId : undefined,
+    });
+    res.json({
+      agentReplyToSender: result.agentReplyToSender,
+      toCoach: result.toCoach,
+      toAthlete: result.toAthlete,
+      thinking: result.thinking,
+      toolCalls: result.toolCalls,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[coaches] agent/chat error:", msg);
+    res.status(500).json({ error: "Agent error", detail: msg });
+  }
 });
 
 const PLAN_PRICE_ENV_KEYS: Record<string, string> = {

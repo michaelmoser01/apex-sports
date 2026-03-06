@@ -173,6 +173,20 @@ function AppContent() {
           }
         />
         <Route
+          path="dashboard/agent-test"
+          element={
+            isDevMode ? (
+              <DevLoginGate>
+                <CoachDashboard />
+              </DevLoginGate>
+            ) : (
+              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
+                <CoachDashboard />
+              </Authenticator>
+            )
+          }
+        />
+        <Route
           path="athlete/onboarding"
           element={
             isDevMode ? (

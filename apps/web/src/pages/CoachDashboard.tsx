@@ -260,11 +260,13 @@ export default function CoachDashboard() {
   const view =
     location.pathname === "/dashboard" || location.pathname === "/dashboard/"
       ? "overview"
-      : location.pathname.endsWith("/availability")
-        ? "availability"
-        : location.pathname.endsWith("/athletes")
-          ? "athletes"
-          : "profile";
+      : location.pathname.endsWith("/agent-test")
+        ? "agentTest"
+        : location.pathname.endsWith("/availability")
+          ? "availability"
+          : location.pathname.endsWith("/athletes")
+            ? "athletes"
+            : "profile";
   const queryClient = useQueryClient();
   const [showAvailabilityForm, setShowAvailabilityForm] = useState(false);
   const [addMode, setAddMode] = useState<"one-off" | "recurring" | null>(null);
@@ -282,6 +284,26 @@ export default function CoachDashboard() {
   const [photosSaveSkippedMessage, setPhotosSaveSkippedMessage] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
+  // Agent test harness state
+  const [agentThreadId] = useState(() => {
+    if (typeof window === "undefined") return crypto.randomUUID();
+    try {
+      const s = sessionStorage.getItem("agentTestThreadId");
+      if (s) return s;
+    } catch {}
+    return crypto.randomUUID();
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem("agentTestThreadId", agentThreadId);
+    } catch {}
+  }, [agentThreadId]);
+  const [athleteMessages, setAthleteMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const [coachMessages, setCoachMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(null);
+  const [agentThinking, setAgentThinking] = useState<string[]>([]);
+  const [athleteInput, setAthleteInput] = useState("");
+  const [coachInput, setCoachInput] = useState("");
 
   const {
     data: profile,
@@ -418,6 +440,21 @@ export default function CoachDashboard() {
     },
   });
 
+  type AgentChatResponse = {
+    agentReplyToSender: string;
+    toCoach: string | null;
+    toAthlete: string | null;
+    thinking: string[];
+    toolCalls?: Array<{ name: string; input: unknown; result: unknown }>;
+  };
+  const agentChatMutation = useMutation({
+    mutationFn: (body: { role: "athlete" | "coach"; message: string; threadId?: string; athleteId?: string }) =>
+      api<AgentChatResponse>("/coaches/me/agent/chat", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  });
+
   const connectAccountLinkMutation = useMutation({
     mutationFn: () =>
       api<{ url: string }>("/coaches/me/connect-account-link", { method: "POST" }),
@@ -454,7 +491,7 @@ export default function CoachDashboard() {
   const { data: athletesData } = useQuery({
     queryKey: ["coachAthletes"],
     queryFn: () => api<ConnectedAthlete[]>("/coaches/me/athletes"),
-    enabled: !!profile && !("error" in profile) && (view === "overview" || view === "athletes"),
+    enabled: !!profile && !("error" in profile) && (view === "overview" || view === "athletes" || view === "agentTest"),
   });
 
   useEffect(() => {
@@ -644,6 +681,150 @@ export default function CoachDashboard() {
             </ul>
           </div>
         )}
+      </div>
+    );
+  }
+
+  if (view === "agentTest") {
+    const sendAsAthlete = async () => {
+      const msg = athleteInput.trim();
+      if (!msg || agentChatMutation.isPending) return;
+      setAthleteInput("");
+      setAthleteMessages((prev) => [...prev, { role: "user", content: msg }]);
+      try {
+        const res = await agentChatMutation.mutateAsync({
+          role: "athlete",
+          message: msg,
+          threadId: agentThreadId,
+          athleteId: selectedAthleteId ?? undefined,
+        });
+        setAgentThinking(res.thinking ?? []);
+        setAthleteMessages((prev) => [...prev, { role: "assistant", content: res.agentReplyToSender }]);
+        if (res.toCoach?.trim()) {
+          setCoachMessages((prev) => [...prev, { role: "assistant", content: res.toCoach! }]);
+        }
+      } catch (e) {
+        setAthleteMessages((prev) => [...prev, { role: "assistant", content: `Error: ${e instanceof Error ? e.message : String(e)}` }]);
+      }
+    };
+    const sendAsCoach = async () => {
+      const msg = coachInput.trim();
+      if (!msg || agentChatMutation.isPending) return;
+      setCoachInput("");
+      setCoachMessages((prev) => [...prev, { role: "user", content: msg }]);
+      try {
+        const res = await agentChatMutation.mutateAsync({
+          role: "coach",
+          message: msg,
+          threadId: agentThreadId,
+        });
+        setAgentThinking(res.thinking ?? []);
+        setCoachMessages((prev) => [...prev, { role: "assistant", content: res.agentReplyToSender }]);
+        if (res.toAthlete?.trim()) {
+          setAthleteMessages((prev) => [...prev, { role: "assistant", content: res.toAthlete! }]);
+        }
+      } catch (e) {
+        setCoachMessages((prev) => [...prev, { role: "assistant", content: `Error: ${e instanceof Error ? e.message : String(e)}` }]);
+      }
+    };
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        <h1 className="text-2xl font-bold text-slate-900 mb-4">Agent test harness</h1>
+        <p className="text-slate-600 text-sm mb-6">
+          Send messages as athlete or coach to see the assistant flow. Select which athlete is messaging to test booking. Thread: <code className="text-xs bg-slate-100 px-1 rounded">{agentThreadId.slice(0, 8)}…</code>
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 min-h-[480px]">
+          <section className="flex flex-col rounded-xl border border-slate-200 bg-white overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-200 flex flex-col gap-2">
+              <h2 className="font-medium text-slate-900">Athlete chat</h2>
+              <label className="text-xs text-slate-500 flex items-center gap-2">
+                Messaging as:
+                <select
+                  value={selectedAthleteId ?? ""}
+                  onChange={(e) => setSelectedAthleteId(e.target.value || null)}
+                  className="text-slate-700 border border-slate-300 rounded px-2 py-1 text-sm flex-1 min-w-0"
+                >
+                  <option value="">Select athlete…</option>
+                  {(athletesData ?? []).map((a) => (
+                    <option key={a.athlete.userId} value={a.athlete.userId}>
+                      {a.athlete.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {athleteMessages.length === 0 && (
+                <p className="text-slate-500 text-sm">Send as athlete →</p>
+              )}
+              {athleteMessages.map((m, i) => (
+                <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
+                  <span className="inline-block max-w-[85%] rounded-lg px-3 py-2 text-sm text-left break-words bg-slate-100 text-slate-900">{m.content}</span>
+                </div>
+              ))}
+            </div>
+            <div className="p-3 border-t border-slate-200 flex gap-2">
+              <input
+                type="text"
+                value={athleteInput}
+                onChange={(e) => setAthleteInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sendAsAthlete()}
+                placeholder="Message as athlete…"
+                className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm"
+              />
+              <button
+                type="button"
+                onClick={sendAsAthlete}
+                disabled={agentChatMutation.isPending}
+                className="px-4 py-2 rounded-lg bg-brand-500 text-white text-sm font-medium hover:bg-brand-600 disabled:opacity-50"
+              >
+                Send
+              </button>
+            </div>
+          </section>
+          <section className="flex flex-col rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
+            <h2 className="px-4 py-3 border-b border-slate-200 font-medium text-slate-700 bg-slate-100">Agent thinking</h2>
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {agentThinking.length === 0 && (
+                <p className="text-slate-500 text-sm">Tool calls and steps appear here.</p>
+              )}
+              {agentThinking.map((line, i) => (
+                <p key={i} className="text-xs font-mono text-slate-600">{line}</p>
+              ))}
+            </div>
+          </section>
+          <section className="flex flex-col rounded-xl border border-slate-200 bg-white overflow-hidden">
+            <h2 className="px-4 py-3 border-b border-slate-200 font-medium text-slate-900 bg-slate-50">Coach chat</h2>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {coachMessages.length === 0 && (
+                <p className="text-slate-500 text-sm">Send as coach →</p>
+              )}
+              {coachMessages.map((m, i) => (
+                <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
+                  <span className="inline-block max-w-[85%] rounded-lg px-3 py-2 text-sm text-left break-words bg-slate-100 text-slate-900">{m.content}</span>
+                </div>
+              ))}
+            </div>
+            <div className="p-3 border-t border-slate-200 flex gap-2">
+              <input
+                type="text"
+                value={coachInput}
+                onChange={(e) => setCoachInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sendAsCoach()}
+                placeholder="Message as coach…"
+                className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm"
+              />
+              <button
+                type="button"
+                onClick={sendAsCoach}
+                disabled={agentChatMutation.isPending}
+                className="px-4 py-2 rounded-lg bg-brand-500 text-white text-sm font-medium hover:bg-brand-600 disabled:opacity-50"
+              >
+                Send
+              </button>
+            </div>
+          </section>
+        </div>
       </div>
     );
   }

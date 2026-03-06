@@ -103,6 +103,12 @@ function DevLayout() {
                     >
                       Availability
                     </Link>
+                    <Link
+                      to="/dashboard/agent-test"
+                      className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+                    >
+                      Agent test
+                    </Link>
                   </>
                 )}
                 <button
@@ -203,6 +209,13 @@ function DevLayout() {
                           onClick={() => setMenuOpen(false)}
                         >
                           Availability
+                        </Link>
+                        <Link
+                          to="/dashboard/agent-test"
+                          className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          Agent test
                         </Link>
                       </>
                     )}
@@ -379,6 +392,12 @@ function CognitoLayout() {
                     >
                       Availability
                     </Link>
+                    <Link
+                      to="/dashboard/agent-test"
+                      className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+                    >
+                      Agent test
+                    </Link>
                   </>
                 )}
                 <button
@@ -479,6 +498,13 @@ function CognitoLayout() {
                           onClick={() => setMenuOpen(false)}
                         >
                           Availability
+                        </Link>
+                        <Link
+                          to="/dashboard/agent-test"
+                          className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          Agent test
                         </Link>
                       </>
                     )}

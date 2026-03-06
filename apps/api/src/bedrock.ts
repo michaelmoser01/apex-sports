@@ -7,7 +7,8 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 
 const BEDROCK_REGION = process.env.BEDROCK_REGION ?? process.env.AWS_REGION ?? "us-east-1";
-const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID ?? "anthropic.claude-3-haiku-20240307-v1:0";
+
+export const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID ?? "anthropic.claude-3-haiku-20240307-v1:0";
 
 let client: BedrockRuntimeClient | null = null;
 
@@ -16,6 +17,10 @@ function getClient(): BedrockRuntimeClient {
     client = new BedrockRuntimeClient({ region: BEDROCK_REGION });
   }
   return client;
+}
+
+export function getBedrockRuntimeClient(): BedrockRuntimeClient {
+  return getClient();
 }
 
 export function isBedrockConfigured(): boolean {
