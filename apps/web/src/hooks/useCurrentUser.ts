@@ -16,6 +16,8 @@ export interface CurrentUser {
     verified: boolean;
     avatarUrl: string | null;
     phone: string | null;
+    /** Friendly slug for public profile URL (same as invite link). Use for /coaches/:slug. */
+    inviteSlug?: string | null;
   } | null;
   athleteProfile: {
     id: string;

@@ -45,6 +45,7 @@ model CoachProfile {
   planId                   String?  @map("plan_id") // "starter" | "pro" | "elite"
 
   photos             CoachPhoto[]
+  locations          CoachLocation[]
   availabilityRules  AvailabilityRule[]
   availabilitySlots AvailabilitySlot[]
   bookings          Booking[]         @relation("CoachBookings")
@@ -54,6 +55,22 @@ model CoachProfile {
   phoneOptIns       CoachAthletePhoneOptIn[]
 
   @@map("coach_profiles")
+}
+
+model CoachLocation {
+  id        String       @id @default(uuid())
+  coachId  String       @map("coach_id")
+  coach    CoachProfile @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  name     String       @map("name")
+  address  String       @db.Text
+  notes    String?      @db.Text
+  latitude Decimal?     @db.Decimal(10, 7)
+  longitude Decimal?   @db.Decimal(10, 7)
+
+  availabilitySlots AvailabilitySlot[]
+  availabilityRules AvailabilityRule[]
+
+  @@map("coach_locations")
 }
 
 model AthleteProfile {
@@ -87,6 +104,8 @@ model AvailabilityRule {
   id               String   @id @default(uuid())
   coachId          String   @map("coach_id")
   coach            CoachProfile @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  locationId       String?  @map("location_id")
+  location         CoachLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
   firstStartTime   DateTime @map("first_start_time")
   durationMinutes Int      @map("duration_minutes")
   recurrence      String   @default("weekly")
@@ -101,6 +120,8 @@ model AvailabilitySlot {
   id         String   @id @default(uuid())
   coachId    String   @map("coach_id")
   coach      CoachProfile @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  locationId String?  @map("location_id")
+  location   CoachLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
   ruleId     String?  @map("rule_id")
   rule       AvailabilityRule? @relation(fields: [ruleId], references: [id], onDelete: Cascade)
   startTime  DateTime @map("start_time")

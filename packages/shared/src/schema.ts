@@ -90,6 +90,7 @@ export const availabilitySlotCreateSchema = z.object({
   durationMinutes: durationMinutesSchema,
   recurrence: z.enum(["none", "weekly"]).optional().default("none"),
   recurrenceWeeks: z.number().int().min(1).max(52).optional().default(12),
+  locationId: z.string().uuid().optional().nullable(),
 });
 
 export const availabilitySlotUpdateSchema = availabilitySlotSchema.partial();
@@ -101,7 +102,19 @@ export const availabilityRuleCreateSchema = z.object({
   durationMinutes: durationMinutesSchema,
   recurrence: z.literal("weekly"),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "End date must be YYYY-MM-DD"),
+  locationId: z.string().uuid().optional().nullable(),
 });
+
+// Coach location (exact address, optional lat/lng for map pin, optional notes for how to find)
+export const coachLocationCreateSchema = z.object({
+  name: z.string().min(1, "Name is required").max(120),
+  address: z.string().min(1, "Address is required").max(500),
+  notes: z.string().max(2000).optional().nullable(),
+  latitude: z.number().min(-90).max(90).optional().nullable(),
+  longitude: z.number().min(-180).max(180).optional().nullable(),
+});
+
+export const coachLocationUpdateSchema = coachLocationCreateSchema.partial();
 
 // Booking
 export const bookingCreateSchema = z.object({

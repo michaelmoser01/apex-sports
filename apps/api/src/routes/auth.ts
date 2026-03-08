@@ -49,7 +49,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
   const dbUser = await prisma.user.findUnique({
     where: { id: user.id },
     include: {
-      coachProfile: true,
+      coachProfile: { include: { invite: { select: { slug: true } } } },
       athleteProfile: true,
     },
   });
@@ -105,6 +105,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
           verified: dbUser.coachProfile.verified,
           avatarUrl: dbUser.coachProfile.avatarUrl,
           phone: dbUser.coachProfile.phone ?? null,
+          inviteSlug: (dbUser.coachProfile as { invite?: { slug: string } | null }).invite?.slug ?? null,
         }
       : null,
     athleteProfile: athleteProfile

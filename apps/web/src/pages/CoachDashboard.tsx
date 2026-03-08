@@ -2,10 +2,17 @@ import { Link, useLocation, Navigate } from "react-router-dom";
 import { getNextOnboardingStep } from "@/config/onboarding";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
+import { startOfMonth, endOfMonth, format, isBefore } from "date-fns";
 import { api } from "@/lib/api";
-import { ALLOWED_SPORTS, DURATION_MINUTES_OPTIONS } from "@apex-sports/shared";
+import { ALLOWED_SPORTS } from "@apex-sports/shared";
 import { searchServiceCities } from "@apex-sports/shared";
 import ReactMarkdown from "react-markdown";
+import {
+  AvailabilityCalendar,
+  EventDetailModal,
+  type CalendarEvent,
+} from "@/components/AvailabilityCalendar";
+import { CoachLocations } from "@/components/CoachLocations";
 
 interface CoachPhoto {
   id: string;
@@ -268,14 +275,14 @@ export default function CoachDashboard() {
             ? "athletes"
             : "profile";
   const queryClient = useQueryClient();
-  const [showAvailabilityForm, setShowAvailabilityForm] = useState(false);
-  const [addMode, setAddMode] = useState<"one-off" | "recurring" | null>(null);
-  const [slotStart, setSlotStart] = useState("");
-  const [durationMinutes, setDurationMinutes] = useState(60);
-  const [ruleFirstStart, setRuleFirstStart] = useState("");
-  const [ruleEndDate, setRuleEndDate] = useState("");
-  const [ruleDurationMinutes, setRuleDurationMinutes] = useState(60);
   const [removeTarget, setRemoveTarget] = useState<{ type: "rule" | "slot"; id: string; bookingCount?: number } | null>(null);
+  const [calendarRange, setCalendarRange] = useState<{ start: Date; end: Date }>(() => {
+    const now = new Date();
+    return { start: startOfMonth(now), end: endOfMonth(now) };
+  });
+  const [addOneOffModalStart, setAddOneOffModalStart] = useState<Date | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [addOneOffError, setAddOneOffError] = useState<string | null>(null);
   const [newPhotoUrl, setNewPhotoUrl] = useState("");
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [photosSaved, setPhotosSaved] = useState(true);
@@ -329,6 +336,11 @@ export default function CoachDashboard() {
     queryFn: () => api<AvailabilityResponse>("/coaches/me/availability"),
     enabled: !!profile && !("error" in profile),
   });
+  const { data: coachLocations = [] } = useQuery({
+    queryKey: ["coachLocations"],
+    queryFn: () => api<{ id: string; name: string; address: string }[]>("/coaches/me/locations"),
+    enabled: !!profile && !("error" in profile),
+  });
   const rules = availability?.rules ?? [];
   const oneOffSlots = availability?.oneOffSlots ?? [];
 
@@ -359,11 +371,12 @@ export default function CoachDashboard() {
         body: JSON.stringify(data),
       }),
     onSuccess: () => {
-      setSlotStart("");
-      setDurationMinutes(60);
-      setShowAvailabilityForm(false);
-      setAddMode(null);
+      setAddOneOffModalStart(null);
+      setAddOneOffError(null);
       queryClient.invalidateQueries({ queryKey: ["availability"] });
+    },
+    onError: (err: Error) => {
+      setAddOneOffError(err.message ?? "Failed to add session");
     },
   });
 
@@ -374,12 +387,12 @@ export default function CoachDashboard() {
         body: JSON.stringify(data),
       }),
     onSuccess: () => {
-      setRuleFirstStart("");
-      setRuleEndDate("");
-      setRuleDurationMinutes(60);
-      setShowAvailabilityForm(false);
-      setAddMode(null);
+      setAddOneOffModalStart(null);
+      setAddOneOffError(null);
       queryClient.invalidateQueries({ queryKey: ["availability"] });
+    },
+    onError: (err: Error) => {
+      setAddOneOffError(err.message ?? "Failed to add recurring availability");
     },
   });
 
@@ -455,14 +468,6 @@ export default function CoachDashboard() {
       }),
   });
 
-  const connectAccountLinkMutation = useMutation({
-    mutationFn: () =>
-      api<{ url: string }>("/coaches/me/connect-account-link", { method: "POST" }),
-    onSuccess: (data) => {
-      if (data?.url) window.location.href = data.url;
-    },
-  });
-
   const { data: inviteData } = useQuery({
     queryKey: ["coachInvite"],
     queryFn: () => api<{ slug: string; url: string }>("/coaches/me/invites"),
@@ -488,7 +493,12 @@ export default function CoachDashboard() {
     queryFn: () => api<BookingsData>("/bookings"),
     enabled: !!profile && !("error" in profile) && (view === "overview" || view === "athletes"),
   });
-  const { data: athletesData } = useQuery({
+  const {
+    data: athletesData,
+    isError: athletesError,
+    isLoading: athletesLoading,
+    refetch: refetchAthletes,
+  } = useQuery({
     queryKey: ["coachAthletes"],
     queryFn: () => api<ConnectedAthlete[]>("/coaches/me/athletes"),
     enabled: !!profile && !("error" in profile) && (view === "overview" || view === "athletes" || view === "agentTest"),
@@ -500,20 +510,6 @@ export default function CoachDashboard() {
       setPhotoUrls(urls);
     }
   }, [profile]);
-
-  const [connectStatusSyncing, setConnectStatusSyncing] = useState(false);
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    if ((params.get("connect") === "return" || params.get("connect") === "refresh") && profile && !("error" in profile)) {
-      setConnectStatusSyncing(true);
-      api<{ stripeOnboardingComplete: boolean }>("/coaches/me/connect-status")
-        .then(() => {
-          queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
-          window.history.replaceState({}, "", location.pathname);
-        })
-        .finally(() => setConnectStatusSyncing(false));
-    }
-  }, [location.search, location.pathname, profile, queryClient]);
 
   const noProfile =
     !profileLoading &&
@@ -650,16 +646,115 @@ export default function CoachDashboard() {
     const athletes = athletesData ?? [];
     return (
       <div className="max-w-4xl mx-auto px-4 py-12">
-        <h1 className="text-2xl font-bold text-slate-900 mb-8">Athletes</h1>
+        <h1 className="text-2xl font-bold text-slate-900 mb-6">Athletes</h1>
+        <section id="invite-athletes" className="mb-8 p-6 bg-white rounded-xl border border-slate-200">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">
+            Invite athletes
+          </h2>
+          <p className="text-slate-600 text-sm mb-4">
+            Share your link so new athletes can sign up and be associated with you. They&apos;ll see this link when they text your number too.
+          </p>
+          {inviteData?.url ? (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={inviteData.url}
+                  className="flex-1 min-w-[200px] px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(inviteData.url);
+                  }}
+                  className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-50"
+                >
+                  Copy link
+                </button>
+              </div>
+              {!editingInviteSlug ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInviteSlugInput(inviteData.slug);
+                      setEditingInviteSlug(true);
+                    }}
+                    className="text-brand-600 hover:underline font-medium text-sm"
+                  >
+                    Edit link name
+                  </button>
+                  <a
+                    href={`/join/${inviteData.slug}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-slate-600 hover:text-slate-900 font-medium text-sm"
+                  >
+                    Preview join page →
+                  </a>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    value={inviteSlugInput}
+                    onChange={(e) => setInviteSlugInput(e.target.value)}
+                    placeholder="my-name"
+                    className="px-3 py-2 border border-slate-300 rounded-lg text-sm w-48"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => updateInviteMutation.mutate(inviteSlugInput)}
+                    disabled={updateInviteMutation.isPending || !inviteSlugInput.trim() || inviteSlugInput.trim().length < 2}
+                    className="px-4 py-2 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 disabled:opacity-50"
+                  >
+                    {updateInviteMutation.isPending ? "Saving…" : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setEditingInviteSlug(false); setInviteSlugInput(""); }}
+                    className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+              {updateInviteMutation.isError && (
+                <p className="text-red-600 text-sm" role="alert">
+                  {updateInviteMutation.error?.message ?? "Failed to update link name."}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-slate-500 text-sm">Loading your invite link…</p>
+          )}
+        </section>
         <p className="text-slate-600 text-sm mb-6">
-          Athletes who signed up via your invite link. View bookings to manage sessions.
+          Here are the athletes who have signed up via your invite link or booked a session in the past.
         </p>
-        {athletes.length === 0 ? (
+        {athletesLoading ? (
+          <div className="p-6 bg-white rounded-xl border border-slate-200">
+            <p className="text-slate-500">Loading athletes…</p>
+          </div>
+        ) : athletesError ? (
+          <div className="p-6 bg-white rounded-xl border border-slate-200">
+            <p className="text-slate-700 mb-2">Couldn&apos;t load your connected athletes.</p>
+            <p className="text-slate-500 text-sm mb-4">This can happen if you&apos;re not signed in as the same coach, or there was a network error. Try again.</p>
+            <button
+              type="button"
+              onClick={() => refetchAthletes()}
+              className="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600"
+            >
+              Retry
+            </button>
+          </div>
+        ) : athletes.length === 0 ? (
           <div className="p-6 bg-white rounded-xl border border-slate-200">
             <p className="text-slate-500">No connected athletes yet. Share your invite link so athletes can sign up and appear here.</p>
-            <Link to="/dashboard/profile" className="inline-block mt-4 text-brand-600 font-medium hover:underline">
-              Get your invite link →
-            </Link>
+            <a href="#invite-athletes" className="inline-block mt-4 text-brand-600 font-medium hover:underline">
+              Get your invite link ↑
+            </a>
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -830,6 +925,29 @@ export default function CoachDashboard() {
   }
 
   if (view === "availability") {
+    const handleCalendarRangeChange = (range: Date[] | { start: Date; end: Date }) => {
+      if (Array.isArray(range) && range.length > 0) {
+        const start = range[0];
+        const end = range[range.length - 1];
+        setCalendarRange({ start, end });
+      } else if (!Array.isArray(range) && range.start && range.end) {
+        setCalendarRange({ start: range.start, end: range.end });
+      }
+    };
+
+    const handleEventRemove = (event: CalendarEvent) => {
+      setSelectedEvent(null);
+      if (event.resource?.type === "recurring" && event.resource.ruleId) {
+        setRemoveTarget({
+          type: "rule",
+          id: event.resource.ruleId,
+          bookingCount: event.resource.bookingCount,
+        });
+      } else if (event.resource?.type === "one-off" && event.resource.slotId) {
+        setRemoveTarget({ type: "slot", id: event.resource.slotId });
+      }
+    };
+
     return (
       <>
       <div className="max-w-4xl mx-auto px-4 py-12">
@@ -847,232 +965,141 @@ export default function CoachDashboard() {
             </button>
           </div>
         )}
-        <h1 className="text-2xl font-bold text-slate-900 mb-8">
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mb-6 sm:mb-8">
           Availability
         </h1>
-        <section className="p-6 bg-white rounded-xl border border-slate-200">
+        <section className="mb-6 sm:mb-8">
+          <CoachLocations />
+        </section>
+        <section className="px-4 py-4 sm:p-6 bg-white rounded-xl border border-slate-200">
           {availabilityLoading ? (
             <p className="text-slate-500">Loading...</p>
           ) : (
             <>
-              <div className="mb-6 pb-6 border-b border-slate-200">
-                {showAvailabilityForm ? (
-                  <div className="space-y-4">
-                    {addMode === null ? (
-                      <div className="flex flex-wrap gap-2 items-center">
-                        <button
-                          type="button"
-                          onClick={() => setAddMode("one-off")}
-                          className="bg-brand-500 text-white px-4 py-2 rounded-lg font-medium"
-                        >
-                          One-off slot
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setAddMode("recurring")}
-                          className="bg-slate-200 text-slate-800 px-4 py-2 rounded-lg font-medium hover:bg-slate-300"
-                        >
-                          Recurring (weekly)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { setShowAvailabilityForm(false); setAddMode(null); }}
-                          className="text-slate-600 px-4 py-2"
-                        >
-                          Cancel
-                        </button>
+              <p className="mb-4 text-sm text-slate-500">
+                Tap a date to see that day&apos;s schedule and add availability (one-time or repeat weekly).
+              </p>
+              <AvailabilityCalendar
+                rules={rules}
+                oneOffSlots={oneOffSlots}
+                rangeStart={calendarRange.start}
+                rangeEnd={calendarRange.end}
+                onSlotClick={(start) => {
+                  setAddOneOffError(null);
+                  setAddOneOffModalStart(start);
+                }}
+                onEventClick={setSelectedEvent}
+                onRangeChange={handleCalendarRangeChange}
+                locations={coachLocations}
+                inlineAddSlot={addOneOffModalStart}
+                onCloseInlineAdd={() => {
+                  setAddOneOffModalStart(null);
+                  setAddOneOffError(null);
+                }}
+                onAddOneOff={(startTime, durationMinutes, locationId) => {
+                  addSlotMutation.mutate({
+                    startTime,
+                    durationMinutes,
+                    recurrence: "none",
+                    ...(locationId && { locationId }),
+                  });
+                }}
+                onAddRecurring={(firstStartTime, durationMinutes, endDate, locationId) => {
+                  addRuleMutation.mutate({
+                    firstStartTime,
+                    durationMinutes,
+                    recurrence: "weekly",
+                    endDate,
+                    ...(locationId && { locationId }),
+                  });
+                }}
+                isAddSubmitting={addSlotMutation.isPending || addRuleMutation.isPending}
+                addError={addOneOffError}
+              />
+              {(rules.length > 0 || oneOffSlots.length > 0) && (
+                <div className="mt-6 pt-6 border-t border-slate-200">
+                  <h3 className="text-sm font-semibold text-slate-800 mb-3">Summary</h3>
+                  {rules.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5">Recurring</p>
+                      <ul className="space-y-2">
+                        {rules.map((rule) => {
+                          const first = new Date(rule.firstStartTime);
+                          const end = new Date(first.getTime() + rule.durationMinutes * 60 * 1000);
+                          const day = format(first, "EEEE");
+                          const timeRange = `${format(first, "h:mm a")} – ${format(end, "h:mm a")}`;
+                          const endDateFormatted = format(new Date(rule.endDate + "T12:00:00"), "MMM d, yyyy");
+                          return (
+                            <li key={rule.id} className="flex justify-between items-center py-1.5 text-sm">
+                              <span className="text-slate-700">
+                                <strong>{day}s</strong> {timeRange} until {endDateFormatted}
+                                <span className="text-slate-500 font-normal ml-1">({rule.slotCount} slots)</span>
+                              </span>
+                              <button
+                                onClick={() => setRemoveTarget({ type: "rule", id: rule.id, bookingCount: rule.bookingCount ?? 0 })}
+                                disabled={deleteRuleMutation.isPending}
+                                className="text-red-600 hover:underline text-sm shrink-0 ml-2"
+                              >
+                                Remove
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                  {oneOffSlots.length > 0 && (() => {
+                    const now = new Date();
+                    const upcoming = oneOffSlots
+                      .filter((s) => !isBefore(new Date(s.startTime), now))
+                      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+                      .slice(0, 15);
+                    const pastCount = oneOffSlots.length - upcoming.length;
+                    return (
+                      <div>
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5">
+                          One-time slots
+                          {pastCount > 0 && (
+                            <span className="font-normal normal-case ml-1">
+                              ({pastCount} past hidden)
+                            </span>
+                          )}
+                        </p>
+                        {upcoming.length === 0 ? (
+                          <p className="text-slate-500 text-sm py-1">No upcoming one-time slots. Past slots still show on the calendar; remove from there if needed.</p>
+                        ) : (
+                          <>
+                            <ul className="space-y-2">
+                              {upcoming.map((slot) => {
+                                const start = new Date(slot.startTime);
+                                const end = new Date(slot.endTime);
+                                const dateStr = format(start, "EEE, MMM d, yyyy");
+                                const timeStr = `${format(start, "h:mm a")} – ${format(end, "h:mm a")}`;
+                                return (
+                                  <li key={slot.id} className="flex justify-between items-center py-1.5 text-sm">
+                                    <span className="text-slate-700">
+                                      {dateStr} at {timeStr}
+                                    </span>
+                                    <button
+                                      onClick={() => setRemoveTarget({ type: "slot", id: slot.id })}
+                                      disabled={deleteSlotMutation.isPending}
+                                      className="text-red-600 hover:underline text-sm shrink-0 ml-2"
+                                    >
+                                      Remove
+                                    </button>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                            {oneOffSlots.length > 15 && upcoming.length === 15 && (
+                              <p className="text-slate-500 text-xs mt-1">Showing next 15. Rest appear on the calendar.</p>
+                            )}
+                          </>
+                        )}
                       </div>
-                    ) : addMode === "one-off" ? (
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          addSlotMutation.mutate({
-                            startTime: new Date(slotStart).toISOString(),
-                            durationMinutes,
-                            recurrence: "none",
-                          });
-                        }}
-                        className="space-y-3"
-                      >
-                        <div className="flex flex-wrap gap-2 items-center">
-                          <label className="text-sm font-medium text-slate-700">Start</label>
-                          <input
-                            type="datetime-local"
-                            value={slotStart}
-                            onChange={(e) => setSlotStart(e.target.value)}
-                            required
-                            className="px-3 py-2 border border-slate-300 rounded-lg"
-                          />
-                        </div>
-                        <div className="flex flex-wrap gap-2 items-center">
-                          <label className="text-sm font-medium text-slate-700">Duration</label>
-                          <select
-                            value={durationMinutes}
-                            onChange={(e) => setDurationMinutes(Number(e.target.value))}
-                            className="px-3 py-2 border border-slate-300 rounded-lg"
-                          >
-                            {DURATION_MINUTES_OPTIONS.map((m) => (
-                              <option key={m} value={m}>
-                                {m === 60 ? "1 hr" : m < 60 ? `${m} min` : `${m / 60} hr`}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            type="submit"
-                            disabled={addSlotMutation.isPending}
-                            className="bg-brand-500 text-white px-3 py-1 rounded"
-                          >
-                            Add one-off
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setAddMode(null)}
-                            className="text-slate-600"
-                          >
-                            Back
-                          </button>
-                        </div>
-                      </form>
-                    ) : (
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          addRuleMutation.mutate({
-                            firstStartTime: new Date(ruleFirstStart).toISOString(),
-                            durationMinutes: ruleDurationMinutes,
-                            recurrence: "weekly",
-                            endDate: ruleEndDate,
-                          });
-                        }}
-                        className="space-y-3"
-                      >
-                        <div className="flex flex-wrap gap-2 items-center">
-                          <label className="text-sm font-medium text-slate-700">First start (date & time)</label>
-                          <input
-                            type="datetime-local"
-                            value={ruleFirstStart}
-                            onChange={(e) => setRuleFirstStart(e.target.value)}
-                            required
-                            className="px-3 py-2 border border-slate-300 rounded-lg"
-                          />
-                        </div>
-                        <div className="flex flex-wrap gap-2 items-center">
-                          <label className="text-sm font-medium text-slate-700">Duration</label>
-                          <select
-                            value={ruleDurationMinutes}
-                            onChange={(e) => setRuleDurationMinutes(Number(e.target.value))}
-                            className="px-3 py-2 border border-slate-300 rounded-lg"
-                          >
-                            {DURATION_MINUTES_OPTIONS.map((m) => (
-                              <option key={m} value={m}>
-                                {m === 60 ? "1 hr" : m < 60 ? `${m} min` : `${m / 60} hr`}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex flex-wrap gap-2 items-center">
-                          <label className="text-sm font-medium text-slate-700">End date (required)</label>
-                          <input
-                            type="date"
-                            value={ruleEndDate}
-                            onChange={(e) => setRuleEndDate(e.target.value)}
-                            required
-                            className="px-3 py-2 border border-slate-300 rounded-lg"
-                          />
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            type="submit"
-                            disabled={addRuleMutation.isPending}
-                            className="bg-brand-500 text-white px-3 py-1 rounded"
-                          >
-                            Add recurring
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setAddMode(null)}
-                            className="text-slate-600"
-                          >
-                            Back
-                          </button>
-                        </div>
-                      </form>
-                    )}
-                  </div>
-                ) : (
-                  <div>
-                    <button
-                      onClick={() => setShowAvailabilityForm(true)}
-                      className="text-brand-600 font-medium hover:underline"
-                    >
-                      + Add availability
-                    </button>
-                    <p className="text-slate-600 text-sm mt-1">Add a single time slot or a recurring weekly series.</p>
-                  </div>
-                )}
-              </div>
-              {rules.length > 0 && (
-                <div className="mb-6">
-                  <h3 className="text-sm font-semibold text-slate-700 mb-2">Recurring (weekly)</h3>
-                  <div className="space-y-2">
-                    {rules.map((rule) => {
-                      const first = new Date(rule.firstStartTime);
-                      const day = first.toLocaleDateString([], { weekday: "long" });
-                      const timeRange = `${first.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} – ${new Date(first.getTime() + rule.durationMinutes * 60 * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-                      return (
-                        <div
-                          key={rule.id}
-                          className="flex justify-between items-center py-2 border-b border-slate-100"
-                        >
-                          <span>
-                            {day}s {timeRange} until {rule.endDate}
-                            <span className="text-slate-500 text-sm ml-1">({rule.slotCount} slots)</span>
-                          </span>
-                          <button
-                            onClick={() => setRemoveTarget({ type: "rule", id: rule.id, bookingCount: rule.bookingCount ?? 0 })}
-                            disabled={deleteRuleMutation.isPending}
-                            className="text-red-600 text-sm hover:underline"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
+                    );
+                  })()}
                 </div>
-              )}
-              {oneOffSlots.length > 0 && (
-                <div className="mb-6">
-                  <h3 className="text-sm font-semibold text-slate-700 mb-2">One-off slots</h3>
-                  <div className="space-y-2">
-                    {oneOffSlots.map((slot) => (
-                      <div
-                        key={slot.id}
-                        className="flex justify-between items-center py-2 border-b border-slate-100"
-                      >
-                        <span>
-                          {new Date(slot.startTime).toLocaleString()} –{" "}
-                          {new Date(slot.endTime).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                        <button
-                          onClick={() => setRemoveTarget({ type: "slot", id: slot.id })}
-                          disabled={deleteSlotMutation.isPending}
-                          className="text-red-600 text-sm hover:underline"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {rules.length === 0 && oneOffSlots.length === 0 && (
-                <p className="text-slate-500 text-sm">No availability set yet.</p>
               )}
               {removeTarget && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="remove-availability-title">
@@ -1120,6 +1147,14 @@ export default function CoachDashboard() {
             </>
           )}
         </section>
+        {selectedEvent && (
+          <EventDetailModal
+            event={selectedEvent}
+            onClose={() => setSelectedEvent(null)}
+            onRemove={() => handleEventRemove(selectedEvent)}
+            isRemoving={deleteSlotMutation.isPending || deleteRuleMutation.isPending}
+          />
+        )}
         <p className="mt-6 text-slate-500 text-sm">
           Manage booking requests from the{" "}
           <Link to="/bookings" className="text-brand-600 hover:underline">
@@ -1216,83 +1251,6 @@ export default function CoachDashboard() {
               </p>
             )}
           </div>
-        )}
-      </section>
-
-      <section className="mb-8 p-6 bg-white rounded-xl border border-slate-200">
-        <h2 className="text-lg font-semibold text-slate-900 mb-4">
-          Invite athletes
-        </h2>
-        <p className="text-slate-600 text-sm mb-4">
-          Share your link so new athletes can sign up and be associated with you. They’ll see this link when they text your number too.
-        </p>
-        {inviteData?.url ? (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="text"
-                readOnly
-                value={inviteData.url}
-                className="flex-1 min-w-[200px] px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 text-sm"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(inviteData.url);
-                }}
-                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-50"
-              >
-                Copy link
-              </button>
-            </div>
-            {!editingInviteSlug ? (
-              <p className="text-slate-500 text-sm">
-                Link name: <strong>{inviteData.slug}</strong>{" "}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInviteSlugInput(inviteData.slug);
-                    setEditingInviteSlug(true);
-                  }}
-                  className="text-brand-600 hover:underline font-medium"
-                >
-                  Edit link name
-                </button>
-              </p>
-            ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="text"
-                  value={inviteSlugInput}
-                  onChange={(e) => setInviteSlugInput(e.target.value)}
-                  placeholder="my-name"
-                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm w-48"
-                />
-                <button
-                  type="button"
-                  onClick={() => updateInviteMutation.mutate(inviteSlugInput)}
-                  disabled={updateInviteMutation.isPending || !inviteSlugInput.trim() || inviteSlugInput.trim().length < 2}
-                  className="px-4 py-2 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 disabled:opacity-50"
-                >
-                  {updateInviteMutation.isPending ? "Saving…" : "Save"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setEditingInviteSlug(false); setInviteSlugInput(""); }}
-                  className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-            {updateInviteMutation.isError && (
-              <p className="text-red-600 text-sm" role="alert">
-                {updateInviteMutation.error?.message ?? "Failed to update link name."}
-              </p>
-            )}
-          </div>
-        ) : (
-          <p className="text-slate-500 text-sm">Loading your invite link…</p>
         )}
       </section>
 
@@ -1468,43 +1426,6 @@ export default function CoachDashboard() {
           <p className="text-slate-500 text-sm">No about section yet. Add one to help athletes get to know you.</p>
         )}
       </section>
-
-      {coach.hourlyRate && (
-        <section className="mb-12 p-6 bg-white rounded-xl border border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">
-            Payments
-          </h2>
-          {connectStatusSyncing ? (
-            <p className="text-slate-500 text-sm">Checking payment setup…</p>
-          ) : coach.stripeOnboardingComplete ? (
-            <p className="text-slate-600 text-sm flex items-center gap-2">
-              <span className="text-emerald-600 font-medium">Payments set up</span>
-              You’ll receive session payments after the platform fee.
-            </p>
-          ) : (
-            <>
-              <p className="text-slate-600 text-sm mb-3">
-                Set up Stripe to receive payments when athletes book sessions. You’ll be charged only when you mark a session complete.
-              </p>
-              <button
-                type="button"
-                onClick={() => connectAccountLinkMutation.mutate()}
-                disabled={connectAccountLinkMutation.isPending}
-                className="bg-brand-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50"
-              >
-                {connectAccountLinkMutation.isPending ? "Redirecting…" : "Set up payments"}
-              </button>
-              {connectAccountLinkMutation.isError && (
-                <p className="text-red-600 text-sm mt-2" role="alert">
-                  {connectAccountLinkMutation.error instanceof Error
-                    ? connectAccountLinkMutation.error.message
-                    : "Failed to start setup."}
-                </p>
-              )}
-            </>
-          )}
-        </section>
-      )}
 
       <p className="mt-6 text-slate-500 text-sm">
         Manage your schedule on the{" "}

@@ -22,7 +22,7 @@ if [ -f .env ]; then
   set +a
 fi
 
-# Stripe publishable key from Secrets Manager (same secret as API keys); set STRIPE_PUBLISHABLE_KEY in console so payment form shows
+# Stripe + Google Maps from Secrets Manager (apex-sports-<stage>-stripe-keys)
 SECRET_JSON=$(aws secretsmanager get-secret-value --secret-id "apex-sports-${STAGE}-stripe-keys" --query SecretString --output text 2>/dev/null || true)
 if [ -n "$SECRET_JSON" ]; then
   PUBKEY=$(node -e "try{const s=process.argv[1];const v=JSON.parse(s).STRIPE_PUBLISHABLE_KEY;console.log(typeof v==='string'?v:'');}catch(e){console.log('');}" "$SECRET_JSON" 2>/dev/null || true)
@@ -31,6 +31,11 @@ if [ -n "$SECRET_JSON" ]; then
     echo "Using Stripe publishable key from Secrets Manager (apex-sports-${STAGE}-stripe-keys)"
   else
     echo "STRIPE_PUBLISHABLE_KEY not set in apex-sports-${STAGE}-stripe-keys; build will not show payment form. Add it to the secret in the console and redeploy."
+  fi
+  GOOGLE_KEY=$(node -e "try{const s=process.argv[1];const v=JSON.parse(s).GOOGLE_MAPS_API_KEY;console.log(typeof v==='string'?v:'');}catch(e){console.log('');}" "$SECRET_JSON" 2>/dev/null || true)
+  if [ -n "$GOOGLE_KEY" ]; then
+    export VITE_GOOGLE_MAPS_API_KEY="$GOOGLE_KEY"
+    echo "Using Google Maps API key from Secrets Manager"
   fi
 else
   echo "Could not read apex-sports-${STAGE}-stripe-keys; build will not show payment form."

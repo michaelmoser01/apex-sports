@@ -8,8 +8,11 @@ import Home from "./pages/Home";
 import Coaches from "./pages/Coaches";
 import ForCoaches from "./pages/ForCoaches";
 import CoachDetail from "./pages/CoachDetail";
+import CoachBook from "./pages/CoachBook";
+import CoachBookingSuccess from "./pages/CoachBookingSuccess";
 import { CoachDetailErrorBoundary } from "./components/CoachDetailErrorBoundary";
 import Bookings from "./pages/Bookings";
+import CompleteReservedBooking from "./pages/CompleteReservedBooking";
 import CoachDashboard from "./pages/CoachDashboard";
 import AthleteProfilePage from "./pages/AthleteProfile";
 import AthleteOnboarding from "./pages/AthleteOnboarding";
@@ -72,12 +75,23 @@ function AppContent() {
         <Route path="pricing" element={<Navigate to="/coaches#pricing" replace />} />
         <Route path="find" element={<Coaches />} />
         <Route path="join/:slug" element={<Join />} />
+        <Route path="coaches/:id" element={<CoachDetailErrorBoundary><Outlet /></CoachDetailErrorBoundary>}>
+          <Route index element={<CoachDetail />} />
+          <Route path="book" element={<CoachBook />} />
+          <Route path="booking/success" element={<CoachBookingSuccess />} />
+        </Route>
         <Route
-          path="coaches/:id"
+          path="book/:coachId/:slotId"
           element={
-            <CoachDetailErrorBoundary>
-              <CoachDetail />
-            </CoachDetailErrorBoundary>
+            isDevMode ? (
+              <DevLoginGate>
+                <CompleteReservedBooking />
+              </DevLoginGate>
+            ) : (
+              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
+                <CompleteReservedBooking />
+              </Authenticator>
+            )
           }
         />
         <Route

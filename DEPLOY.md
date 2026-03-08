@@ -71,7 +71,7 @@ The web app needs the API URL and Cognito IDs at **build time**. After the first
 
 **Migrations run automatically** during deploy. A Lambda (in the same VPC as the API) is invoked by CloudFormation after Aurora is ready and applies any pending Prisma migrations.
 
-**When you add a new Prisma migration** (e.g. `npx prisma migrate dev`), you must bump `custom.migrationsVersion` in `serverless.yml` (e.g. from `"2"` to `"3"`) so CloudFormation re-invokes the migrate Lambda on the next deploy. Otherwise the Custom Resource only runs on initial stack create, and new migrations (like `coach_photos`) would never be applied.
+**When you add a new Prisma migration** (e.g. `npx prisma migrate dev`), you must bump `custom.migrationsVersion` in `serverless.yml` (e.g. from `"28"` to `"29"`) so CloudFormation re-invokes the migrate Lambda on the next deploy. Otherwise the Custom Resource only runs on initial stack create, and new migrations (e.g. `coach_locations`) would never be applied.
 
 If you need to run migrations manually (e.g. from a machine that can reach the VPC, or to fix a failed deploy):
 

@@ -91,6 +91,68 @@ ${contentHtml}${ctaBlock}
 </html>`;
 }
 
+export interface AthleteMessageToCoachParams {
+  coachEmail: string;
+  athleteDisplayName: string;
+  message: string;
+}
+
+export async function sendAthleteMessageToCoach(params: AthleteMessageToCoachParams): Promise<void> {
+  const { coachEmail, athleteDisplayName, message } = params;
+  const name = athleteDisplayName?.trim() || "An athlete";
+  const body = message?.trim() || "(No message)";
+
+  const subject = `Message from ${name} on Apex Sports`;
+  const bodyText = [
+    `${name} sent you a message from your Apex Sports profile:`,
+    "",
+    "---",
+    body,
+    "---",
+    "",
+    "You can reply to this email or log in to Apex Sports to manage your bookings and athletes.",
+    myBookingsUrl ? `Dashboard: ${myBookingsUrl}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const bodyHtml = htmlEmail(
+    [
+      `<p style="margin: 0 0 16px;">${escapeHtml(name)} sent you a message from your Apex Sports profile:</p>`,
+      `<p style="margin: 0 0 16px; padding: 16px; background: #f8fafc; border-radius: 8px; border-left: 4px solid #0f766e;">${escapeHtml(body).replace(/\n/g, "<br>")}</p>`,
+      "<p style=\"margin: 0 0 0;\">You can reply to this email or log in to Apex Sports to manage your bookings and athletes.</p>",
+    ].join("\n"),
+    "Go to dashboard",
+    myBookingsUrl || undefined
+  );
+
+  try {
+    await ses.send(
+      new SendEmailCommand({
+        Source: fromEmail,
+        Destination: { ToAddresses: [coachEmail] },
+        Message: {
+          Subject: { Data: subject, Charset: "UTF-8" },
+          Body: {
+            Text: { Data: bodyText, Charset: "UTF-8" },
+            Html: { Data: bodyHtml, Charset: "UTF-8" },
+          },
+        },
+      })
+    );
+  } catch (err) {
+    const sesErr = err as { name?: string; message?: string; Code?: string };
+    console.error(
+      "[notifications] sendAthleteMessageToCoach email failed:",
+      sesErr?.name ?? sesErr?.Code,
+      sesErr?.message ?? err,
+      "to:",
+      coachEmail
+    );
+    throw err;
+  }
+}
+
 export interface NewAthleteConnectedToCoachParams {
   coachEmail: string;
   athleteDisplayName: string;
@@ -227,6 +289,137 @@ export async function sendBookingRequestedToCoach(params: BookingRequestedToCoac
     } catch (err) {
       console.error("[notifications] sendBookingRequestedToCoach SMS failed:", err);
     }
+  }
+}
+
+export interface CoachBookedAthleteParams {
+  athleteEmail: string;
+  athleteName?: string | null;
+  coachDisplayName: string;
+  slotStart: string;
+  slotEnd: string;
+}
+
+/** Notify athlete when the coach has created a booking for them (e.g. via the assistant). Used when no payment is required. */
+export async function sendCoachBookedAthlete(params: CoachBookedAthleteParams): Promise<void> {
+  const { athleteEmail, athleteName, coachDisplayName, slotStart, slotEnd } = params;
+  const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
+  const coach = coachDisplayName?.trim() || "Your coach";
+
+  const subject = `${coach} booked you for a session`;
+  const bodyText = [
+    athleteName?.trim() ? `Hi ${athleteName.trim()},` : "Hi,",
+    "",
+    `${coach} has booked you for a session.`,
+    "",
+    `Time: ${slotStr}`,
+    "",
+    "It's pending until they confirm. You can view it in My Bookings.",
+    myBookingsUrl ? `My Bookings: ${myBookingsUrl}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const bodyHtml = htmlEmail(
+    [
+      `<p style="margin: 0 0 16px;">${athleteName?.trim() ? `Hi ${escapeHtml(athleteName.trim())},` : "Hi,"}</p>`,
+      `<p style="margin: 0 0 16px;">${escapeHtml(coach)} has booked you for a session.</p>`,
+      `<p style="margin: 0 0 16px;"><strong>Time:</strong> ${escapeHtml(slotStr)}</p>`,
+      `<p style="margin: 0 0 0;">It's pending until they confirm. You can view it in My Bookings.</p>`,
+    ].join("\n"),
+    "My Bookings"
+  );
+
+  try {
+    await ses.send(
+      new SendEmailCommand({
+        Source: fromEmail,
+        Destination: { ToAddresses: [athleteEmail] },
+        Message: {
+          Subject: { Data: subject, Charset: "UTF-8" },
+          Body: {
+            Text: { Data: bodyText, Charset: "UTF-8" },
+            Html: { Data: bodyHtml, Charset: "UTF-8" },
+          },
+        },
+      })
+    );
+  } catch (err) {
+    const sesErr = err as { name?: string; message?: string; Code?: string };
+    console.error(
+      "[notifications] sendCoachBookedAthlete failed:",
+      sesErr?.name ?? sesErr?.Code,
+      sesErr?.message ?? err,
+      "from:",
+      fromEmail
+    );
+  }
+}
+
+export interface CoachInviteToBookSlotParams {
+  athleteEmail: string;
+  athleteName?: string | null;
+  coachDisplayName: string;
+  slotStart: string;
+  slotEnd: string;
+  /** Deep link to coach profile with slot pre-selected: e.g. /coaches/:coachId?slotId=:slotId */
+  bookingUrl: string;
+}
+
+/** Notify athlete when the coach has reserved a time for them; they must complete booking (and payment) via the link. */
+export async function sendCoachInviteToBookSlot(params: CoachInviteToBookSlotParams): Promise<void> {
+  const { athleteEmail, athleteName, coachDisplayName, slotStart, slotEnd, bookingUrl } = params;
+  const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
+  const coach = coachDisplayName?.trim() || "Your coach";
+
+  const subject = `${coach} reserved a time for you – complete your booking`;
+  const bodyText = [
+    athleteName?.trim() ? `Hi ${athleteName.trim()},` : "Hi,",
+    "",
+    `${coach} has reserved a time for you.`,
+    "",
+    `Time: ${slotStr}`,
+    "",
+    "Complete your booking (including payment) using the link below. The slot is held for you until you finish.",
+    bookingUrl || myBookingsUrl ? (bookingUrl || myBookingsUrl) : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const bodyHtml = htmlEmail(
+    [
+      `<p style="margin: 0 0 16px;">${athleteName?.trim() ? `Hi ${escapeHtml(athleteName.trim())},` : "Hi,"}</p>`,
+      `<p style="margin: 0 0 16px;">${escapeHtml(coach)} has reserved a time for you.</p>`,
+      `<p style="margin: 0 0 16px;"><strong>Time:</strong> ${escapeHtml(slotStr)}</p>`,
+      `<p style="margin: 0 0 0;">Complete your booking (including payment) using the link below. The slot is held for you until you finish.</p>`,
+    ].join("\n"),
+    "Complete booking",
+    bookingUrl || myBookingsUrl
+  );
+
+  try {
+    await ses.send(
+      new SendEmailCommand({
+        Source: fromEmail,
+        Destination: { ToAddresses: [athleteEmail] },
+        Message: {
+          Subject: { Data: subject, Charset: "UTF-8" },
+          Body: {
+            Text: { Data: bodyText, Charset: "UTF-8" },
+            Html: { Data: bodyHtml, Charset: "UTF-8" },
+          },
+        },
+      })
+    );
+  } catch (err) {
+    const sesErr = err as { name?: string; message?: string; Code?: string };
+    console.error(
+      "[notifications] sendCoachInviteToBookSlot failed:",
+      sesErr?.name ?? sesErr?.Code,
+      sesErr?.message ?? err,
+      "from:",
+      fromEmail
+    );
   }
 }
 

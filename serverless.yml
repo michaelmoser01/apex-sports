@@ -75,7 +75,7 @@ package:
 
 custom:
   # Bump this when you add a new Prisma migration so the migrate Lambda runs on next deploy.
-  migrationsVersion: "28"
+  migrationsVersion: "31"
   esbuild:
     bundle: true
     packager: npm
@@ -384,7 +384,7 @@ resources:
       Properties:
         Name: ${self:service}-${self:provider.stage}-stripe-keys
         Description: Stripe API, webhook, and coach plan price IDs; fill STRIPE_PRICE_* for onboarding plan step
-        SecretString: '{"STRIPE_SECRET_KEY":"","STRIPE_WEBHOOK_SECRET":"","STRIPE_PUBLISHABLE_KEY":"","STRIPE_PRICE_STARTER":"","STRIPE_PRICE_PRO":"","STRIPE_PRICE_ELITE":""}'
+        SecretString: '{"STRIPE_SECRET_KEY":"","STRIPE_WEBHOOK_SECRET":"","STRIPE_PUBLISHABLE_KEY":"","STRIPE_PRICE_STARTER":"","STRIPE_PRICE_PRO":"","STRIPE_PRICE_ELITE":"","GOOGLE_MAPS_API_KEY":""}'
 
     # Aurora Serverless v2
     DbSubnetGroup:

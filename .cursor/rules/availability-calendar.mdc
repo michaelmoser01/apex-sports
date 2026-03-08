@@ -1,0 +1,34 @@
+---
+description: Conventions for the coach availability calendar (API, UI, mobile day view). Apply when adding or changing availability slots, calendar behavior, or related API.
+globs: "**/AvailabilityCalendar.tsx,**/CoachDashboard.tsx,**/coaches.ts,**/schema.ts"
+alwaysApply: false
+---
+
+# Availability calendar and slots
+
+## Scope
+
+- **API**: Coach availability endpoints in `apps/api/src/routes/coaches.ts` (GET/POST/DELETE `/me/availability`, `/me/availability/rules`).
+- **Schemas**: `availabilitySlotCreateSchema`, `availabilityRuleCreateSchema`, `DURATION_MINUTES_OPTIONS` in `packages/shared/src/schema.ts`.
+- **UI**: `apps/web/src/components/AvailabilityCalendar.tsx` and the Availability section in `apps/web/src/pages/CoachDashboard.tsx`.
+
+## Conventions
+
+1. **One-off vs recurring**
+   - One-off slot: `POST /coaches/me/availability` with `startTime`, `durationMinutes`, `recurrence: "none"`, optional `locationId`.
+   - Recurring (weekly): `POST /coaches/me/availability/rules` with `firstStartTime`, `durationMinutes`, `recurrence: "weekly"`, `endDate` (YYYY-MM-DD), optional `locationId`.
+
+2. **Location**
+   - Slots and rules can include `locationId` (UUID of a coach location). Validate that the location belongs to the authenticated coach. Use `packages/shared` schemas; do not add new fields without updating the shared schema.
+
+3. **Mobile day view**
+   - On viewport &lt; 640px, tapping a date opens a **day detail** view (not the desktop inline form above the calendar). The day view shows that day’s schedule list and the add-availability form. Preserve this behavior: keep `useIsMobile()`, `showMobileDayView`, and the mobile-only day panel when changing the calendar or add form.
+
+4. **Desktop**
+   - When a date is selected, the add form appears above the calendar (inline). Do not remove the desktop inline form in favor of a modal only.
+
+5. **Duration**
+   - Use `DURATION_MINUTES_OPTIONS` from `@apex-sports/shared` for duration dropdowns. Do not hardcode a different set of durations in the UI.
+
+6. **Event display**
+   - Calendar events show time range in the title (e.g. "2:00 PM – 3:00 PM"). One-off and recurring are distinguished via `eventPropGetter` (e.g. `.rbc-event-oneoff`, `.rbc-event-recurring`). Keep event titles and styling consistent when adding new event types or changing the calendar.

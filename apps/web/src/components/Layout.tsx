@@ -8,10 +8,27 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { api } from "@/lib/api";
 import { getStoredInviteSlug } from "@/pages/Join";
 
+function getAvatarInitial(currentUser: { coachProfile?: { displayName: string } | null; athleteProfile?: { displayName: string } | null; name?: string | null } | null | undefined): string {
+  if (!currentUser) return "U";
+  const name =
+    currentUser.coachProfile?.displayName ??
+    currentUser.athleteProfile?.displayName ??
+    currentUser.name ??
+    "";
+  return name.charAt(0).toUpperCase() || "U";
+}
+
+function getAvatarUrl(currentUser: { coachProfile?: { avatarUrl: string | null } | null } | null | undefined): string | null {
+  return currentUser?.coachProfile?.avatarUrl ?? null;
+}
+
 function DevLayout() {
   const { devUser, setDevUser } = useAuth();
   const queryClient = useQueryClient();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+  const avatarMenuRef = useRef<HTMLDivElement>(null);
+  const avatarMenuRefMobile = useRef<HTMLDivElement>(null);
   const location = useLocation();
   const { data: currentUser, isLoading: currentUserLoading } = useCurrentUser(!!devUser);
 
@@ -23,6 +40,28 @@ function DevLayout() {
   useEffect(() => {
     setMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!avatarMenuOpen) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAvatarMenuOpen(false);
+    };
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        avatarMenuRef.current?.contains(target) ||
+        avatarMenuRefMobile.current?.contains(target)
+      )
+        return;
+      setAvatarMenuOpen(false);
+    };
+    document.addEventListener("keydown", handleEscape);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [avatarMenuOpen]);
 
   const onAthleteOnboardingWithInvite =
     location.pathname === "/athlete/onboarding" && !!getStoredInviteSlug();
@@ -69,20 +108,6 @@ function DevLayout() {
             )}
             {devUser ? (
               <>
-                <Link
-                  to="/bookings"
-                  className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
-                >
-                  Bookings
-                </Link>
-                {profileTo && (
-                  <Link
-                    to={profileTo}
-                    className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
-                  >
-                    Profile
-                  </Link>
-                )}
                 {showCoachDashboard && (
                   <>
                     <Link
@@ -92,31 +117,84 @@ function DevLayout() {
                       Dashboard
                     </Link>
                     <Link
-                      to="/dashboard/athletes"
-                      className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
-                    >
-                      Athletes
-                    </Link>
-                    <Link
                       to="/dashboard/availability"
                       className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
                     >
                       Availability
                     </Link>
-                    <Link
-                      to="/dashboard/agent-test"
-                      className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
-                    >
-                      Agent test
-                    </Link>
                   </>
                 )}
-                <button
-                  onClick={handleDevSignOut}
-                  className="text-slate-600 hover:text-slate-900 text-sm font-medium transition-colors"
+                <Link
+                  to="/bookings"
+                  className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
                 >
-                  Sign out
-                </button>
+                  Bookings
+                </Link>
+                {showCoachDashboard && (
+                  <Link
+                    to="/dashboard/athletes"
+                    className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+                  >
+                    Athletes
+                  </Link>
+                )}
+                <div className="relative" ref={avatarMenuRef}>
+                  <button
+                    type="button"
+                    onClick={() => setAvatarMenuOpen((o) => !o)}
+                    className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center bg-slate-200 text-slate-600 font-semibold text-sm shrink-0 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
+                    aria-expanded={avatarMenuOpen}
+                    aria-haspopup="menu"
+                    aria-label="Account menu"
+                  >
+                    {getAvatarUrl(currentUser) ? (
+                      <img src={getAvatarUrl(currentUser)!} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      getAvatarInitial(currentUser)
+                    )}
+                  </button>
+                  {avatarMenuOpen && (
+                    <div className="absolute right-0 top-full mt-1 py-1 w-48 bg-white rounded-lg border border-slate-200 shadow-lg z-50">
+                      {profileTo && (
+                        <Link
+                          to={profileTo}
+                          className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                          onClick={() => setAvatarMenuOpen(false)}
+                        >
+                          Profile
+                        </Link>
+                      )}
+                      {showCoachDashboard && currentUser?.coachProfile?.id && (
+                        <Link
+                          to={`/coaches/${currentUser.coachProfile.inviteSlug ?? currentUser.coachProfile.id}`}
+                          className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                          onClick={() => setAvatarMenuOpen(false)}
+                        >
+                          View public profile
+                        </Link>
+                      )}
+                      {showCoachDashboard && (
+                        <Link
+                          to="/dashboard/agent-test"
+                          className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                          onClick={() => setAvatarMenuOpen(false)}
+                        >
+                          Agent test
+                        </Link>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAvatarMenuOpen(false);
+                          handleDevSignOut();
+                        }}
+                        className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                      >
+                        Sign out
+                      </button>
+                    </div>
+                  )}
+                </div>
               </>
             ) : (
               <Link
@@ -127,20 +205,81 @@ function DevLayout() {
               </Link>
             )}
           </nav>
-          <button
-            type="button"
-            onClick={() => setMenuOpen((o) => !o)}
-            className="md:hidden p-2 -mr-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
-            aria-label={menuOpen ? "Close menu" : "Open menu"}
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-              {menuOpen ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              )}
-            </svg>
-          </button>
+          <div className="flex items-center gap-1 md:hidden">
+            {devUser && (
+              <div className="relative mr-1" ref={avatarMenuRefMobile}>
+                <button
+                  type="button"
+                  onClick={() => setAvatarMenuOpen((o) => !o)}
+                  className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center bg-slate-200 text-slate-600 font-semibold text-sm shrink-0 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
+                  aria-expanded={avatarMenuOpen}
+                  aria-haspopup="menu"
+                  aria-label="Account menu"
+                >
+                  {getAvatarUrl(currentUser) ? (
+                    <img src={getAvatarUrl(currentUser)!} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    getAvatarInitial(currentUser)
+                  )}
+                </button>
+                {avatarMenuOpen && (
+                  <div className="absolute right-0 top-full mt-1 py-1 w-48 bg-white rounded-lg border border-slate-200 shadow-lg z-[60]">
+                    {profileTo && (
+                      <Link
+                        to={profileTo}
+                        className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                        onClick={() => setAvatarMenuOpen(false)}
+                      >
+                        Profile
+                      </Link>
+                    )}
+                    {showCoachDashboard && currentUser?.coachProfile?.id && (
+                      <Link
+                        to={`/coaches/${currentUser.coachProfile.inviteSlug ?? currentUser.coachProfile.id}`}
+                        className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                        onClick={() => setAvatarMenuOpen(false)}
+                      >
+                        View public profile
+                      </Link>
+                    )}
+                    {showCoachDashboard && (
+                      <Link
+                        to="/dashboard/agent-test"
+                        className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                        onClick={() => setAvatarMenuOpen(false)}
+                      >
+                        Agent test
+                      </Link>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAvatarMenuOpen(false);
+                        handleDevSignOut();
+                      }}
+                      className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setMenuOpen((o) => !o)}
+              className="p-2 -mr-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
+              aria-label={menuOpen ? "Close menu" : "Open menu"}
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                {menuOpen ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                )}
+              </svg>
+            </button>
+          </div>
         </div>
         {menuOpen && (
           <>
@@ -171,22 +310,6 @@ function DevLayout() {
                 )}
                 {devUser ? (
                   <>
-                    <Link
-                      to="/bookings"
-                      className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      Bookings
-                    </Link>
-                    {profileTo && (
-                      <Link
-                        to={profileTo}
-                        className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
-                        onClick={() => setMenuOpen(false)}
-                      >
-                        Profile
-                      </Link>
-                    )}
                     {showCoachDashboard && (
                       <>
                         <Link
@@ -197,37 +320,30 @@ function DevLayout() {
                           Dashboard
                         </Link>
                         <Link
-                          to="/dashboard/athletes"
-                          className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
-                          onClick={() => setMenuOpen(false)}
-                        >
-                          Athletes
-                        </Link>
-                        <Link
                           to="/dashboard/availability"
                           className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
                           onClick={() => setMenuOpen(false)}
                         >
                           Availability
                         </Link>
-                        <Link
-                          to="/dashboard/agent-test"
-                          className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
-                          onClick={() => setMenuOpen(false)}
-                        >
-                          Agent test
-                        </Link>
                       </>
                     )}
-                <button
-                  onClick={() => {
-                    handleDevSignOut();
-                    setMenuOpen(false);
-                  }}
-                      className="py-3 px-3 text-left text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                    <Link
+                      to="/bookings"
+                      className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                      onClick={() => setMenuOpen(false)}
                     >
-                      Sign out
-                    </button>
+                      Bookings
+                    </Link>
+                    {showCoachDashboard && (
+                      <Link
+                        to="/dashboard/athletes"
+                        className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        Athletes
+                      </Link>
+                    )}
                   </>
                 ) : (
                   <Link
@@ -271,6 +387,9 @@ function DevLayout() {
 function CognitoLayout() {
   const { authStatus } = useAuthenticator((context) => [context.authStatus]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+  const avatarMenuRef = useRef<HTMLDivElement>(null);
+  const avatarMenuRefMobile = useRef<HTMLDivElement>(null);
   const location = useLocation();
   const isAuthenticated = authStatus === "authenticated";
   const { data: currentUser, isLoading: currentUserLoading } = useCurrentUser(isAuthenticated);
@@ -291,6 +410,28 @@ function CognitoLayout() {
   useEffect(() => {
     setMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!avatarMenuOpen) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAvatarMenuOpen(false);
+    };
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        avatarMenuRef.current?.contains(target) ||
+        avatarMenuRefMobile.current?.contains(target)
+      )
+        return;
+      setAvatarMenuOpen(false);
+    };
+    document.addEventListener("keydown", handleEscape);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [avatarMenuOpen]);
 
   const isOnOnboarding = location.pathname.startsWith("/coach/onboarding");
   const shouldSetCoachAndStay =
@@ -358,20 +499,6 @@ function CognitoLayout() {
             )}
             {authStatus === "authenticated" ? (
               <>
-                <Link
-                  to="/bookings"
-                  className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
-                >
-                  Bookings
-                </Link>
-                {profileTo && (
-                  <Link
-                    to={profileTo}
-                    className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
-                  >
-                    Profile
-                  </Link>
-                )}
                 {showCoachDashboard && (
                   <>
                     <Link
@@ -381,31 +508,84 @@ function CognitoLayout() {
                       Dashboard
                     </Link>
                     <Link
-                      to="/dashboard/athletes"
-                      className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
-                    >
-                      Athletes
-                    </Link>
-                    <Link
                       to="/dashboard/availability"
                       className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
                     >
                       Availability
                     </Link>
-                    <Link
-                      to="/dashboard/agent-test"
-                      className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
-                    >
-                      Agent test
-                    </Link>
                   </>
                 )}
-                <button
-                  onClick={handleSignOut}
-                  className="text-slate-600 hover:text-slate-900 text-sm font-medium transition-colors"
+                <Link
+                  to="/bookings"
+                  className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
                 >
-                  Sign out
-                </button>
+                  Bookings
+                </Link>
+                {showCoachDashboard && (
+                  <Link
+                    to="/dashboard/athletes"
+                    className="text-slate-600 hover:text-slate-900 font-medium transition-colors"
+                  >
+                    Athletes
+                  </Link>
+                )}
+                <div className="relative" ref={avatarMenuRef}>
+                  <button
+                    type="button"
+                    onClick={() => setAvatarMenuOpen((o) => !o)}
+                    className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center bg-slate-200 text-slate-600 font-semibold text-sm shrink-0 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
+                    aria-expanded={avatarMenuOpen}
+                    aria-haspopup="menu"
+                    aria-label="Account menu"
+                  >
+                    {getAvatarUrl(currentUser) ? (
+                      <img src={getAvatarUrl(currentUser)!} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      getAvatarInitial(currentUser)
+                    )}
+                  </button>
+                  {avatarMenuOpen && (
+                    <div className="absolute right-0 top-full mt-1 py-1 w-48 bg-white rounded-lg border border-slate-200 shadow-lg z-50">
+                      {profileTo && (
+                        <Link
+                          to={profileTo}
+                          className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                          onClick={() => setAvatarMenuOpen(false)}
+                        >
+                          Profile
+                        </Link>
+                      )}
+                      {showCoachDashboard && currentUser?.coachProfile?.id && (
+                        <Link
+                          to={`/coaches/${currentUser.coachProfile.inviteSlug ?? currentUser.coachProfile.id}`}
+                          className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                          onClick={() => setAvatarMenuOpen(false)}
+                        >
+                          View public profile
+                        </Link>
+                      )}
+                      {showCoachDashboard && (
+                        <Link
+                          to="/dashboard/agent-test"
+                          className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                          onClick={() => setAvatarMenuOpen(false)}
+                        >
+                          Agent test
+                        </Link>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAvatarMenuOpen(false);
+                          handleSignOut();
+                        }}
+                        className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                      >
+                        Sign out
+                      </button>
+                    </div>
+                  )}
+                </div>
               </>
             ) : (
               <Link
@@ -416,20 +596,81 @@ function CognitoLayout() {
               </Link>
             )}
           </nav>
-          <button
-            type="button"
-            onClick={() => setMenuOpen((o) => !o)}
-            className="md:hidden p-2 -mr-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
-            aria-label={menuOpen ? "Close menu" : "Open menu"}
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-              {menuOpen ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              )}
-            </svg>
-          </button>
+          <div className="flex items-center gap-1 md:hidden">
+            {authStatus === "authenticated" && (
+              <div className="relative mr-1" ref={avatarMenuRefMobile}>
+                <button
+                  type="button"
+                  onClick={() => setAvatarMenuOpen((o) => !o)}
+                  className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center bg-slate-200 text-slate-600 font-semibold text-sm shrink-0 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
+                  aria-expanded={avatarMenuOpen}
+                  aria-haspopup="menu"
+                  aria-label="Account menu"
+                >
+                  {getAvatarUrl(currentUser) ? (
+                    <img src={getAvatarUrl(currentUser)!} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    getAvatarInitial(currentUser)
+                  )}
+                </button>
+                {avatarMenuOpen && (
+                  <div className="absolute right-0 top-full mt-1 py-1 w-48 bg-white rounded-lg border border-slate-200 shadow-lg z-[60]">
+                    {profileTo && (
+                      <Link
+                        to={profileTo}
+                        className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                        onClick={() => setAvatarMenuOpen(false)}
+                      >
+                        Profile
+                      </Link>
+                    )}
+                    {showCoachDashboard && currentUser?.coachProfile?.id && (
+                      <Link
+                        to={`/coaches/${currentUser.coachProfile.inviteSlug ?? currentUser.coachProfile.id}`}
+                        className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                        onClick={() => setAvatarMenuOpen(false)}
+                      >
+                        View public profile
+                      </Link>
+                    )}
+                    {showCoachDashboard && (
+                      <Link
+                        to="/dashboard/agent-test"
+                        className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                        onClick={() => setAvatarMenuOpen(false)}
+                      >
+                        Agent test
+                      </Link>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAvatarMenuOpen(false);
+                        handleSignOut();
+                      }}
+                      className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setMenuOpen((o) => !o)}
+              className="p-2 -mr-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
+              aria-label={menuOpen ? "Close menu" : "Open menu"}
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                {menuOpen ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                )}
+              </svg>
+            </button>
+          </div>
         </div>
         {menuOpen && (
           <>
@@ -460,22 +701,6 @@ function CognitoLayout() {
                 )}
                 {authStatus === "authenticated" ? (
                   <>
-                    <Link
-                      to="/bookings"
-                      className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      Bookings
-                    </Link>
-                    {profileTo && (
-                      <Link
-                        to={profileTo}
-                        className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
-                        onClick={() => setMenuOpen(false)}
-                      >
-                        Profile
-                      </Link>
-                    )}
                     {showCoachDashboard && (
                       <>
                         <Link
@@ -486,37 +711,30 @@ function CognitoLayout() {
                           Dashboard
                         </Link>
                         <Link
-                          to="/dashboard/athletes"
-                          className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
-                          onClick={() => setMenuOpen(false)}
-                        >
-                          Athletes
-                        </Link>
-                        <Link
                           to="/dashboard/availability"
                           className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
                           onClick={() => setMenuOpen(false)}
                         >
                           Availability
                         </Link>
-                        <Link
-                          to="/dashboard/agent-test"
-                          className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
-                          onClick={() => setMenuOpen(false)}
-                        >
-                          Agent test
-                        </Link>
                       </>
                     )}
-                    <button
-                      onClick={() => {
-                        handleSignOut();
-                        setMenuOpen(false);
-                      }}
-                      className="py-3 px-3 text-left text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                    <Link
+                      to="/bookings"
+                      className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                      onClick={() => setMenuOpen(false)}
                     >
-                      Sign out
-                    </button>
+                      Bookings
+                    </Link>
+                    {showCoachDashboard && (
+                      <Link
+                        to="/dashboard/athletes"
+                        className="py-3 px-3 text-slate-700 font-medium rounded-lg hover:bg-slate-100"
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        Athletes
+                      </Link>
+                    )}
                   </>
                 ) : (
                   <Link

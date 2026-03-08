@@ -1,22 +1,7 @@
-import { useParams, Link, useNavigate } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState, useMemo, useEffect, useRef } from "react";
-import {
-  addMonths,
-  subMonths,
-  startOfMonth,
-  endOfMonth,
-  startOfWeek,
-  endOfWeek,
-  startOfDay,
-  addDays,
-  isSameMonth,
-  isSameDay,
-  isBefore,
-  format,
-} from "date-fns";
-import { loadStripe } from "@stripe/stripe-js";
-import { Elements } from "@stripe/react-stripe-js";
+
 import { api } from "@/lib/api";
 import {
   getStoredInviteSlug,
@@ -25,16 +10,24 @@ import {
 } from "@/pages/Join";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { BookingPaymentForm } from "@/components/BookingPaymentForm";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { CoachDetailMap } from "@/components/CoachDetailMap";
+import { PublicBookingCalendar } from "@/components/PublicBookingCalendar";
 import ReactMarkdown from "react-markdown";
-
-const stripePk = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
-const stripePromise = stripePk ? loadStripe(stripePk) : null;
 
 interface CoachPhoto {
   id: string;
   url: string;
   sortOrder: number;
+}
+
+interface CoachLocation {
+  id: string;
+  name: string;
+  address: string;
+  notes: string | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 interface CoachDetail {
@@ -48,6 +41,7 @@ interface CoachDetail {
   verified: boolean;
   avatarUrl: string | null;
   photos?: CoachPhoto[];
+  locations?: CoachLocation[];
   availabilitySlots: { id: string; startTime: string; endTime: string }[];
   reviews: {
     id: string;
@@ -60,40 +54,70 @@ interface CoachDetail {
   averageRating: number | null;
 }
 
-const WEEK_STARTS_ON = 0; // Sunday
-
-function getCalendarDays(month: Date): Date[] {
-  const start = startOfWeek(startOfMonth(month), { weekStartsOn: WEEK_STARTS_ON });
-  const end = endOfWeek(endOfMonth(month), { weekStartsOn: WEEK_STARTS_ON });
-  const days: Date[] = [];
-  let d = start;
-  while (d <= end) {
-    days.push(d);
-    d = addDays(d, 1);
-  }
-  return days;
+/** Renders 5 stars with fill based on rating (0–5). Full stars orange, remainder partial, rest gray. */
+function StarRating({ rating, className }: { rating: number; className?: string }) {
+  const value = Math.min(5, Math.max(0, Number(rating)));
+  const pct = (value / 5) * 100;
+  return (
+    <span
+      className={`inline-flex relative text-lg ${className ?? ""}`}
+      style={{ width: "5em" }}
+      role="img"
+      aria-label={`${value.toFixed(1)} out of 5 stars`}
+    >
+      <span className="text-slate-300" aria-hidden>
+        ★★★★★
+      </span>
+      <span
+        className="absolute left-0 top-0 overflow-hidden text-amber-500"
+        style={{ width: `${pct}%` }}
+        aria-hidden
+      >
+        ★★★★★
+      </span>
+    </span>
+  );
 }
 
 export default function CoachDetail() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { isDevMode, isAuthenticated: isAuthFromContext } = useAuth();
   const { authStatus } = useAuthenticator((c) => [c.authStatus]);
   const isAuthenticated = isDevMode ? isAuthFromContext : authStatus === "authenticated";
-  const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
-  const [bookingMessage, setBookingMessage] = useState("");
-  const [bookingError, setBookingError] = useState<string | null>(null);
-  const [bookingSuccess, setBookingSuccess] = useState<string | null>(null);
+  const [photoLightboxIndex, setPhotoLightboxIndex] = useState<number | null>(null);
+  const [messageModalOpen, setMessageModalOpen] = useState(false);
+  const [signInPromptOpen, setSignInPromptOpen] = useState(false);
+  const [contactMessage, setContactMessage] = useState("");
   const connectInviteAttempted = useRef(false);
+  const { data: currentUser } = useCurrentUser(isAuthenticated);
 
   useEffect(() => {
-    if (!bookingSuccess) return;
-    const t = setTimeout(() => setBookingSuccess(null), 5000);
-    return () => clearTimeout(t);
-  }, [bookingSuccess]);
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPhotoLightboxIndex(null);
+    };
+    if (photoLightboxIndex != null) {
+      document.addEventListener("keydown", handleEscape);
+      document.body.style.overflow = "hidden";
+    }
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+      document.body.style.overflow = "";
+    };
+  }, [photoLightboxIndex]);
+
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMessageModalOpen(false);
+        setSignInPromptOpen(false);
+        contactMutation.reset();
+      }
+    };
+    if (messageModalOpen || signInPromptOpen) document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [messageModalOpen, signInPromptOpen]);
 
   useEffect(() => {
     if (!id || !isAuthenticated || connectInviteAttempted.current) return;
@@ -121,56 +145,32 @@ export default function CoachDetail() {
     enabled: !!id && isAuthenticated,
   });
 
-  const myPendingSlotIds = useMemo(() => {
-    if (!id || !myBookings?.asAthlete) return new Set<string>();
+  const slotIdFromUrl = searchParams.get("slotId");
+  useEffect(() => {
+    if (!id || !coach || !slotIdFromUrl) return;
+    const availabilitySlots = Array.isArray(coach.availabilitySlots) ? coach.availabilitySlots : [];
+    const slot = availabilitySlots.find((s) => s?.id === slotIdFromUrl);
+    if (!slot) return;
+    navigate(`/coaches/${id}/book?slotId=${slotIdFromUrl}`, { replace: true });
+  }, [id, coach, slotIdFromUrl, navigate]);
+
+  /** Slot IDs where the current user has any booking with this coach (pending, confirmed, etc.) for calendar indication */
+  const myBookedSlotIds = useMemo(() => {
+    if (!coach?.id || !myBookings?.asAthlete) return new Set<string>();
     return new Set(
       myBookings.asAthlete
-        .filter((b) => b.coach.id === id && b.status === "pending")
+        .filter((b) => b.coach.id === coach.id)
         .map((b) => b.slot.id)
     );
-  }, [id, myBookings]);
+  }, [coach?.id, myBookings]);
 
-  const bookMutation = useMutation({
-    mutationFn: async ({
-      slotId,
-      message,
-      paymentMethodId,
-    }: {
-      slotId: string;
-      message?: string;
-      paymentMethodId?: string;
-    }) =>
-      api<{ id: string; clientSecret?: string; requiresAction?: boolean }>("/bookings", {
+  const contactMutation = useMutation({
+    mutationFn: async (message: string) =>
+      api<{ sent: boolean }>(`/coaches/${id}/contact`, {
         method: "POST",
-        body: JSON.stringify({
-          coachId: id,
-          slotId,
-          ...(message?.trim() ? { message: message.trim() } : {}),
-          ...(paymentMethodId ? { payment_method: paymentMethodId } : {}),
-        }),
+        body: JSON.stringify({ message: message.trim() }),
       }),
-    onSuccess: (data) => {
-      if (data?.clientSecret && !needsPaymentForm) {
-        setBookingError(
-          "This session requires payment. Please refresh the page to see the payment form and enter your card."
-        );
-        return;
-      }
-      setSelectedSlot(null);
-      setBookingMessage("");
-      setBookingError(null);
-      setBookingSuccess("Request sent! We'll email you when the coach responds. Your card won't be charged until the coach marks the session complete.");
-      queryClient.invalidateQueries({ queryKey: ["coach", id] });
-      queryClient.invalidateQueries({ queryKey: ["bookings"] });
-    },
-    onError: (err: Error) => {
-      const msg = err.message ?? "Something went wrong.";
-      if (msg.includes("already booked") || msg.includes("Slot is already booked"))
-        setBookingError("This slot was just booked. Please pick another time.");
-      else if (msg.includes("pending request")) setBookingError("You already have a pending request for this time.");
-      else if (msg.includes("Payment method required")) setBookingError("Please enter your card details above.");
-      else setBookingError(msg);
-    },
+    onSuccess: () => setContactMessage(""),
   });
 
   // Derive slots safely (empty when no coach) so useMemo below always has valid input
@@ -181,45 +181,6 @@ export default function CoachDetail() {
           (s) => s && typeof s.startTime === "string" && !Number.isNaN(new Date(s.startTime).getTime())
         )
       : [];
-
-  const selectedSlotData = useMemo(() => {
-    if (!selectedSlot || !slots.length) return null;
-    return slots.find((s) => s.id === selectedSlot) ?? null;
-  }, [selectedSlot, slots]);
-
-  const sessionAmountCents = useMemo(() => {
-    if (!coach?.hourlyRate || !selectedSlotData) return null;
-    const rate = Number(coach.hourlyRate);
-    if (!Number.isFinite(rate) || rate <= 0) return null;
-    const start = new Date(selectedSlotData.startTime).getTime();
-    const end = new Date(selectedSlotData.endTime).getTime();
-    const hours = (end - start) / (60 * 60 * 1000);
-    return Math.max(50, Math.ceil(hours * rate * 100));
-  }, [coach?.hourlyRate, selectedSlotData]);
-
-  const needsPaymentForm =
-    !!coach?.hourlyRate &&
-    !!stripePk &&
-    !!selectedSlot &&
-    !!sessionAmountCents &&
-    isAuthenticated &&
-    !myPendingSlotIds.has(selectedSlot);
-
-  const calendarDays = useMemo(() => getCalendarDays(calendarMonth), [calendarMonth]);
-  const todayStart = useMemo(() => startOfDay(new Date()), []);
-  const slotsByDay = useMemo(() => {
-    const map = new Map<string, { id: string; startTime: string; endTime: string }[]>();
-    for (const slot of slots) {
-      const d = new Date(slot.startTime);
-      const key = format(d, "yyyy-MM-dd");
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(slot);
-    }
-    for (const arr of map.values()) {
-      arr.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
-    }
-    return map;
-  }, [slots]);
 
   if (isLoading || (!coach && !isError)) {
     return (
@@ -264,15 +225,6 @@ export default function CoachDetail() {
 
   const reviews = Array.isArray(coach.reviews) ? coach.reviews : [];
 
-  const handleBook = () => {
-    if (!selectedSlot) return;
-    if (!isAuthenticated) {
-      navigate("/bookings", { state: { returnTo: `/coaches/${id}` }, replace: false });
-      return;
-    }
-    bookMutation.mutate({ slotId: selectedSlot, message: bookingMessage });
-  };
-
   const photos = Array.isArray(coach.photos) ? coach.photos : [];
   const photoUrls = (() => {
     const urls = photos.map((p) => p?.url).filter((u): u is string => typeof u === "string" && u.length > 0);
@@ -280,306 +232,429 @@ export default function CoachDetail() {
     if (avatar) return [avatar, ...urls.filter((u) => u !== avatar)];
     return urls;
   })();
-
-  const selectedDateSlots = selectedDate
-    ? (slotsByDay.get(format(selectedDate, "yyyy-MM-dd")) ?? []).slice()
-    : [];
-
-  const hasAvailabilityOnDay = (day: Date) =>
-    slotsByDay.has(format(day, "yyyy-MM-dd"));
-  const isDayInPast = (day: Date) => isBefore(day, todayStart);
+  const profileImageUrl = photoUrls[0] ?? null;
+  const locations = Array.isArray(coach.locations) ? coach.locations : [];
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-12">
-      {photoUrls.length > 0 && (
-        <div className="mb-8 -mx-4 sm:mx-0">
-          <div className="flex gap-2 overflow-x-auto pb-2 snap-x snap-mandatory rounded-xl overflow-hidden">
-            {photoUrls.map((url) => (
-              <img
-                key={url}
-                src={url}
-                alt=""
-                className="flex-shrink-0 w-full max-w-sm h-64 object-cover rounded-lg snap-start border border-slate-200"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = "none";
-                }}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">
-          {coach.displayName ?? "Coach"}
-          {coach.verified && (
-            <span className="ml-2 text-sm bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">
-              Verified
-            </span>
-          )}
-        </h1>
-        <p className="text-brand-600 font-medium">
-          {Array.isArray(coach.sports) && coach.sports.length > 0 ? coach.sports.join(", ") : "—"}
-        </p>
-        {coach.email && (
-          <p className="text-slate-500 text-xs mt-1">
-            <span className="font-semibold">Debug email:</span> {coach.email}
-          </p>
-        )}
-        {Array.isArray(coach.serviceCities) && coach.serviceCities.length > 0 ? (
-          <p className="text-slate-500 text-sm mt-1">{coach.serviceCities.join(", ")}</p>
-        ) : null}
-        {coach.hourlyRate != null && String(coach.hourlyRate).trim() !== "" && (
-          <p className="font-semibold text-slate-900 mt-2">
-            ${String(coach.hourlyRate)}/hr
-          </p>
-        )}
-        {(Number(coach.reviewCount) ?? 0) > 0 && (
-          <p className="text-slate-600 mt-1">
-            ★ {(coach.averageRating != null ? Number(coach.averageRating).toFixed(1) : "0")} ({coach.reviewCount} reviews)
-          </p>
-        )}
-        {coach.bio != null && String(coach.bio).trim() !== "" && (
-          <div className="mt-4 text-slate-600 [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mt-4 [&_h2]:mb-2 [&_h2:first-child]:mt-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_p]:my-2 [&_strong]:font-semibold [&_strong]:text-slate-800">
-            <ReactMarkdown>{String(coach.bio)}</ReactMarkdown>
-          </div>
-        )}
-      </div>
+    <div className="min-h-screen bg-slate-50">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-8">
+        <Link
+          to="/find"
+          className="inline-flex items-center gap-1.5 text-slate-500 hover:text-slate-700 text-sm font-medium transition-colors"
+        >
+          ← Back to find coaches
+        </Link>
 
-      <div className="mb-8 p-6 bg-white rounded-xl border border-slate-200">
-        <h2 className="font-semibold text-slate-900 mb-4">
-          {slots.length === 0 ? "Availability" : "Request a booking"}
-        </h2>
-        {slots.length === 0 ? (
-          <p className="text-slate-500">
-            No available slots. Check back later.
-          </p>
-        ) : (
-          <>
-            <p className="text-slate-600 text-sm mb-3">
-              Select a day to see available times.
-              {!isAuthenticated && (
-                <span className="block mt-1 text-slate-500">
-                  You’ll sign in or create an account when you request a booking.
-                </span>
-              )}
-            </p>
-              <div className="mb-4">
-                <div className="flex items-center justify-between mb-2">
-                  <button
-                    type="button"
-                    onClick={() => setCalendarMonth((m) => subMonths(m, 1))}
-                    className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
-                    aria-label="Previous month"
-                  >
-                    ←
-                  </button>
-                  <span className="font-medium text-slate-900">
-                    {format(calendarMonth, "MMMM yyyy")}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setCalendarMonth((m) => addMonths(m, 1))}
-                    className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
-                    aria-label="Next month"
-                  >
-                    →
-                  </button>
-                </div>
-                <div className="grid grid-cols-7 gap-1 text-center text-xs text-slate-500 mb-1">
-                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((wd) => (
-                    <div key={wd}>{wd}</div>
-                  ))}
-                </div>
-                <div className="grid grid-cols-7 gap-1">
-                  {calendarDays.map((day) => {
-                    const hasSlot = hasAvailabilityOnDay(day);
-                    const isPast = isDayInPast(day);
-                    const isCurrentMonth = isSameMonth(day, calendarMonth);
-                    const isSelected = selectedDate && isSameDay(day, selectedDate);
-                    const clickable = hasSlot && !isPast;
-                    return (
-                      <button
-                        key={day.getTime()}
-                        type="button"
-                        disabled={!clickable}
-                        onClick={() => clickable && setSelectedDate(day)}
-                        className={`
-                          aspect-square rounded-lg text-sm transition
-                          ${!isCurrentMonth ? "text-slate-300" : "text-slate-900"}
-                          ${isPast ? "opacity-50 cursor-not-allowed" : ""}
-                          ${clickable ? "hover:bg-slate-100" : ""}
-                          ${isSelected ? "bg-brand-500 text-white hover:bg-brand-600" : ""}
-                          ${!isSelected && hasSlot && !isPast ? "bg-brand-100/50" : ""}
-                        `}
-                      >
-                        {format(day, "d")}
-                        {hasSlot && !isPast && (
-                          <span className="block w-1 h-1 rounded-full bg-current mx-auto mt-0.5 opacity-70" aria-hidden />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              {selectedDate && (
-                <div className="mt-4 pt-4 border-t border-slate-200">
-                  <p className="text-slate-700 font-medium mb-2">
-                    {format(selectedDate, "EEEE, MMM d")}
-                  </p>
-                  {selectedDateSlots.length === 0 ? (
-                    <p className="text-slate-500 text-sm">No times available this day.</p>
-                  ) : (
-                    <>
-                      <div className="flex flex-wrap gap-2 mb-3">
-                        {selectedDateSlots.map((slot) => {
-                          const start = new Date(slot.startTime);
-                          const end = new Date(slot.endTime);
-                          const isSlotSelected = selectedSlot === slot.id;
-                          const isPendingMine = myPendingSlotIds.has(slot.id);
-                          return (
-                            <button
-                              key={slot.id}
-                              type="button"
-                              onClick={() => { setSelectedSlot(slot.id); setBookingSuccess(null); setBookingError(null); }}
-                              className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
-                                isPendingMine
-                                  ? "bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200"
-                                  : isSlotSelected
-                                    ? "bg-brand-500 text-white"
-                                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                              }`}
-                            >
-                              {start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                              –{end.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {selectedSlot && !isAuthenticated && (
-                        <p className="text-slate-600 text-sm mt-2">
-                          <Link
-                            to="/bookings"
-                            state={{ returnTo: `/coaches/${id}` }}
-                            className="text-brand-600 font-medium hover:underline"
-                          >
-                            Sign in or create an account
-                          </Link>{" "}
-                          to request this booking.
-                        </p>
-                      )}
-                      {selectedSlot && isAuthenticated && myPendingSlotIds.has(selectedSlot) && (
-                        <p className="text-amber-700 text-sm mt-2 bg-amber-50 px-3 py-2 rounded-lg border border-amber-200">
-                          You already have a pending request for this time. We’ll email you when the coach responds.
-                        </p>
-                      )}
-                      {selectedSlot && isAuthenticated && !myPendingSlotIds.has(selectedSlot) && (
-                        <>
-                          <div className="mb-3">
-                            <label htmlFor="booking-message" className="block text-sm font-medium text-slate-700 mb-1">
-                              Message to coach <span className="text-slate-400 font-normal">(optional)</span>
-                            </label>
-                            <textarea
-                              id="booking-message"
-                              value={bookingMessage}
-                              onChange={(e) => setBookingMessage(e.target.value)}
-                              placeholder="e.g. what you’d like to work on, experience level…"
-                              maxLength={2000}
-                              rows={3}
-                              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                            />
-                            {bookingMessage.length > 1800 && (
-                              <p className="text-slate-500 text-xs mt-1">{bookingMessage.length} / 2000</p>
-                            )}
-                          </div>
-                          {needsPaymentForm && stripePromise != null && sessionAmountCents ? (
-                            <Elements stripe={stripePromise!}>
-                              <BookingPaymentForm
-                                slotId={selectedSlot}
-                                message={bookingMessage}
-                                amountCents={sessionAmountCents}
-                                createBooking={(body) =>
-                                  bookMutation.mutateAsync({
-                                    slotId: body.slotId,
-                                    message: body.message,
-                                    paymentMethodId: body.paymentMethodId,
-                                  })
-                                }
-                                cancelBooking={(bookingId) =>
-                                  api(`/bookings/${bookingId}`, {
-                                    method: "PATCH",
-                                    body: JSON.stringify({ status: "cancelled" }),
-                                  })
-                                }
-                                onSuccess={() => {
-                                  setSelectedSlot(null);
-                                  setBookingMessage("");
-                                  setBookingError(null);
-                                  queryClient.invalidateQueries({ queryKey: ["coach", id] });
-                                  queryClient.invalidateQueries({ queryKey: ["bookings"] });
-                                }}
-                                onError={setBookingError}
-                                disabled={bookMutation.isPending}
-                              />
-                            </Elements>
-                          ) : (
-                            <button
-                              onClick={handleBook}
-                              disabled={bookMutation.isPending}
-                              className="bg-brand-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50"
-                            >
-                              {bookMutation.isPending ? "Requesting..." : "Request Booking"}
-                            </button>
-                          )}
-                        </>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-              {bookingSuccess && (
-                <p className="text-emerald-700 text-sm mt-2 bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-200" role="status">
-                  {bookingSuccess}
-                </p>
-              )}
-              {bookingError && (
-                <p className="text-red-700 text-sm mt-2 bg-red-50 px-3 py-2 rounded-lg border border-red-200" role="alert">
-                  {bookingError}
-                </p>
-              )}
-            </>
-          )}
-        </div>
-
-      <div>
-        <h2 className="font-semibold text-slate-900 mb-4">Reviews</h2>
-        {reviews.length === 0 ? (
-          <p className="text-slate-500">No reviews yet.</p>
-        ) : (
-          <div className="space-y-4">
-            {reviews.map((r, i) => {
-              const createdAt = r?.createdAt != null ? new Date(r.createdAt) : null;
-              const dateStr = createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toLocaleDateString() : "";
-              return (
+        {/* Profile header: larger avatar (or placeholder); click opens photo gallery when photos exist; corner badge for "more photos" */}
+        <header className="flex flex-col sm:flex-row gap-5 sm:gap-6 items-start">
+          <div className="relative flex-shrink-0">
+            {photoUrls.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setPhotoLightboxIndex(0)}
+                className="block w-32 h-32 sm:w-40 sm:h-40 rounded-2xl overflow-hidden bg-slate-200 border border-slate-200 shadow-sm text-left focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 hover:opacity-95 transition-opacity"
+                aria-label="View profile photos"
+              >
+                <img
+                  src={photoUrls[0]}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = "none";
+                    (e.target as HTMLImageElement).nextElementSibling?.classList.remove("hidden");
+                  }}
+                />
                 <div
-                  key={r?.id ?? `review-${i}`}
-                  className="p-4 bg-slate-50 rounded-lg"
+                  className={`absolute inset-0 w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-300 to-slate-400 text-white text-4xl sm:text-5xl font-bold ${profileImageUrl ? "hidden" : ""}`}
+                  aria-hidden
                 >
-                  <div className="flex justify-between">
-                    <span className="font-medium">
-                      ★ {r?.rating ?? "—"} {r?.athleteName ? `— ${r.athleteName}` : ""}
-                    </span>
-                    {dateStr ? (
-                      <span className="text-slate-500 text-sm">{dateStr}</span>
-                    ) : null}
-                  </div>
-                  {r?.comment != null && String(r.comment).trim() !== "" && (
-                    <p className="text-slate-600 mt-1">{String(r.comment)}</p>
-                  )}
+                  {(coach.displayName ?? "C").charAt(0)}
                 </div>
-              );
-            })}
+              </button>
+            ) : (
+              <div className="w-32 h-32 sm:w-40 sm:h-40 rounded-2xl overflow-hidden bg-slate-200 border border-slate-200 shadow-sm flex items-center justify-center bg-gradient-to-br from-slate-300 to-slate-400 text-white text-4xl sm:text-5xl font-bold">
+                {(coach.displayName ?? "C").charAt(0)}
+              </div>
+            )}
+            {photoUrls.length > 1 && (
+              <span
+                className="absolute bottom-1.5 right-1.5 flex items-center justify-center min-w-[1.5rem] h-6 px-1.5 rounded-md bg-black/50 text-white text-xs font-medium"
+                aria-hidden
+              >
+                +{photoUrls.length - 1}
+              </span>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+                  {coach.displayName ?? "Coach"}
+                </h1>
+                {coach.verified && (
+                  <span className="inline-flex items-center gap-1 text-sm bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full font-medium">
+                    <span aria-hidden>✓</span> Verified
+                  </span>
+                )}
+              </div>
+              {id && currentUser?.coachProfile?.id !== id && (
+                isAuthenticated && currentUser?.athleteProfile ? (
+                  <button
+                    type="button"
+                    onClick={() => setMessageModalOpen(true)}
+                    className="flex-shrink-0 px-3 py-1.5 text-sm font-medium text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg border border-brand-200 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1"
+                  >
+                    Message coach
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setSignInPromptOpen(true)}
+                    className="flex-shrink-0 px-3 py-1.5 text-sm font-medium text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg border border-brand-200 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1"
+                  >
+                    Message coach
+                  </button>
+                )
+              )}
+            </div>
+            {Array.isArray(coach.sports) && coach.sports.length > 0 && (
+              <p className="text-brand-600 font-medium text-lg">
+                {coach.sports.join(" · ")}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-slate-600 text-sm sm:text-base">
+              {coach.serviceCities?.length > 0 && (
+                <span>{coach.serviceCities.join(", ")}</span>
+              )}
+              {coach.hourlyRate != null && String(coach.hourlyRate).trim() !== "" && (
+                <span className="font-semibold text-slate-900">${String(coach.hourlyRate)}/hr</span>
+              )}
+            </div>
+            {(Number(coach.reviewCount) ?? 0) > 0 && (
+              <div className="mt-1.5">
+                <a
+                  href="#reviews"
+                  className="inline-flex items-center gap-1.5 text-slate-600 text-sm sm:text-base hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1 rounded cursor-pointer"
+                  aria-label="View reviews"
+                >
+                  <StarRating rating={coach.averageRating != null ? Number(coach.averageRating) : 0} className="text-base" />
+                  <span>({coach.reviewCount} reviews)</span>
+                </a>
+              </div>
+            )}
+          </div>
+        </header>
+
+        {/* Photo lightbox: large view with prev/next and close */}
+        {photoLightboxIndex != null && photoUrls.length > 0 && (
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Photo gallery"
+            onClick={() => setPhotoLightboxIndex(null)}
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setPhotoLightboxIndex(null);
+              }}
+              className="absolute top-4 right-4 z-10 p-2 rounded-full text-white/90 hover:text-white hover:bg-white/10 transition-colors"
+              aria-label="Close"
+            >
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l18 18" />
+              </svg>
+            </button>
+            <span className="absolute top-4 left-1/2 -translate-x-1/2 z-10 text-white/90 text-sm font-medium">
+              {photoLightboxIndex + 1} / {photoUrls.length}
+            </span>
+            {photoUrls.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPhotoLightboxIndex((i) => (i === 0 ? photoUrls.length - 1 : (i ?? 0) - 1));
+                  }}
+                  className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-10 p-2 sm:p-3 rounded-full text-white/90 hover:text-white hover:bg-white/10 transition-colors"
+                  aria-label="Previous photo"
+                >
+                  <svg className="w-8 h-8 sm:w-10 sm:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPhotoLightboxIndex((i) => (i === null ? 0 : (i + 1) % photoUrls.length));
+                  }}
+                  className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-10 p-2 sm:p-3 rounded-full text-white/90 hover:text-white hover:bg-white/10 transition-colors"
+                  aria-label="Next photo"
+                >
+                  <svg className="w-8 h-8 sm:w-10 sm:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </>
+            )}
+            <img
+              src={photoUrls[photoLightboxIndex]}
+              alt=""
+              className="max-w-[95vw] max-h-[85vh] w-auto h-auto object-contain"
+              onClick={(e) => e.stopPropagation()}
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = "none";
+              }}
+            />
           </div>
         )}
+
+        {/* Sign in / sign up prompt when not authenticated */}
+        {signInPromptOpen && id && (
+          <div
+            className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/50"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="signin-prompt-title"
+            onClick={() => setSignInPromptOpen(false)}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 id="signin-prompt-title" className="text-lg font-semibold text-slate-900 mb-2">
+                Sign in or sign up to message this coach
+              </h2>
+              <p className="text-slate-600 text-sm mb-5">
+                Create an account or sign in to send a message to {coach.displayName ?? "the coach"}.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                <button
+                  type="button"
+                  onClick={() => setSignInPromptOpen(false)}
+                  className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <Link
+                  to="/bookings"
+                  state={{ returnTo: `/coaches/${id}` }}
+                  className="px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg"
+                  onClick={() => setSignInPromptOpen(false)}
+                >
+                  Sign in or sign up
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Message coach modal */}
+        {messageModalOpen && id && (
+          <div
+            className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/50"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="message-coach-title"
+            onClick={() => setMessageModalOpen(false)}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+                <h2 id="message-coach-title" className="text-lg font-semibold text-slate-900">
+                  Message coach
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMessageModalOpen(false);
+                    contactMutation.reset();
+                  }}
+                  className="p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  aria-label="Close"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l18 18" />
+                  </svg>
+                </button>
+              </div>
+              <div className="p-5 space-y-4">
+                {contactMutation.data?.sent ? (
+                  <>
+                    <p className="text-slate-700">
+                      Message sent. The coach will get back to you by email.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => contactMutation.reset()}
+                      className="w-full px-4 py-2 text-sm font-medium text-brand-600 hover:text-brand-700 bg-brand-50 rounded-lg border border-brand-200"
+                    >
+                      Send another message
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <label htmlFor="contact-message" className="block text-sm font-medium text-slate-700">
+                      Your message
+                    </label>
+                    <textarea
+                      id="contact-message"
+                      value={contactMessage}
+                      onChange={(e) => setContactMessage(e.target.value)}
+                      placeholder="Ask about availability, experience, or anything else…"
+                      rows={4}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                      disabled={contactMutation.isPending}
+                    />
+                    {contactMutation.isError && (
+                      <p className="text-sm text-red-600" role="alert">
+                        {contactMutation.error instanceof Error ? contactMutation.error.message : "Failed to send message."}
+                      </p>
+                    )}
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMessageModalOpen(false);
+                          contactMutation.reset();
+                        }}
+                        className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => contactMessage.trim() && contactMutation.mutate(contactMessage.trim())}
+                        disabled={!contactMessage.trim() || contactMutation.isPending}
+                        className="px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-50 disabled:pointer-events-none rounded-lg"
+                      >
+                        {contactMutation.isPending ? "Sending…" : "Send"}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* About */}
+        {(coach.bio != null && String(coach.bio).trim() !== "") && (
+          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
+              <h2 className="text-lg font-semibold text-slate-900">About</h2>
+            </div>
+            <div className="p-5 sm:p-6 text-slate-600 prose prose-slate max-w-none [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mt-4 [&_h2]:mb-2 [&_h2:first-child]:mt-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_p]:my-2 [&_strong]:font-semibold [&_strong]:text-slate-800">
+              <ReactMarkdown>{String(coach.bio)}</ReactMarkdown>
+            </div>
+          </section>
+        )}
+
+        {/* Locations + map */}
+        {locations.length > 0 && (
+          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
+              <h2 className="text-lg font-semibold text-slate-900">Locations</h2>
+              <p className="text-slate-500 text-sm mt-0.5">Where sessions take place</p>
+            </div>
+            <div className="p-5 sm:p-6">
+              <CoachDetailMap locations={locations} />
+            </div>
+          </section>
+        )}
+
+        {/* Debug email (non-production only) */}
+        {coach.email && (
+          <p className="text-slate-400 text-xs">
+            <span className="font-medium">Debug email:</span> {coach.email}
+          </p>
+        )}
+
+        {/* Request a booking */}
+        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
+            <h2 className="text-lg font-semibold text-slate-900">
+              {slots.length === 0 ? "Availability" : "Request a booking"}
+            </h2>
+            <p className="text-slate-500 text-sm mt-0.5">
+              {slots.length === 0 ? "No open slots right now." : "Pick a day and time below."}
+            </p>
+          </div>
+          <div className="p-5 sm:p-6">
+            {slots.length === 0 ? (
+              <p className="text-slate-500">
+                No available slots. Check back later.
+              </p>
+            ) : (
+              <>
+                <p className="text-slate-600 text-sm mb-3">
+                  Click a time on the calendar to book, or click a day to see all times for that day.
+                  {!isAuthenticated && (
+                    <span className="block mt-1 text-slate-500">
+                      You’ll sign in or create an account when you request a booking.
+                    </span>
+                  )}
+                </p>
+                <PublicBookingCalendar
+                  slots={slots}
+                  onSelectSlot={(slotId) => navigate(`/coaches/${id}/book?slotId=${slotId}`)}
+                  bookedSlotIds={isAuthenticated ? myBookedSlotIds : undefined}
+                />
+              </>
+            )}
+          </div>
+        </section>
+
+        {/* Reviews */}
+        <section id="reviews" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
+            <h2 className="text-lg font-semibold text-slate-900">Reviews</h2>
+            {(Number(coach.reviewCount) ?? 0) > 0 && (
+              <p className="text-slate-500 text-sm mt-0.5 inline-flex items-center gap-2">
+                <StarRating rating={coach.averageRating != null ? Number(coach.averageRating) : 0} className="text-sm" />
+                <span>from {coach.reviewCount} review{coach.reviewCount !== 1 ? "s" : ""}</span>
+              </p>
+            )}
+          </div>
+          <div className="p-5 sm:p-6">
+            {reviews.length === 0 ? (
+              <p className="text-slate-500">No reviews yet.</p>
+            ) : (
+              <ul className="space-y-4">
+                {reviews.map((r, i) => {
+                  const createdAt = r?.createdAt != null ? new Date(r.createdAt) : null;
+                  const dateStr = createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toLocaleDateString() : "";
+                  return (
+                    <li
+                      key={r?.id ?? `review-${i}`}
+                      className="p-4 rounded-xl bg-slate-50/80 border border-slate-100"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="inline-flex items-center gap-2 font-medium text-slate-900">
+                          <StarRating rating={typeof r?.rating === "number" ? r.rating : 0} className="text-base" />
+                          {r?.athleteName && (
+                            <span className="text-slate-500 font-normal">— {r.athleteName}</span>
+                          )}
+                        </span>
+                        {dateStr && (
+                          <span className="text-slate-400 text-sm">{dateStr}</span>
+                        )}
+                      </div>
+                      {r?.comment != null && String(r.comment).trim() !== "" && (
+                        <p className="text-slate-600 mt-2 leading-relaxed">{String(r.comment)}</p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );

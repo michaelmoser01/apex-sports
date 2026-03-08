@@ -59,7 +59,13 @@ export async function api<T>(
   if (!res.ok) {
     if (isJson) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
-      const message = err.detail ?? err.error ?? err.message ?? res.statusText ?? "Request failed";
+      const raw = err.detail ?? err.error ?? err.message ?? res.statusText ?? "Request failed";
+      const message =
+        typeof raw === "string"
+          ? raw
+          : typeof raw === "object" && raw !== null && typeof (raw as { message?: unknown }).message === "string"
+            ? (raw as { message: string }).message
+            : "Request failed";
       throw new Error(message);
     }
     const text = await res.text();

@@ -26,6 +26,11 @@ interface BookingsData {
 
 type TabId = "athlete" | "coach";
 
+interface CoachProfilePayment {
+  hourlyRate: string | null;
+  stripeOnboardingComplete?: boolean;
+}
+
 function isActive(endTime: string, status: string): boolean {
   if (status === "cancelled" || status === "completed") return false;
   return new Date(endTime) >= new Date();
@@ -53,9 +58,45 @@ export default function Bookings() {
   const { data: currentUser } = useCurrentUser(true);
   const hasCoachProfile = !!currentUser?.coachProfile;
 
+  const { data: coachProfile } = useQuery({
+    queryKey: ["coachProfile"],
+    queryFn: () => api<CoachProfilePayment>("/coaches/me"),
+    enabled: hasCoachProfile,
+  });
+
+  const connectAccountLinkMutation = useMutation({
+    mutationFn: () =>
+      api<{ url: string }>("/coaches/me/connect-account-link", {
+        method: "POST",
+        body: JSON.stringify({ returnPath: "/bookings" }),
+      }),
+    onSuccess: (data) => {
+      if (data?.url) window.location.href = data.url;
+    },
+  });
+
+  const [connectStatusSyncing, setConnectStatusSyncing] = useState(false);
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (
+      (params.get("connect") === "return" || params.get("connect") === "refresh") &&
+      hasCoachProfile
+    ) {
+      setConnectStatusSyncing(true);
+      api<{ stripeOnboardingComplete: boolean }>("/coaches/me/connect-status")
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
+          window.history.replaceState({}, "", location.pathname);
+        })
+        .finally(() => setConnectStatusSyncing(false));
+    }
+  }, [location.search, location.pathname, hasCoachProfile, queryClient]);
+
   const { data, isLoading } = useQuery({
     queryKey: ["bookings"],
     queryFn: () => api<BookingsData>("/bookings"),
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
   });
 
   const updateMutation = useMutation({
@@ -155,6 +196,41 @@ export default function Bookings() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 sm:py-12">
       <h1 className="text-2xl font-bold text-slate-900 mb-6">Bookings</h1>
+
+      {hasCoachProfile && coachProfile?.hourlyRate && (
+        <section className="mb-6 p-6 bg-white rounded-xl border border-slate-200">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">Payments</h2>
+          {connectStatusSyncing ? (
+            <p className="text-slate-500 text-sm">Checking payment setup…</p>
+          ) : coachProfile.stripeOnboardingComplete ? (
+            <p className="text-slate-600 text-sm flex items-center gap-2">
+              <span className="text-emerald-600 font-medium">Payments set up</span>
+              You&apos;ll receive session payments after the platform fee.
+            </p>
+          ) : (
+            <>
+              <p className="text-slate-600 text-sm mb-3">
+                Set up Stripe to receive payments when athletes book sessions. You&apos;ll be charged only when you mark a session complete.
+              </p>
+              <button
+                type="button"
+                onClick={() => connectAccountLinkMutation.mutate()}
+                disabled={connectAccountLinkMutation.isPending}
+                className="bg-brand-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50"
+              >
+                {connectAccountLinkMutation.isPending ? "Redirecting…" : "Set up payments"}
+              </button>
+              {connectAccountLinkMutation.isError && (
+                <p className="text-red-600 text-sm mt-2" role="alert">
+                  {connectAccountLinkMutation.error instanceof Error
+                    ? connectAccountLinkMutation.error.message
+                    : "Failed to start setup."}
+                </p>
+              )}
+            </>
+          )}
+        </section>
+      )}
 
       {tabs.length > 1 && (
         <div className="flex gap-1 p-1 bg-slate-100 rounded-lg mb-6 sm:mb-8 w-full sm:w-fit">
@@ -288,7 +364,7 @@ export default function Bookings() {
                 className="flex items-center gap-2 text-slate-600 hover:text-slate-900 font-medium text-sm mb-4"
               >
                 <span>
-                  {showPastAthlete ? "Hide" : "Show"} completed or cancelled ({athletePast.length})
+                  {showPastAthlete ? "Hide" : "Show"} past or closed ({athletePast.length})
                 </span>
                 <svg
                   className={`w-4 h-4 transition-transform ${showPastAthlete ? "rotate-180" : ""}`}
@@ -301,6 +377,9 @@ export default function Bookings() {
               </button>
               {showPastAthlete && (
                 <div className="space-y-5 sm:space-y-4">
+                  <p className="text-slate-500 text-sm mb-1">
+                    Slots that have already passed or are completed/cancelled. Pending here means the session date passed before it was confirmed or completed.
+                  </p>
                   {athletePast.map((b) => (
                     <div
                       key={b.id}
@@ -486,7 +565,7 @@ export default function Bookings() {
                 className="flex items-center gap-2 text-slate-600 hover:text-slate-900 font-medium text-sm mb-4"
               >
                 <span>
-                  {showPastCoach ? "Hide" : "Show"} completed or cancelled ({coachPast.length})
+                  {showPastCoach ? "Hide" : "Show"} past or closed ({coachPast.length})
                 </span>
                 <svg
                   className={`w-4 h-4 transition-transform ${showPastCoach ? "rotate-180" : ""}`}
@@ -499,6 +578,9 @@ export default function Bookings() {
               </button>
               {showPastCoach && (
                 <div className="space-y-5 sm:space-y-4">
+                  <p className="text-slate-500 text-sm mb-1">
+                    Slots that have already passed or are completed/cancelled. Pending here means the session date passed before it was confirmed or completed.
+                  </p>
                   {coachPast.map((b) => (
                     <div
                       key={b.id}

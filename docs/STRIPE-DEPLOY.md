@@ -45,6 +45,7 @@ Each stage gets its own secret: `apex-sports-dev-stripe-keys`, `apex-sports-prod
 
    - **STRIPE_SECRET_KEY** / **STRIPE_PUBLISHABLE_KEY:** from [Stripe Dashboard → API keys](https://dashboard.stripe.com/apikeys). Toggle **Test mode** (dev) or **Live** (prod) in the dashboard to get the right set.
    - **STRIPE_WEBHOOK_SECRET:** from the webhook you create in section 4 (create one webhook in test mode for dev, one in live for prod).
+   - **GOOGLE_MAPS_API_KEY** (optional): from [Google Cloud Console](https://console.cloud.google.com/apis/credentials). Enable **Maps JavaScript API** and **Places API**. Restrict the key to **HTTP referrers** and add your site URLs (e.g. `https://dev.getapexsports.com/*`, `http://localhost:*`). See [GOOGLE-MAPS.md](GOOGLE-MAPS.md) for details and fixing RefererNotAllowedMapError.
 
 5. Save. The next Lambda cold start will load the new values.
 

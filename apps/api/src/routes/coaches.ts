@@ -6,12 +6,14 @@ import {
   coachProfileUpdateSchema,
   availabilitySlotCreateSchema,
   availabilityRuleCreateSchema,
+  coachLocationCreateSchema,
+  coachLocationUpdateSchema,
 } from "@apex-sports/shared";
 import { Prisma } from "@prisma/client";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "node:crypto";
-import { sendBookingStatusToAthlete } from "../notifications.js";
+import { sendBookingStatusToAthlete, sendAthleteMessageToCoach } from "../notifications.js";
 import { stripe, isStripeEnabled, createPlanCheckoutSession, createCoachPlanSubscription, getOrCreateStripeCustomerId } from "../stripe.js";
 import { invokeBioDraft, isBedrockConfigured } from "../bedrock.js";
 import { invokeCoachAgent, type AgentChatRole } from "../coachAgent.js";
@@ -265,6 +267,7 @@ router.post("/me/agent/chat", authMiddleware(), async (req, res) => {
       coachId: profile.id,
       threadId,
       athleteId: role === "athlete" ? athleteId : undefined,
+      coachDisplayName: profile.displayName ?? undefined,
     });
     res.json({
       agentReplyToSender: result.agentReplyToSender,
@@ -920,7 +923,8 @@ router.patch("/me/invites", authMiddleware(), async (req, res) => {
   res.json({ slug, url: `${appUrl}/join/${slug}` });
 });
 
-// List connected athletes (invite-link signups)
+// List connected athletes (invite-link signups).
+// CoachAthlete rows are only removed by DB CASCADE (coach or athlete profile deleted); no app code deletes them.
 router.get("/me/athletes", authMiddleware(), async (req, res) => {
   const user = (req as { user?: { id: string } }).user;
   if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -950,6 +954,108 @@ router.get("/me/athletes", authMiddleware(), async (req, res) => {
       },
     }))
   );
+});
+
+// Coach locations CRUD
+router.get("/me/locations", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const profile = await prisma.coachProfile.findUnique({
+    where: { userId: user.id },
+  });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+  const locations = await prisma.coachLocation.findMany({
+    where: { coachId: profile.id },
+    orderBy: { name: "asc" },
+  });
+  res.json(
+    locations.map((loc) => ({
+      id: loc.id,
+      name: loc.name,
+      address: loc.address,
+      notes: loc.notes ?? null,
+      latitude: loc.latitude != null ? Number(loc.latitude) : null,
+      longitude: loc.longitude != null ? Number(loc.longitude) : null,
+    }))
+  );
+});
+
+router.post("/me/locations", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const profile = await prisma.coachProfile.findUnique({
+    where: { userId: user.id },
+  });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+  const parsed = coachLocationCreateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { name, address, notes, latitude, longitude } = parsed.data;
+  const location = await prisma.coachLocation.create({
+    data: {
+      coachId: profile.id,
+      name,
+      address,
+      notes: notes ?? null,
+      latitude: latitude != null ? latitude : null,
+      longitude: longitude != null ? longitude : null,
+    },
+  });
+  res.status(201).json({
+    id: location.id,
+    name: location.name,
+    address: location.address,
+    notes: location.notes ?? null,
+    latitude: location.latitude != null ? Number(location.latitude) : null,
+    longitude: location.longitude != null ? Number(location.longitude) : null,
+  });
+});
+
+router.put("/me/locations/:id", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const profile = await prisma.coachProfile.findUnique({
+    where: { userId: user.id },
+  });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+  const existing = await prisma.coachLocation.findFirst({
+    where: { id: req.params.id, coachId: profile.id },
+  });
+  if (!existing) return res.status(404).json({ error: "Location not found" });
+  const parsed = coachLocationUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const location = await prisma.coachLocation.update({
+    where: { id: existing.id },
+    data: {
+      ...(parsed.data.name !== undefined && { name: parsed.data.name }),
+      ...(parsed.data.address !== undefined && { address: parsed.data.address }),
+      ...(parsed.data.notes !== undefined && { notes: parsed.data.notes ?? null }),
+      ...(parsed.data.latitude !== undefined && { latitude: parsed.data.latitude }),
+      ...(parsed.data.longitude !== undefined && { longitude: parsed.data.longitude }),
+    },
+  });
+  res.json({
+    id: location.id,
+    name: location.name,
+    address: location.address,
+    notes: location.notes ?? null,
+    latitude: location.latitude != null ? Number(location.latitude) : null,
+    longitude: location.longitude != null ? Number(location.longitude) : null,
+  });
+});
+
+router.delete("/me/locations/:id", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const profile = await prisma.coachProfile.findUnique({
+    where: { userId: user.id },
+  });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+  const existing = await prisma.coachLocation.findFirst({
+    where: { id: req.params.id, coachId: profile.id },
+  });
+  if (!existing) return res.status(404).json({ error: "Location not found" });
+  await prisma.coachLocation.delete({ where: { id: existing.id } });
+  return res.status(204).send();
 });
 
 // Availability: rules (recurring) + one-off slots
@@ -998,12 +1104,14 @@ router.get("/me/availability", authMiddleware(), async (req, res) => {
       endDate: r.endDate.toISOString().slice(0, 10),
       slotCount: r._count.slots,
       bookingCount: r.slots.reduce((sum, s) => sum + s.bookings.length, 0),
+      locationId: r.locationId ?? undefined,
     })),
     oneOffSlots: oneOffSlots.map((s) => ({
       id: s.id,
       startTime: s.startTime.toISOString(),
       endTime: s.endTime.toISOString(),
       status: s.status,
+      locationId: s.locationId ?? undefined,
     })),
   });
 });
@@ -1023,11 +1131,17 @@ router.post("/me/availability", authMiddleware(), async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const { startTime, durationMinutes, recurrence } = parsed.data;
+  const { startTime, durationMinutes, recurrence, locationId } = parsed.data;
   if (recurrence !== "none") {
     return res.status(400).json({
       error: "Use POST /me/availability/rules for recurring availability.",
     });
+  }
+  if (locationId) {
+    const loc = await prisma.coachLocation.findFirst({
+      where: { id: locationId, coachId: profile.id },
+    });
+    if (!loc) return res.status(400).json({ error: "Location not found or not yours." });
   }
 
   const firstStart = new Date(startTime);
@@ -1037,6 +1151,7 @@ router.post("/me/availability", authMiddleware(), async (req, res) => {
   const slot = await prisma.availabilitySlot.create({
     data: {
       coachId: profile.id,
+      locationId: locationId ?? null,
       startTime: firstStart,
       endTime: firstEnd,
       recurrence: "none",
@@ -1065,7 +1180,13 @@ router.post("/me/availability/rules", authMiddleware(), async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const { firstStartTime, durationMinutes, endDate } = parsed.data;
+  const { firstStartTime, durationMinutes, endDate, locationId } = parsed.data;
+  if (locationId) {
+    const loc = await prisma.coachLocation.findFirst({
+      where: { id: locationId, coachId: profile.id },
+    });
+    if (!loc) return res.status(400).json({ error: "Location not found or not yours." });
+  }
   const firstStart = new Date(firstStartTime);
   const endDateObj = new Date(endDate + "T23:59:59.999Z");
   const durationMs = durationMinutes * 60 * 1000;
@@ -1075,6 +1196,7 @@ router.post("/me/availability/rules", authMiddleware(), async (req, res) => {
   const rule = await prisma.availabilityRule.create({
     data: {
       coachId: profile.id,
+      locationId: locationId ?? null,
       firstStartTime: firstStart,
       durationMinutes,
       recurrence: "weekly",
@@ -1095,6 +1217,7 @@ router.post("/me/availability/rules", authMiddleware(), async (req, res) => {
     data: slotTimes.map(({ start, end }) => ({
       coachId: profile.id,
       ruleId: rule.id,
+      locationId: locationId ?? null,
       startTime: start,
       endTime: end,
       recurrence: "weekly",
@@ -1277,13 +1400,72 @@ router.get("/", async (req, res) => {
   res.json({ coaches: withAvgRating, total, page, limit });
 });
 
-// Public: get coach by id
-router.get("/:id", async (req, res) => {
+// Resolve coach profile id from UUID or invite slug (used by public profile and contact)
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+async function resolveCoachId(idOrSlug: string): Promise<string | null> {
+  if (UUID_REGEX.test(idOrSlug)) return idOrSlug;
+  const invite = await prisma.coachInvite.findUnique({
+    where: { slug: idOrSlug },
+    select: { coachProfileId: true },
+  });
+  return invite?.coachProfileId ?? null;
+}
+
+// Athlete-facing: send a message to a coach (no booking). Emails the coach.
+router.post("/:coachId/contact", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const dbUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    include: { athleteProfile: true },
+  });
+  if (!dbUser) return res.status(404).json({ error: "User not found" });
+  const athleteProfile = dbUser.athleteProfile;
+  if (!athleteProfile) return res.status(403).json({ error: "Athlete profile required to message a coach" });
+
+  const coachIdParam = req.params.coachId;
+  if (!coachIdParam) return res.status(400).json({ error: "Coach id is required" });
+  const coachId = await resolveCoachId(coachIdParam);
+  if (!coachId) return res.status(404).json({ error: "Coach not found" });
+
   const coach = await prisma.coachProfile.findUnique({
-    where: { id: req.params.id },
+    where: { id: coachId },
+    include: { user: { select: { email: true } } },
+  });
+  if (!coach) return res.status(404).json({ error: "Coach not found" });
+  const coachEmail = coach.user?.email;
+  if (!coachEmail) return res.status(400).json({ error: "Coach has no email on file" });
+
+  const body = req.body as { message?: string };
+  const message = typeof body.message === "string" ? body.message.trim() : "";
+  if (!message) return res.status(400).json({ error: "message is required" });
+
+  try {
+    await sendAthleteMessageToCoach({
+      coachEmail,
+      athleteDisplayName: athleteProfile.displayName ?? dbUser.name ?? "An athlete",
+      message,
+    });
+    res.json({ sent: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[coaches] contact email error:", msg);
+    res.status(500).json({ error: "Failed to send message", detail: msg });
+  }
+});
+
+// Public: get coach by id or invite slug (friendly URL, same slug as invite link)
+router.get("/:id", async (req, res) => {
+  const idOrSlug = req.params.id;
+  const coachId = await resolveCoachId(idOrSlug);
+  if (!coachId) return res.status(404).json({ error: "Coach not found" });
+  const coach = await prisma.coachProfile.findUnique({
+    where: { id: coachId },
     include: {
       user: { select: { email: true } },
       photos: { orderBy: { sortOrder: "asc" } },
+      locations: { orderBy: { name: "asc" } },
       availabilitySlots: {
         where: {
           startTime: { gte: new Date() },
@@ -1326,6 +1508,14 @@ router.get("/:id", async (req, res) => {
     verified: coach.verified,
     avatarUrl: coach.avatarUrl,
     photos: coach.photos.map((p) => ({ id: p.id, url: p.url, sortOrder: p.sortOrder })),
+    locations: coach.locations.map((loc) => ({
+      id: loc.id,
+      name: loc.name,
+      address: loc.address,
+      notes: loc.notes ?? null,
+      latitude: loc.latitude != null ? Number(loc.latitude) : null,
+      longitude: loc.longitude != null ? Number(loc.longitude) : null,
+    })),
     availabilitySlots: coach.availabilitySlots.map((s) => ({
       id: s.id,
       startTime: s.startTime.toISOString(),

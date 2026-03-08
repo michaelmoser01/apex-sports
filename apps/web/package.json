@@ -14,13 +14,16 @@
     "aws-amplify": "^6.5.0",
     "date-fns": "^4.1.0",
     "react": "^18.3.0",
+    "react-big-calendar": "^1.19.4",
     "react-dom": "^18.3.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.28.0",
     "stripe": "^20.3.1"
   },
   "devDependencies": {
+    "@types/google.maps": "^3.58.1",
     "@types/react": "^18.3.0",
+    "@types/react-big-calendar": "^1.16.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.0",
