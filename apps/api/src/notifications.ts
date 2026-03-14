@@ -93,14 +93,18 @@ ${contentHtml}${ctaBlock}
 
 export interface AthleteMessageToCoachParams {
   coachEmail: string;
+  athleteEmail: string | null;
   athleteDisplayName: string;
   message: string;
 }
 
 export async function sendAthleteMessageToCoach(params: AthleteMessageToCoachParams): Promise<void> {
-  const { coachEmail, athleteDisplayName, message } = params;
+  const { coachEmail, athleteEmail, athleteDisplayName, message } = params;
   const name = athleteDisplayName?.trim() || "An athlete";
   const body = message?.trim() || "(No message)";
+  const replyHint = athleteEmail
+    ? `Reply to this email to respond directly to ${name}.`
+    : "You can reply to this email or log in to Apex Sports to manage your bookings and athletes.";
 
   const subject = `Message from ${name} on Apex Sports`;
   const bodyText = [
@@ -110,7 +114,7 @@ export async function sendAthleteMessageToCoach(params: AthleteMessageToCoachPar
     body,
     "---",
     "",
-    "You can reply to this email or log in to Apex Sports to manage your bookings and athletes.",
+    replyHint,
     myBookingsUrl ? `Dashboard: ${myBookingsUrl}` : null,
   ]
     .filter(Boolean)
@@ -120,7 +124,7 @@ export async function sendAthleteMessageToCoach(params: AthleteMessageToCoachPar
     [
       `<p style="margin: 0 0 16px;">${escapeHtml(name)} sent you a message from your Apex Sports profile:</p>`,
       `<p style="margin: 0 0 16px; padding: 16px; background: #f8fafc; border-radius: 8px; border-left: 4px solid #0f766e;">${escapeHtml(body).replace(/\n/g, "<br>")}</p>`,
-      "<p style=\"margin: 0 0 0;\">You can reply to this email or log in to Apex Sports to manage your bookings and athletes.</p>",
+      `<p style="margin: 0 0 0;">${escapeHtml(replyHint)}</p>`,
     ].join("\n"),
     "Go to dashboard",
     myBookingsUrl || undefined
@@ -131,6 +135,7 @@ export async function sendAthleteMessageToCoach(params: AthleteMessageToCoachPar
       new SendEmailCommand({
         Source: fromEmail,
         Destination: { ToAddresses: [coachEmail] },
+        ReplyToAddresses: athleteEmail ? [athleteEmail] : undefined,
         Message: {
           Subject: { Data: subject, Charset: "UTF-8" },
           Body: {

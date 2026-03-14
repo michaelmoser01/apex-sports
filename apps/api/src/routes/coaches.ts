@@ -1441,9 +1441,11 @@ router.post("/:coachId/contact", authMiddleware(), async (req, res) => {
   const message = typeof body.message === "string" ? body.message.trim() : "";
   if (!message) return res.status(400).json({ error: "message is required" });
 
+  const athleteEmail = dbUser.email?.trim() || null;
   try {
     await sendAthleteMessageToCoach({
       coachEmail,
+      athleteEmail,
       athleteDisplayName: athleteProfile.displayName ?? dbUser.name ?? "An athlete",
       message,
     });
@@ -1466,6 +1468,7 @@ router.get("/:id", async (req, res) => {
       user: { select: { email: true } },
       photos: { orderBy: { sortOrder: "asc" } },
       locations: { orderBy: { name: "asc" } },
+      // Same bookable slots as coach view: future, available, no confirmed/completed booking
       availabilitySlots: {
         where: {
           startTime: { gte: new Date() },
@@ -1477,6 +1480,7 @@ router.get("/:id", async (req, res) => {
           },
         },
         orderBy: { startTime: "asc" },
+        include: { location: true },
       },
       reviews: {
         include: { athlete: { select: { name: true } } },
@@ -1520,6 +1524,16 @@ router.get("/:id", async (req, res) => {
       id: s.id,
       startTime: s.startTime.toISOString(),
       endTime: s.endTime.toISOString(),
+      location: s.location
+        ? {
+            id: s.location.id,
+            name: s.location.name,
+            address: s.location.address,
+            notes: s.location.notes ?? null,
+            latitude: s.location.latitude != null ? Number(s.location.latitude) : null,
+            longitude: s.location.longitude != null ? Number(s.location.longitude) : null,
+          }
+        : null,
     })),
     reviews: coach.reviews.map((r) => ({
       id: r.id,

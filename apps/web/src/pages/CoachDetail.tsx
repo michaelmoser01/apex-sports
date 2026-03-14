@@ -42,7 +42,12 @@ interface CoachDetail {
   avatarUrl: string | null;
   photos?: CoachPhoto[];
   locations?: CoachLocation[];
-  availabilitySlots: { id: string; startTime: string; endTime: string }[];
+  availabilitySlots: {
+    id: string;
+    startTime: string;
+    endTime: string;
+    location: CoachLocation | null;
+  }[];
   reviews: {
     id: string;
     rating: number;
@@ -141,7 +146,14 @@ export default function CoachDetail() {
 
   const { data: myBookings } = useQuery({
     queryKey: ["bookings"],
-    queryFn: () => api<{ asAthlete: { coach: { id: string }; slot: { id: string }; status: string }[] }>("/bookings"),
+    queryFn: () =>
+      api<{
+        asAthlete: {
+          coach: { id: string };
+          slot: { id: string; startTime: string; endTime: string };
+          status: string;
+        }[];
+      }>("/bookings"),
     enabled: !!id && isAuthenticated,
   });
 
@@ -154,12 +166,22 @@ export default function CoachDetail() {
     navigate(`/coaches/${id}/book?slotId=${slotIdFromUrl}`, { replace: true });
   }, [id, coach, slotIdFromUrl, navigate]);
 
-  /** Slot IDs where the current user has any booking with this coach (pending, confirmed, etc.) for calendar indication */
+  /** Slot IDs where the current user has a pending request (not yet accepted) for calendar "Requested" state */
+  const myRequestedSlotIds = useMemo(() => {
+    if (!coach?.id || !myBookings?.asAthlete) return new Set<string>();
+    return new Set(
+      myBookings.asAthlete
+        .filter((b) => b.coach.id === coach.id && b.status === "pending")
+        .map((b) => b.slot.id)
+    );
+  }, [coach?.id, myBookings]);
+
+  /** Slot IDs where the current user has a confirmed or completed booking for calendar "Booked" state */
   const myBookedSlotIds = useMemo(() => {
     if (!coach?.id || !myBookings?.asAthlete) return new Set<string>();
     return new Set(
       myBookings.asAthlete
-        .filter((b) => b.coach.id === coach.id)
+        .filter((b) => b.coach.id === coach.id && (b.status === "confirmed" || b.status === "completed"))
         .map((b) => b.slot.id)
     );
   }, [coach?.id, myBookings]);
@@ -173,14 +195,28 @@ export default function CoachDetail() {
     onSuccess: () => setContactMessage(""),
   });
 
-  // Derive slots safely (empty when no coach) so useMemo below always has valid input
-  const slots = !coach
-    ? []
-    : Array.isArray(coach.availabilitySlots)
+  // Slots to show on calendar: coach's available slots + current user's confirmed/completed slots (so "Booked" shows)
+  const slots = useMemo(() => {
+    if (!coach) return [];
+    const available = Array.isArray(coach.availabilitySlots)
       ? coach.availabilitySlots.filter(
           (s) => s && typeof s.startTime === "string" && !Number.isNaN(new Date(s.startTime).getTime())
         )
       : [];
+    const availableIds = new Set(available.map((s) => s.id));
+    if (!isAuthenticated || !myBookings?.asAthlete) return available;
+    const myBookedWithCoach = myBookings.asAthlete.filter(
+      (b) => b.coach.id === coach.id && (b.status === "confirmed" || b.status === "completed")
+    );
+    const extraSlots = myBookedWithCoach
+      .filter((b) => !availableIds.has(b.slot.id))
+      .map((b) => ({
+        id: b.slot.id,
+        startTime: b.slot.startTime,
+        endTime: b.slot.endTime,
+      }));
+    return [...available, ...extraSlots];
+  }, [coach, isAuthenticated, myBookings]);
 
   if (isLoading || (!coach && !isError)) {
     return (
@@ -235,24 +271,54 @@ export default function CoachDetail() {
   const profileImageUrl = photoUrls[0] ?? null;
   const locations = Array.isArray(coach.locations) ? coach.locations : [];
 
+  const messageCoachButton = (mobileOnly = false) =>
+    id && currentUser?.coachProfile?.id !== id ? (
+      isAuthenticated && currentUser?.athleteProfile ? (
+        <button
+          type="button"
+          onClick={() => setMessageModalOpen(true)}
+          className={
+            mobileOnly
+              ? "w-full px-4 py-3 text-base font-semibold text-brand-600 hover:text-brand-700 bg-white hover:bg-brand-50 rounded-xl border-2 border-brand-500 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 touch-manipulation"
+              : "w-full sm:w-auto flex-shrink-0 px-4 py-3 sm:px-3 sm:py-1.5 text-base sm:text-sm font-semibold sm:font-medium text-brand-600 hover:text-brand-700 bg-white hover:bg-brand-50 rounded-xl sm:rounded-lg border-2 sm:border border-brand-500 border-brand-200 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 sm:focus:ring-offset-1 touch-manipulation"
+          }
+        >
+          Message coach
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setSignInPromptOpen(true)}
+          className={
+            mobileOnly
+              ? "w-full px-4 py-3 text-base font-semibold text-brand-600 hover:text-brand-700 bg-white hover:bg-brand-50 rounded-xl border-2 border-brand-500 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 touch-manipulation"
+              : "w-full sm:w-auto flex-shrink-0 px-4 py-3 sm:px-3 sm:py-1.5 text-base sm:text-sm font-semibold sm:font-medium text-brand-600 hover:text-brand-700 bg-white hover:bg-brand-50 rounded-xl sm:rounded-lg border-2 sm:border border-brand-500 border-brand-200 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 sm:focus:ring-offset-1 touch-manipulation"
+          }
+        >
+          Message coach
+        </button>
+      )
+    ) : null;
+
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-8 space-y-6 sm:space-y-8">
         <Link
           to="/find"
-          className="inline-flex items-center gap-1.5 text-slate-500 hover:text-slate-700 text-sm font-medium transition-colors"
+          className="inline-flex items-center gap-1.5 text-slate-500 hover:text-slate-700 text-sm font-medium transition-colors touch-manipulation"
         >
           ← Back to find coaches
         </Link>
 
-        {/* Profile header: larger avatar (or placeholder); click opens photo gallery when photos exist; corner badge for "more photos" */}
-        <header className="flex flex-col sm:flex-row gap-5 sm:gap-6 items-start">
-          <div className="relative flex-shrink-0">
+        {/* Mobile-first header: full-width photo on mobile, then stacked info */}
+        <header className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-stretch sm:items-start">
+          {/* Photo: full width on mobile, fixed size on desktop */}
+          <div className="relative w-full sm:w-auto flex justify-center sm:block sm:flex-shrink-0">
             {photoUrls.length > 0 ? (
               <button
                 type="button"
                 onClick={() => setPhotoLightboxIndex(0)}
-                className="block w-32 h-32 sm:w-40 sm:h-40 rounded-2xl overflow-hidden bg-slate-200 border border-slate-200 shadow-sm text-left focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 hover:opacity-95 transition-opacity"
+                className="block w-full max-w-[280px] sm:max-w-none aspect-[4/3] sm:w-40 sm:h-40 sm:aspect-auto rounded-2xl overflow-hidden bg-slate-200 border border-slate-200 shadow-sm text-left focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 hover:opacity-95 transition-opacity mx-auto sm:mx-0"
                 aria-label="View profile photos"
               >
                 <img
@@ -272,23 +338,24 @@ export default function CoachDetail() {
                 </div>
               </button>
             ) : (
-              <div className="w-32 h-32 sm:w-40 sm:h-40 rounded-2xl overflow-hidden bg-slate-200 border border-slate-200 shadow-sm flex items-center justify-center bg-gradient-to-br from-slate-300 to-slate-400 text-white text-4xl sm:text-5xl font-bold">
+              <div className="w-full max-w-[280px] sm:max-w-none aspect-[4/3] sm:w-40 sm:h-40 sm:aspect-auto rounded-2xl overflow-hidden bg-slate-200 border border-slate-200 shadow-sm flex items-center justify-center bg-gradient-to-br from-slate-300 to-slate-400 text-white text-4xl sm:text-5xl font-bold mx-auto sm:mx-0">
                 {(coach.displayName ?? "C").charAt(0)}
               </div>
             )}
             {photoUrls.length > 1 && (
               <span
-                className="absolute bottom-1.5 right-1.5 flex items-center justify-center min-w-[1.5rem] h-6 px-1.5 rounded-md bg-black/50 text-white text-xs font-medium"
+                className="absolute bottom-2 right-2 sm:bottom-1.5 sm:right-1.5 flex items-center justify-center min-w-[1.75rem] h-7 sm:min-w-[1.5rem] sm:h-6 px-1.5 rounded-md bg-black/50 text-white text-xs font-medium"
                 aria-hidden
               >
                 +{photoUrls.length - 1}
               </span>
             )}
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+
+          <div className="min-w-0 flex-1 flex flex-col gap-3 sm:gap-1">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+                <h1 className="text-xl sm:text-3xl font-bold text-slate-900 tracking-tight">
                   {coach.displayName ?? "Coach"}
                 </h1>
                 {coach.verified && (
@@ -297,32 +364,15 @@ export default function CoachDetail() {
                   </span>
                 )}
               </div>
-              {id && currentUser?.coachProfile?.id !== id && (
-                isAuthenticated && currentUser?.athleteProfile ? (
-                  <button
-                    type="button"
-                    onClick={() => setMessageModalOpen(true)}
-                    className="flex-shrink-0 px-3 py-1.5 text-sm font-medium text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg border border-brand-200 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1"
-                  >
-                    Message coach
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setSignInPromptOpen(true)}
-                    className="flex-shrink-0 px-3 py-1.5 text-sm font-medium text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg border border-brand-200 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1"
-                  >
-                    Message coach
-                  </button>
-                )
-              )}
+              <div className="hidden sm:block">{messageCoachButton()}</div>
             </div>
             {Array.isArray(coach.sports) && coach.sports.length > 0 && (
-              <p className="text-brand-600 font-medium text-lg">
+              <p className="text-brand-600 font-medium text-base sm:text-lg">
                 {coach.sports.join(" · ")}
               </p>
             )}
-            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-slate-600 text-sm sm:text-base">
+            {/* Location, rate, reviews in a compact row/block */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-600 text-sm sm:text-base">
               {coach.serviceCities?.length > 0 && (
                 <span>{coach.serviceCities.join(", ")}</span>
               )}
@@ -331,10 +381,10 @@ export default function CoachDetail() {
               )}
             </div>
             {(Number(coach.reviewCount) ?? 0) > 0 && (
-              <div className="mt-1.5">
+              <div>
                 <a
                   href="#reviews"
-                  className="inline-flex items-center gap-1.5 text-slate-600 text-sm sm:text-base hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1 rounded cursor-pointer"
+                  className="inline-flex items-center gap-1.5 text-slate-600 text-sm sm:text-base hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1 rounded cursor-pointer touch-manipulation"
                   aria-label="View reviews"
                 >
                   <StarRating rating={coach.averageRating != null ? Number(coach.averageRating) : 0} className="text-base" />
@@ -344,6 +394,11 @@ export default function CoachDetail() {
             )}
           </div>
         </header>
+
+        {/* Mobile only: Message coach below details, above About */}
+        <div className="sm:hidden">
+          {messageCoachButton(true)}
+        </div>
 
         {/* Photo lightbox: large view with prev/next and close */}
         {photoLightboxIndex != null && photoUrls.length > 0 && (
@@ -545,11 +600,11 @@ export default function CoachDetail() {
 
         {/* About */}
         {(coach.bio != null && String(coach.bio).trim() !== "") && (
-          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
-              <h2 className="text-lg font-semibold text-slate-900">About</h2>
+          <section className="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-100 bg-slate-50/50">
+              <h2 className="text-base sm:text-lg font-semibold text-slate-900">About</h2>
             </div>
-            <div className="p-5 sm:p-6 text-slate-600 prose prose-slate max-w-none [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mt-4 [&_h2]:mb-2 [&_h2:first-child]:mt-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_p]:my-2 [&_strong]:font-semibold [&_strong]:text-slate-800">
+            <div className="p-4 sm:p-6 text-slate-600 text-sm sm:text-base prose prose-slate prose-sm sm:prose-base max-w-none [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mt-4 [&_h2]:mb-2 [&_h2:first-child]:mt-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_p]:my-2 [&_strong]:font-semibold [&_strong]:text-slate-800">
               <ReactMarkdown>{String(coach.bio)}</ReactMarkdown>
             </div>
           </section>
@@ -557,12 +612,12 @@ export default function CoachDetail() {
 
         {/* Locations + map */}
         {locations.length > 0 && (
-          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
-              <h2 className="text-lg font-semibold text-slate-900">Locations</h2>
-              <p className="text-slate-500 text-sm mt-0.5">Where sessions take place</p>
+          <section className="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-100 bg-slate-50/50">
+              <h2 className="text-base sm:text-lg font-semibold text-slate-900">Locations</h2>
+              <p className="text-slate-500 text-xs sm:text-sm mt-0.5">Where sessions take place</p>
             </div>
-            <div className="p-5 sm:p-6">
+            <div className="p-4 sm:p-6">
               <CoachDetailMap locations={locations} />
             </div>
           </section>
@@ -576,16 +631,16 @@ export default function CoachDetail() {
         )}
 
         {/* Request a booking */}
-        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
-            <h2 className="text-lg font-semibold text-slate-900">
+        <section className="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-100 bg-slate-50/50">
+            <h2 className="text-base sm:text-lg font-semibold text-slate-900">
               {slots.length === 0 ? "Availability" : "Request a booking"}
             </h2>
-            <p className="text-slate-500 text-sm mt-0.5">
+            <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
               {slots.length === 0 ? "No open slots right now." : "Pick a day and time below."}
             </p>
           </div>
-          <div className="p-5 sm:p-6">
+          <div className="p-4 sm:p-6">
             {slots.length === 0 ? (
               <p className="text-slate-500">
                 No available slots. Check back later.
@@ -603,6 +658,7 @@ export default function CoachDetail() {
                 <PublicBookingCalendar
                   slots={slots}
                   onSelectSlot={(slotId) => navigate(`/coaches/${id}/book?slotId=${slotId}`)}
+                  requestedSlotIds={isAuthenticated ? myRequestedSlotIds : undefined}
                   bookedSlotIds={isAuthenticated ? myBookedSlotIds : undefined}
                 />
               </>
@@ -611,17 +667,17 @@ export default function CoachDetail() {
         </section>
 
         {/* Reviews */}
-        <section id="reviews" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
-            <h2 className="text-lg font-semibold text-slate-900">Reviews</h2>
+        <section id="reviews" className="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-100 bg-slate-50/50">
+            <h2 className="text-base sm:text-lg font-semibold text-slate-900">Reviews</h2>
             {(Number(coach.reviewCount) ?? 0) > 0 && (
-              <p className="text-slate-500 text-sm mt-0.5 inline-flex items-center gap-2">
+              <p className="text-slate-500 text-xs sm:text-sm mt-0.5 inline-flex items-center gap-2">
                 <StarRating rating={coach.averageRating != null ? Number(coach.averageRating) : 0} className="text-sm" />
                 <span>from {coach.reviewCount} review{coach.reviewCount !== 1 ? "s" : ""}</span>
               </p>
             )}
           </div>
-          <div className="p-5 sm:p-6">
+          <div className="p-4 sm:p-6">
             {reviews.length === 0 ? (
               <p className="text-slate-500">No reviews yet.</p>
             ) : (

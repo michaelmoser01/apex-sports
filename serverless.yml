@@ -75,7 +75,7 @@ package:
 
 custom:
   # Bump this when you add a new Prisma migration so the migrate Lambda runs on next deploy.
-  migrationsVersion: "31"
+  migrationsVersion: "32S"
   esbuild:
     bundle: true
     packager: npm

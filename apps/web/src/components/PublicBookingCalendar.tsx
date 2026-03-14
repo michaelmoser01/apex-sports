@@ -1,6 +1,6 @@
-import { useMemo, useState, useEffect, createContext, useContext, type ReactNode } from "react";
+import { useMemo, useState, useEffect, useRef, createContext, useContext, type ReactNode } from "react";
 import { Calendar, dateFnsLocalizer } from "react-big-calendar";
-import { format, getDay, startOfWeek, isWithinInterval, isSameDay, startOfMonth, endOfMonth } from "date-fns";
+import { format, getDay, startOfWeek, isWithinInterval, isSameDay, startOfMonth, endOfMonth, addDays } from "date-fns";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 
 type CalendarView = "month" | "week" | "day" | "agenda" | "work_week";
@@ -84,7 +84,9 @@ export interface PublicBookingCalendarProps {
   bookingFormContent?: ReactNode;
   /** Called when the desktop slot modal is closed so parent can clear selection. */
   onCloseModal?: () => void;
-  /** Slot IDs where the current user has a booking (pending or confirmed) so they show as "booked" on the calendar. */
+  /** Slot IDs where the current user has a pending request (not yet accepted) – show "Requested". */
+  requestedSlotIds?: Set<string> | ReadonlySet<string>;
+  /** Slot IDs where the current user has a confirmed or completed booking – show "Booked". */
   bookedSlotIds?: Set<string> | ReadonlySet<string>;
 }
 
@@ -96,6 +98,7 @@ export function PublicBookingCalendar({
   selectedSlotId = null,
   bookingFormContent,
   onCloseModal,
+  requestedSlotIds,
   bookedSlotIds,
 }: PublicBookingCalendarProps) {
   const isMobile = useIsMobile();
@@ -162,6 +165,66 @@ export function PublicBookingCalendar({
     onSelectSlot(slotId);
   };
 
+  const dateCellWrapper = useMemo(
+    () =>
+      function DateCellWrapper({
+        value,
+        children,
+      }: {
+        value: Date;
+        children: React.ReactNode;
+      }) {
+        const handleCellClick = (e: React.MouseEvent) => {
+          if ((e.target as HTMLElement).closest?.(".rbc-event")) return;
+          handleDrillDown(value);
+        };
+        return (
+          <div
+            className="rbc-public-date-cell"
+            onClick={handleCellClick}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleDrillDown(value);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            style={{ minHeight: "4.5rem" }}
+          >
+            <span className="rbc-public-date-cell-overlay" aria-hidden />
+            {children}
+          </div>
+        );
+      },
+    [handleDrillDown]
+  );
+
+  const calendarWrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = calendarWrapRef.current;
+    if (!el) return;
+    const handleWrapClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest(".rbc-event")) return;
+      const dayBg = target.closest(".rbc-day-bg");
+      if (!dayBg || !(dayBg instanceof HTMLElement)) return;
+      const parent = dayBg.parentElement;
+      if (!parent) return;
+      const colIndex = Array.from(parent.children).indexOf(dayBg);
+      const monthRow = parent.closest(".rbc-month-row");
+      if (!monthRow || !monthRow.parentElement) return;
+      const rowIndex = Array.from(monthRow.parentElement.children).indexOf(monthRow);
+      const weekStart = startOfWeek(rangeStart, { weekStartsOn: 0 });
+      const date = addDays(weekStart, rowIndex * 7 + colIndex);
+      if (!isWithinInterval(date, { start: rangeStart, end: rangeEnd })) return;
+      handleDrillDown(date);
+    };
+    el.addEventListener("click", handleWrapClick);
+    return () => el.removeEventListener("click", handleWrapClick);
+  }, [rangeStart, rangeEnd, handleDrillDown]);
+
   const showDesktopDayModal = !isMobile && selectedDay;
   const showMobileDayView = isMobile && selectedDay;
 
@@ -222,6 +285,7 @@ export function PublicBookingCalendar({
                   <ul className="space-y-2">
                     {daySlots.map((ev) => {
                       const isSelected = ev.id === selectedSlotId;
+                      const isRequested = requestedSlotIds?.has(ev.id);
                       const isBooked = bookedSlotIds?.has(ev.id);
                       return (
                         <li key={ev.id}>
@@ -233,12 +297,14 @@ export function PublicBookingCalendar({
                                 ? "border-brand-500 bg-brand-50 text-slate-900"
                                 : isBooked
                                   ? "border-emerald-200 bg-emerald-50/80 hover:bg-emerald-50"
-                                  : "border-slate-200 bg-slate-50/50 hover:bg-slate-100"
+                                  : isRequested
+                                    ? "border-amber-200 bg-amber-50/80 hover:bg-amber-50"
+                                    : "border-slate-200 bg-slate-50/50 hover:bg-slate-100"
                             }`}
                           >
                             <span
                               className={`shrink-0 w-2 h-10 rounded-sm ${
-                                isBooked ? "bg-emerald-500" : "bg-brand-500"
+                                isBooked ? "bg-emerald-500" : isRequested ? "bg-amber-500" : "bg-brand-500"
                               }`}
                             />
                             <span className="font-medium text-slate-800">
@@ -247,6 +313,11 @@ export function PublicBookingCalendar({
                             {isBooked && (
                               <span className="ml-auto text-xs font-medium text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
                                 Booked
+                              </span>
+                            )}
+                            {isRequested && !isBooked && (
+                              <span className="ml-auto text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+                                Requested
                               </span>
                             )}
                           </button>
@@ -311,6 +382,7 @@ export function PublicBookingCalendar({
                 <ul className="space-y-2">
                   {daySlots.map((ev) => {
                     const isSelected = ev.id === selectedSlotId;
+                    const isRequested = requestedSlotIds?.has(ev.id);
                     const isBooked = bookedSlotIds?.has(ev.id);
                     return (
                       <li key={ev.id}>
@@ -322,16 +394,23 @@ export function PublicBookingCalendar({
                               ? "border-brand-500 bg-brand-50 text-slate-900"
                               : isBooked
                                 ? "border-emerald-200 bg-emerald-50/80 active:bg-emerald-50"
-                                : "border-slate-200 bg-slate-50/50 active:bg-slate-100"
+                                : isRequested
+                                  ? "border-amber-200 bg-amber-50/80 active:bg-amber-50"
+                                  : "border-slate-200 bg-slate-50/50 active:bg-slate-100"
                           }`}
                         >
-                          <span className={`shrink-0 w-2 h-10 rounded-sm ${isBooked ? "bg-emerald-500" : "bg-brand-500"}`} />
+                          <span className={`shrink-0 w-2 h-10 rounded-sm ${isBooked ? "bg-emerald-500" : isRequested ? "bg-amber-500" : "bg-brand-500"}`} />
                           <span className="font-medium text-slate-800">
                             {ev.title}
                           </span>
                           {isBooked && (
                             <span className="ml-auto text-xs font-medium text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
                               Booked
+                            </span>
+                          )}
+                          {isRequested && !isBooked && (
+                            <span className="ml-auto text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+                              Requested
                             </span>
                           )}
                         </button>
@@ -349,7 +428,10 @@ export function PublicBookingCalendar({
           </div>
         </div>
       ) : (
-        <div className="rbc-calendar-wrap min-h-[320px] h-[50vh] sm:h-[480px] overflow-auto -mx-1 sm:mx-0 touch-manipulation">
+        <div
+          ref={calendarWrapRef}
+          className="rbc-calendar-wrap min-h-[320px] h-[50vh] sm:h-[480px] overflow-auto -mx-1 sm:mx-0 touch-manipulation"
+        >
           <BookingCalendarViewContext.Provider value={currentView}>
             <Calendar
               localizer={localizer}
@@ -364,11 +446,14 @@ export function PublicBookingCalendar({
               onDrillDown={handleDrillDown}
               views={["month", "week"]}
               defaultView="month"
-              components={{ event: BookingCalendarEvent }}
+              components={{ event: BookingCalendarEvent, dateCellWrapper }}
               dayPropGetter={dayPropGetter}
-              eventPropGetter={(event: BookingEvent) => ({
-                className: bookedSlotIds?.has(event.id) ? "rbc-event-oneoff rbc-event-booked" : "rbc-event-oneoff",
-              })}
+              eventPropGetter={(event: BookingEvent) => {
+                const requested = requestedSlotIds?.has(event.id);
+                const booked = bookedSlotIds?.has(event.id);
+                const extra = booked ? " rbc-event-booked" : requested ? " rbc-event-requested" : "";
+                return { className: "rbc-event-oneoff" + extra };
+              }}
             />
           </BookingCalendarViewContext.Provider>
         </div>

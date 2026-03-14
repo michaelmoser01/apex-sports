@@ -1,6 +1,6 @@
 import { useParams, Link, useNavigate, useSearchParams, Navigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { format } from "date-fns";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
@@ -8,15 +8,30 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { api } from "@/lib/api";
 import { BookingPaymentForm } from "@/components/BookingPaymentForm";
+import { CoachDetailMap } from "@/components/CoachDetailMap";
 
 const stripePk = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
 const stripePromise = stripePk ? loadStripe(stripePk) : null;
+
+interface SlotLocation {
+  id: string;
+  name: string;
+  address: string;
+  notes: string | null;
+  latitude: number | null;
+  longitude: number | null;
+}
 
 interface CoachBookData {
   id: string;
   displayName: string;
   hourlyRate: string | null;
-  availabilitySlots: { id: string; startTime: string; endTime: string }[];
+  availabilitySlots: {
+    id: string;
+    startTime: string;
+    endTime: string;
+    location: SlotLocation | null;
+  }[];
 }
 
 export default function CoachBook() {
@@ -32,6 +47,20 @@ export default function CoachBook() {
   const [bookingMessage, setBookingMessage] = useState("");
   const [bookingError, setBookingError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const scrollToTop = () => {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    };
+    scrollToTop();
+    const raf = requestAnimationFrame(() => {
+      scrollToTop();
+      requestAnimationFrame(scrollToTop);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [id, slotId]);
+
   const { data: coach, isLoading, isError } = useQuery({
     queryKey: ["coach", id],
     queryFn: () => api<CoachBookData>(`/coaches/${id}`),
@@ -40,14 +69,50 @@ export default function CoachBook() {
 
   const { data: myBookings } = useQuery({
     queryKey: ["bookings"],
-    queryFn: () => api<{ asAthlete: { coach: { id: string }; slot: { id: string }; status: string }[] }>("/bookings"),
+    queryFn: () =>
+      api<{
+        asAthlete: {
+          id: string;
+          coach: { id: string };
+          slot: { id: string; startTime: string; endTime: string };
+          status: string;
+        }[];
+      }>("/bookings"),
     enabled: !!id && isAuthenticated,
   });
 
+  useEffect(() => {
+    if (isLoading || !coach) return;
+    const t = setTimeout(() => {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    }, 50);
+    return () => clearTimeout(t);
+  }, [id, slotId, isLoading, coach]);
+
+  const existingBooking = useMemo(() => {
+    if (!slotId || !myBookings?.asAthlete || !coach?.id) return null;
+    return (
+      myBookings.asAthlete.find(
+        (b) => b.coach.id === coach.id && b.slot.id === slotId && ["pending", "confirmed", "completed"].includes(b.status)
+      ) ?? null
+    );
+  }, [slotId, coach?.id, myBookings]);
+
   const slot = useMemo(() => {
-    if (!coach?.availabilitySlots?.length || !slotId) return null;
-    return coach.availabilitySlots.find((s) => s.id === slotId) ?? null;
-  }, [coach?.availabilitySlots, slotId]);
+    if (!coach || !slotId) return null;
+    const fromAvailability = coach.availabilitySlots?.find((s) => s.id === slotId);
+    if (fromAvailability) return fromAvailability;
+    if (existingBooking?.slot)
+      return {
+        id: existingBooking.slot.id,
+        startTime: existingBooking.slot.startTime,
+        endTime: existingBooking.slot.endTime,
+        location: null as SlotLocation | null,
+      };
+    return null;
+  }, [coach?.availabilitySlots, coach?.id, slotId, existingBooking]);
 
   const myPendingSlotIds = useMemo(() => {
     if (!id || !myBookings?.asAthlete) return new Set<string>();
@@ -169,7 +234,18 @@ export default function CoachBook() {
       ? `${format(slotStart, "EEEE, MMMM d, yyyy")} · ${format(slotStart, "h:mm a")} – ${format(slotEnd, "h:mm a")}`
       : slot.startTime;
 
-  const alreadyPending = slotId != null && myPendingSlotIds.has(slotId);
+  const alreadyBooked = existingBooking != null;
+
+  const statusLabel =
+    existingBooking?.status === "pending"
+      ? "Requested"
+      : existingBooking?.status === "confirmed"
+        ? "Confirmed"
+        : existingBooking?.status === "completed"
+          ? "Completed"
+          : null;
+
+  const isConfirmedOrCompleted = existingBooking?.status === "confirmed" || existingBooking?.status === "completed";
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -183,14 +259,47 @@ export default function CoachBook() {
 
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
-            <h1 className="text-xl font-semibold text-slate-900">Request this session</h1>
+            <h1 className="text-xl font-semibold text-slate-900">
+              {alreadyBooked
+                ? isConfirmedOrCompleted
+                  ? "This session is booked"
+                  : "You've requested this session"
+                : "Request this session"}
+            </h1>
             <p className="text-slate-600 text-sm mt-1">{slotTimeStr}</p>
-            {coach.hourlyRate && (
+            {alreadyBooked && statusLabel && (
+              <p className="text-slate-700 text-sm mt-1 font-medium">
+                Status:{" "}
+                <span
+                  className={
+                    existingBooking?.status === "confirmed" || existingBooking?.status === "completed"
+                      ? "text-emerald-600"
+                      : "text-amber-600"
+                  }
+                >
+                  {statusLabel}
+                </span>
+              </p>
+            )}
+            {!alreadyBooked && coach.hourlyRate && (
               <p className="text-slate-500 text-sm mt-0.5">
                 ${String(coach.hourlyRate)}/hr · Your card is only authorized now; you’re charged when the coach marks the session complete.
               </p>
             )}
           </div>
+          {slot?.location && (
+            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/30">
+              <h2 className="text-sm font-semibold text-slate-900 mb-1">Session location</h2>
+              <p className="text-slate-700 font-medium">{slot.location.name}</p>
+              <p className="text-slate-600 text-sm mt-0.5">{slot.location.address}</p>
+              {slot.location.notes?.trim() && (
+                <p className="text-slate-500 text-sm mt-1">{slot.location.notes}</p>
+              )}
+              <div className="mt-3">
+                <CoachDetailMap locations={[slot.location]} />
+              </div>
+            </div>
+          )}
           <div className="p-5 sm:p-6 space-y-5">
             {!isAuthenticated && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
@@ -213,21 +322,32 @@ export default function CoachBook() {
               </div>
             )}
 
-            {isAuthenticated && alreadyPending && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-                <p className="text-amber-800 text-sm">
-                  You already have a pending request for this time. We’ll email you when the coach responds.
+            {isAuthenticated && alreadyBooked && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+                <p className="text-slate-700 text-sm">
+                  {existingBooking?.status === "pending" &&
+                    "You've requested this session. We'll email you when the coach accepts or declines."}
+                  {existingBooking?.status === "confirmed" &&
+                    "This session is confirmed. See your bookings for details and to manage it."}
+                  {existingBooking?.status === "completed" &&
+                    "This session is complete. You can leave a review from your bookings."}
                 </p>
                 <Link
-                  to={`/coaches/${id}`}
+                  to="/bookings"
                   className="inline-block mt-3 text-sm font-medium text-brand-600 hover:underline"
+                >
+                  View my bookings →
+                </Link>
+                <Link
+                  to={`/coaches/${id}`}
+                  className="inline-block mt-3 ml-4 text-sm font-medium text-slate-600 hover:text-slate-800"
                 >
                   ← Back to {coach.displayName}&apos;s profile
                 </Link>
               </div>
             )}
 
-            {isAuthenticated && !alreadyPending && (
+            {isAuthenticated && !alreadyBooked && (
               <>
                 <div>
                   <label htmlFor="booking-message" className="block text-sm font-medium text-slate-700 mb-1">

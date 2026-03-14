@@ -13,6 +13,7 @@ import {
   type CalendarEvent,
 } from "@/components/AvailabilityCalendar";
 import { CoachLocations } from "@/components/CoachLocations";
+import { Avatar } from "@/components/Avatar";
 
 interface CoachPhoto {
   id: string;
@@ -252,6 +253,8 @@ interface BookingsData {
     slot: { id: string; startTime: string; endTime: string };
     status: string;
     createdAt: string;
+    completedAt: string | null;
+    review: { rating: number; comment: string; createdAt: string } | null;
   }[];
 }
 
@@ -504,6 +507,15 @@ export default function CoachDashboard() {
     enabled: !!profile && !("error" in profile) && (view === "overview" || view === "athletes" || view === "agentTest"),
   });
 
+  const bookingUpdateMutation = useMutation({
+    mutationFn: async ({ bookingId, status }: { bookingId: string; status: "confirmed" | "declined" }) => {
+      await api(`/bookings/${bookingId}`, { method: "PATCH", body: JSON.stringify({ status }) });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bookings"] });
+    },
+  });
+
   useEffect(() => {
     if (profile && !("error" in profile) && "photos" in profile && Array.isArray(profile.photos)) {
       const urls = profile.photos.map((p) => p.url);
@@ -562,82 +574,231 @@ export default function CoachDashboard() {
       .filter((b) => (b.status === "pending" || b.status === "confirmed") && new Date(b.slot.endTime) >= now)
       .sort((a, b) => new Date(a.slot.startTime).getTime() - new Date(b.slot.startTime).getTime())
       .slice(0, 5);
+    const needsReview = asCoach.filter(
+      (b) => b.status === "confirmed" && b.completedAt != null && b.review == null
+    );
+    const recentReviews = asCoach
+      .filter((b) => b.review != null)
+      .sort((a, b) => (b.review!.createdAt > a.review!.createdAt ? 1 : -1))
+      .slice(0, 3);
     const athletes = athletesData ?? [];
-    const recentAthletes = athletes.slice(0, 5);
+    const recentAthletes = athletes.slice(0, 6);
+    const bookingsLoading = !bookingsData && !!profile;
+    const coachPhotoUrl =
+      (Array.isArray(coach.photos) && coach.photos.length > 0 ? coach.photos[0].url : null) ??
+      coach.avatarUrl ??
+      null;
 
     return (
-      <div className="max-w-4xl mx-auto px-4 py-12">
-        <h1 className="text-2xl font-bold text-slate-900 mb-8">Dashboard</h1>
-
-        <section className="mb-8 p-6 bg-white rounded-xl border border-slate-200">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-slate-900">Open booking requests</h2>
-            <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm">
-              View all
-            </Link>
+      <div className="max-w-6xl mx-auto px-4 py-6 sm:py-8">
+        {/* Hero - full width, mobile-friendly */}
+        <section className="flex items-center gap-3 sm:gap-4 mb-5 sm:mb-6 lg:mb-8">
+          <Avatar
+            src={coachPhotoUrl}
+            displayName={coach.displayName}
+            size="xl"
+            className="shrink-0 w-14 h-14 sm:w-16 sm:h-16"
+          />
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 truncate">
+              Hi, {coach.displayName.split(/\s+/)[0] || "Coach"}
+            </h1>
+            <p className="text-slate-600 text-sm sm:text-base mt-0.5">Here&apos;s what&apos;s happening.</p>
           </div>
-          {pending.length === 0 ? (
-            <p className="text-slate-500 text-sm">No pending requests.</p>
-          ) : (
-            <ul className="space-y-2">
-              {pending.slice(0, 5).map((b) => (
-                <li key={b.id} className="flex justify-between items-center text-sm">
-                  <span>
-                    {b.athlete.name ?? b.athlete.email} – {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
-                  </span>
-                  <Link to="/bookings" className="text-brand-600 hover:underline">View</Link>
-                </li>
-              ))}
-            </ul>
-          )}
         </section>
 
-        <section className="mb-8 p-6 bg-white rounded-xl border border-slate-200">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-slate-900">Connected athletes</h2>
-            <Link to="/dashboard/athletes" className="text-brand-600 font-medium hover:underline text-sm">
-              View all
-            </Link>
-          </div>
-          {recentAthletes.length === 0 ? (
-            <p className="text-slate-500 text-sm">No connected athletes yet. Share your invite link.</p>
-          ) : (
-            <ul className="space-y-2">
-              {recentAthletes.map((a) => (
-                <li key={a.athleteProfileId} className="flex justify-between items-center text-sm">
-                  <span>
-                    {a.athlete.displayName}
-                    {a.athlete.sports?.length ? ` · ${a.athlete.sports.join(", ")}` : ""}
-                  </span>
-                  <span className="text-slate-500">{new Date(a.createdAt).toLocaleDateString()}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        {/* Grid: 1 col mobile, 2 cols desktop */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
+          {/* Actions & follow-ups */}
+          <section className="p-4 sm:p-6 bg-white rounded-xl border border-slate-200 shadow-sm min-h-0">
+            <div className="flex justify-between items-center mb-3 sm:mb-4">
+              <h2 className="text-base sm:text-lg font-semibold text-slate-900">Actions &amp; follow-ups</h2>
+              <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm touch-manipulation">
+                View all
+              </Link>
+            </div>
+            {bookingsLoading ? (
+              <p className="text-slate-500 text-sm">Loading…</p>
+            ) : (
+              <div className="space-y-3">
+                {pending.length === 0 && needsReview.length === 0 ? (
+                  <p className="text-slate-500 text-sm">All caught up. No pending requests or follow-ups.</p>
+                ) : (
+                  <>
+                    {pending.slice(0, 5).map((b) => (
+                      <div
+                        key={b.id}
+                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 rounded-lg bg-slate-50 border border-slate-100"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium text-slate-900 text-sm truncate">
+                            {b.athlete.name ?? b.athlete.email}
+                          </p>
+                          <p className="text-slate-500 text-xs sm:text-sm">
+                            {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                          </p>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => bookingUpdateMutation.mutate({ bookingId: b.id, status: "declined" })}
+                            disabled={bookingUpdateMutation.isPending}
+                            className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 touch-manipulation disabled:opacity-50"
+                          >
+                            Decline
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => bookingUpdateMutation.mutate({ bookingId: b.id, status: "confirmed" })}
+                            disabled={bookingUpdateMutation.isPending}
+                            className="px-3 py-2 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 touch-manipulation disabled:opacity-50"
+                          >
+                            Accept
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {needsReview.slice(0, 3).map((b) => (
+                      <div key={b.id} className="flex items-center justify-between gap-2 p-3 rounded-lg bg-amber-50/80 border border-amber-100">
+                        <div className="min-w-0">
+                          <p className="font-medium text-slate-900 text-sm truncate">
+                            {b.athlete.name ?? b.athlete.email} – session done
+                          </p>
+                          <p className="text-amber-700 text-xs">Leave a follow-up / review</p>
+                        </div>
+                        <Link
+                          to="/bookings"
+                          className="shrink-0 px-3 py-2 text-sm font-medium text-amber-800 bg-amber-100 rounded-lg hover:bg-amber-200 touch-manipulation"
+                        >
+                          View
+                        </Link>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+          </section>
 
-        <section className="mb-8 p-6 bg-white rounded-xl border border-slate-200">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-slate-900">Next up</h2>
-            <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm">
-              View all
-            </Link>
-          </div>
-          {nextUp.length === 0 ? (
-            <p className="text-slate-500 text-sm">No upcoming sessions.</p>
-          ) : (
-            <ul className="space-y-2">
-              {nextUp.map((b) => (
-                <li key={b.id} className="flex justify-between items-center text-sm">
-                  <span>
-                    {b.athlete.name ?? b.athlete.email} – {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
-                  </span>
-                  <Link to="/bookings" className="text-brand-600 hover:underline">View</Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+          {/* Next up */}
+          <section className="p-4 sm:p-6 bg-white rounded-xl border border-slate-200 shadow-sm min-h-0">
+            <div className="flex justify-between items-center mb-3 sm:mb-4">
+              <h2 className="text-base sm:text-lg font-semibold text-slate-900">Next up</h2>
+              <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm touch-manipulation">
+                View all
+              </Link>
+            </div>
+            {bookingsLoading ? (
+              <p className="text-slate-500 text-sm">Loading…</p>
+            ) : nextUp.length === 0 ? (
+              <p className="text-slate-500 text-sm">No upcoming sessions.</p>
+            ) : (
+              <ul className="space-y-2">
+                {nextUp.map((b) => (
+                  <li key={b.id} className="flex items-center justify-between gap-2 py-2 border-b border-slate-100 last:border-0">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Avatar
+                        src={null}
+                        displayName={b.athlete.name ?? b.athlete.email ?? "?"}
+                        size="sm"
+                        className="shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-900 text-sm truncate">
+                          {b.athlete.name ?? b.athlete.email}
+                        </p>
+                        <p className="text-slate-500 text-xs">
+                          {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                        </p>
+                      </div>
+                    </div>
+                    <Link to="/bookings" className="shrink-0 text-brand-600 font-medium text-sm hover:underline touch-manipulation">
+                      View
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Recent athletes */}
+          <section className="p-4 sm:p-6 bg-white rounded-xl border border-slate-200 shadow-sm min-h-0">
+            <div className="flex justify-between items-center mb-3 sm:mb-4">
+              <h2 className="text-base sm:text-lg font-semibold text-slate-900">Recent athletes</h2>
+              <Link to="/dashboard/athletes" className="text-brand-600 font-medium hover:underline text-sm touch-manipulation">
+                View all
+              </Link>
+            </div>
+            {athletesLoading ? (
+              <p className="text-slate-500 text-sm">Loading…</p>
+            ) : recentAthletes.length === 0 ? (
+              <p className="text-slate-500 text-sm">No connected athletes yet. Share your invite link.</p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {recentAthletes.map((a) => (
+                  <Link
+                    key={a.athleteProfileId}
+                    to="/dashboard/athletes"
+                    className="flex flex-col items-center gap-1.5 p-2 rounded-lg hover:bg-slate-50 touch-manipulation"
+                  >
+                    <Avatar
+                      src={null}
+                      displayName={a.athlete.displayName}
+                      size="md"
+                      className="shrink-0"
+                    />
+                    <span className="text-xs sm:text-sm font-medium text-slate-900 text-center truncate w-full">
+                      {a.athlete.displayName}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Recent reviews */}
+          <section className="p-4 sm:p-6 bg-white rounded-xl border border-slate-200 shadow-sm min-h-0">
+            <div className="flex justify-between items-center mb-3 sm:mb-4">
+              <h2 className="text-base sm:text-lg font-semibold text-slate-900">Recent reviews</h2>
+              <Link to={`/coaches/${coach.id}`} className="text-brand-600 font-medium hover:underline text-sm touch-manipulation">
+                View profile
+              </Link>
+            </div>
+            {bookingsLoading ? (
+              <p className="text-slate-500 text-sm">Loading…</p>
+            ) : recentReviews.length === 0 ? (
+              <p className="text-slate-500 text-sm">No reviews yet.</p>
+            ) : (
+              <ul className="space-y-3">
+                {recentReviews.map((b) => (
+                  <li key={b.id} className="p-3 rounded-lg bg-slate-50 border border-slate-100">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Avatar
+                        src={null}
+                        displayName={b.athlete.name ?? b.athlete.email ?? "?"}
+                        size="sm"
+                        className="shrink-0"
+                      />
+                      <span className="text-sm font-medium text-slate-900 truncate">
+                        {b.athlete.name ?? b.athlete.email}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 text-amber-500 text-sm" aria-hidden>
+                      {"★".repeat(Math.round(b.review!.rating))}
+                      {"☆".repeat(5 - Math.round(b.review!.rating))}
+                    </div>
+                    <p className="text-slate-600 text-xs sm:text-sm mt-1 line-clamp-2">
+                      {b.review!.comment}
+                    </p>
+                    <p className="text-slate-400 text-xs mt-1">
+                      {new Date(b.review!.createdAt).toLocaleDateString()}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
       </div>
     );
   }

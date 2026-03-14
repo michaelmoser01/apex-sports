@@ -102,11 +102,40 @@ body {
   color: rgb(21 128 61);
   border-left: 3px solid rgb(34 197 94);
 }
-/* Public booking calendar: slot you have a booking for (pending or confirmed) */
+/* Public booking calendar: slot you have a confirmed or completed booking for */
+/* Public booking calendar: entire day cell clickable (number + white space + slots) */
+.availability-calendar.booking-calendar .rbc-public-date-cell {
+  position: relative;
+  min-height: 100%;
+  cursor: pointer;
+  display: block;
+}
+.availability-calendar.booking-calendar .rbc-public-date-cell-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: auto;
+}
+.availability-calendar.booking-calendar .rbc-public-date-cell .rbc-date-cell,
+.availability-calendar.booking-calendar .rbc-public-date-cell .rbc-row-segment {
+  position: relative;
+  z-index: 1;
+}
+/* Clicking day background (white space) opens that day */
+.availability-calendar.booking-calendar .rbc-day-bg {
+  cursor: pointer;
+}
+
 .availability-calendar.booking-calendar .rbc-event-booked {
   background: rgb(220 252 231);
   color: rgb(21 128 61);
   border-left: 3px solid rgb(34 197 94);
+}
+/* Public booking calendar: slot you have a pending request (not yet accepted) */
+.availability-calendar.booking-calendar .rbc-event-requested {
+  background: rgb(254 252 232);
+  color: rgb(146 64 14);
+  border-left: 3px solid rgb(245 158 11);
 }
 
 /* Public booking calendar: whole date cell has sessions (clearer than event bar alone) */

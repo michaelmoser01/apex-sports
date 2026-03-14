@@ -91,6 +91,10 @@ router.get("/", auth, async (req, res) => {
       amountCents: b.amountCents ?? null,
       paymentStatus: b.paymentStatus ?? null,
       createdAt: b.createdAt.toISOString(),
+      completedAt: b.completedAt?.toISOString() ?? null,
+      review: b.review
+        ? { rating: b.review.rating, comment: b.review.comment, createdAt: b.review.createdAt.toISOString() }
+        : null,
     })),
   });
 });
