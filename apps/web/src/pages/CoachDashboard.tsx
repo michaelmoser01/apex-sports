@@ -612,6 +612,7 @@ export default function CoachDashboard() {
       null;
 
     return (
+      <>
       <div className="max-w-6xl mx-auto px-4 py-6 sm:py-8">
         {/* Hero - full width, mobile-friendly */}
         <section className="flex items-center gap-3 sm:gap-4 mb-5 sm:mb-6 lg:mb-8">
@@ -944,6 +945,34 @@ export default function CoachDashboard() {
           )}
         </div>
       </div>
+      {showVerifyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" aria-modal="true" role="dialog">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Background check</h2>
+            <p className="text-slate-600 text-sm mb-6">
+              This is where the background check will happen. We&apos;ll use Checkr later to run verification. For now you can mark yourself as verified.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowVerifyModal(false)}
+                className="px-4 py-2 text-slate-700 font-medium hover:bg-slate-100 rounded-lg transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => verifyMutation.mutate()}
+                disabled={verifyMutation.isPending}
+                className="px-4 py-2 bg-brand-500 text-white font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50 transition"
+              >
+                {verifyMutation.isPending ? "Verifying\u2026" : "Get verified"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      </>
     );
   }
 

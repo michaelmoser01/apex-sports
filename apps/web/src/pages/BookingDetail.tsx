@@ -12,7 +12,7 @@ const stripePromise = stripePk ? loadStripe(stripePk) : null;
 interface BookingDetailData {
   id: string;
   viewerRole: "athlete" | "coach";
-  coach: { id: string; displayName: string; sports: string[]; userId: string };
+  coach: { id: string; displayName: string; sports: string[]; userId: string; stripeOnboardingComplete: boolean };
   slot: { id: string; startTime: string; endTime: string };
   athlete?: { id: string; name: string | null; email: string };
   message: string | null;
@@ -36,12 +36,12 @@ export default function BookingDetail() {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
   const [confirmAction, setConfirmAction] = useState<{
-    type: "cancel" | "complete";
+    type: "cancel" | "complete" | "needs_stripe";
     athleteName?: string;
     paymentStatus?: string | null;
   } | null>(null);
 
-  const { data: booking, isLoading, isError } = useQuery({
+  const { data: booking, isLoading, isError, error } = useQuery({
     queryKey: ["booking", id],
     queryFn: () => api<BookingDetailData>(`/bookings/${id}`),
     enabled: !!id,
@@ -94,9 +94,13 @@ export default function BookingDetail() {
   });
 
   if (!id || isLoading || !booking) {
+    const errorMsg = isError
+      ? (error instanceof Error ? error.message : "Booking not found.")
+      : null;
     return (
       <div className="max-w-2xl mx-auto px-4 py-12">
-        <p className="text-slate-500">{isLoading ? "Loading…" : isError ? "Booking not found." : "Loading…"}</p>
+        <Link to="/bookings" className="text-brand-500 hover:underline text-sm mb-6 inline-block">&larr; Back to bookings</Link>
+        <p className="text-slate-500">{isLoading ? "Loading…" : errorMsg ?? "Loading…"}</p>
       </div>
     );
   }
@@ -271,13 +275,17 @@ export default function BookingDetail() {
               {booking.status === "confirmed" && (
                 <>
                   <button
-                    onClick={() =>
-                      setConfirmAction({
-                        type: "complete",
-                        athleteName: booking.athlete?.name ?? undefined,
-                        paymentStatus: booking.paymentStatus,
-                      })
-                    }
+                    onClick={() => {
+                      if ((booking.amountCents ?? 0) > 0 && !booking.coach.stripeOnboardingComplete) {
+                        setConfirmAction({ type: "needs_stripe" });
+                      } else {
+                        setConfirmAction({
+                          type: "complete",
+                          athleteName: booking.athlete?.name ?? undefined,
+                          paymentStatus: booking.paymentStatus,
+                        });
+                      }
+                    }}
                     disabled={updateMutation.isPending}
                     className="bg-brand-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-600 disabled:opacity-50"
                   >
@@ -320,7 +328,25 @@ export default function BookingDetail() {
         )}
       </div>
 
-      {confirmAction && (
+      {confirmAction && confirmAction.type === "needs_stripe" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5">
+            <h2 id="confirm-title" className="text-lg font-semibold text-slate-900 mb-2">Set up payments first</h2>
+            <p className="text-slate-600 text-sm mb-4">
+              You need to set up your payment account before you can complete sessions. This lets you receive payments from athletes.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button type="button" onClick={() => setConfirmAction(null)} className="px-4 py-2 rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 font-medium text-sm">
+                Back
+              </button>
+              <Link to="/coach/setup/get-paid" className="px-4 py-2 rounded-lg text-sm font-medium bg-brand-500 text-white hover:bg-brand-600">
+                Set up payments
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmAction && confirmAction.type !== "needs_stripe" && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
           role="dialog"

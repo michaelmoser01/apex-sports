@@ -178,6 +178,7 @@ router.get("/:id", auth, async (req, res) => {
       displayName: booking.coach.displayName,
       sports: booking.coach.sports,
       userId: booking.coach.userId,
+      stripeOnboardingComplete: booking.coach.stripeOnboardingComplete,
     },
     slot: {
       id: booking.slot.id,

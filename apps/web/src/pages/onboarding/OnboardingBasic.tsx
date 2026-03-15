@@ -209,7 +209,7 @@ export default function OnboardingBasic() {
           <input
             type="number"
             min={1}
-            step={5}
+            step="any"
             value={hourlyRate}
             onChange={(e) => setHourlyRate(e.target.value)}
             required

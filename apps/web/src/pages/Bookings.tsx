@@ -22,6 +22,7 @@ interface BookingsData {
     slot: { id: string; startTime: string; endTime: string };
     message: string | null;
     status: string;
+    amountCents: number | null;
     paymentStatus: string | null;
     createdAt: string;
   }[];
@@ -51,7 +52,7 @@ export default function Bookings() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [pendingUpdateId, setPendingUpdateId] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
-    type: "cancel" | "complete" | "cancel_request";
+    type: "cancel" | "complete" | "cancel_request" | "needs_stripe";
     bookingId: string;
     athleteName?: string;
     paymentStatus?: string | null;
@@ -64,17 +65,6 @@ export default function Bookings() {
     queryKey: ["coachProfile"],
     queryFn: () => api<CoachProfilePayment>("/coaches/me"),
     enabled: hasCoachProfile,
-  });
-
-  const connectAccountLinkMutation = useMutation({
-    mutationFn: () =>
-      api<{ url: string }>("/coaches/me/connect-account-link", {
-        method: "POST",
-        body: JSON.stringify({ returnPath: "/bookings" }),
-      }),
-    onSuccess: (data) => {
-      if (data?.url) window.location.href = data.url;
-    },
   });
 
   const [connectStatusSyncing, setConnectStatusSyncing] = useState(false);
@@ -169,7 +159,7 @@ export default function Bookings() {
       .filter((b) => isActive(b.slot.endTime, b.status))
       .sort((a, b) => new Date(a.slot.startTime).getTime() - new Date(b.slot.startTime).getTime());
     const unpaid = asAthlete.filter(
-      (b) => (b.status === "confirmed" || b.status === "completed") &&
+      (b) => b.status === "completed" &&
              (b.paymentStatus === "deferred" || b.paymentStatus === "payment_link_sent")
     );
     const unpaidIds = new Set(unpaid.map((b) => b.id));
@@ -182,7 +172,7 @@ export default function Bookings() {
       .filter((b) => isActive(b.slot.endTime, b.status))
       .sort((a, b) => new Date(a.slot.startTime).getTime() - new Date(b.slot.startTime).getTime());
     const unpaid = asCoach.filter(
-      (b) => (b.status === "confirmed" || b.status === "completed") &&
+      (b) => b.status === "completed" &&
              (b.paymentStatus === "deferred" || b.paymentStatus === "payment_link_sent")
     );
     const unpaidIds = new Set(unpaid.map((b) => b.id));
@@ -231,28 +221,18 @@ export default function Bookings() {
           ) : coachProfile.stripeOnboardingComplete ? (
             <p className="text-slate-600 text-sm flex items-center gap-2">
               <span className="text-emerald-600 font-medium">Payments set up</span>
-              You&apos;ll receive payouts directly to your bank after a small platform fee.
             </p>
           ) : (
             <>
               <p className="text-slate-600 text-sm mb-3">
-                Connect your Stripe account to get paid when athletes book sessions. A small platform fee is deducted from each payment — you keep the rest.
+                Connect your Stripe account to get paid when athletes book sessions.
               </p>
-              <button
-                type="button"
-                onClick={() => connectAccountLinkMutation.mutate()}
-                disabled={connectAccountLinkMutation.isPending}
-                className="bg-brand-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50"
+              <Link
+                to="/coach/setup/get-paid"
+                className="inline-block bg-brand-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-600"
               >
-                {connectAccountLinkMutation.isPending ? "Redirecting…" : "Set up payments"}
-              </button>
-              {connectAccountLinkMutation.isError && (
-                <p className="text-red-600 text-sm mt-2" role="alert">
-                  {connectAccountLinkMutation.error instanceof Error
-                    ? connectAccountLinkMutation.error.message
-                    : "Failed to start setup."}
-                </p>
-              )}
+                Set up payments
+              </Link>
             </>
           )}
         </section>
@@ -523,7 +503,13 @@ export default function Bookings() {
                     {b.status === "confirmed" && (
                       <div className="flex flex-col gap-2 sm:flex-row sm:gap-2">
                         <button
-                          onClick={() => setConfirmAction({ type: "complete", bookingId: b.id, athleteName: b.athlete.name ?? undefined, paymentStatus: b.paymentStatus })}
+                          onClick={() => {
+                            if ((b.amountCents ?? 0) > 0 && !coachProfile?.stripeOnboardingComplete) {
+                              setConfirmAction({ type: "needs_stripe", bookingId: b.id });
+                            } else {
+                              setConfirmAction({ type: "complete", bookingId: b.id, athleteName: b.athlete.name ?? undefined, paymentStatus: b.paymentStatus });
+                            }
+                          }}
                           disabled={pendingUpdateId != null}
                           className="bg-brand-500 text-white px-4 py-2.5 rounded-lg text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50"
                         >
@@ -657,7 +643,32 @@ export default function Bookings() {
         </section>
       )}
 
-      {confirmAction && (
+      {confirmAction && confirmAction.type === "needs_stripe" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5">
+            <h2 id="confirm-title" className="text-lg font-semibold text-slate-900 mb-2">Set up payments first</h2>
+            <p className="text-slate-600 text-sm mb-4">
+              You need to set up your payment account before you can complete sessions. This lets you receive payments from athletes.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setConfirmAction(null)}
+                className="px-4 py-2 rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 font-medium text-sm"
+              >
+                Back
+              </button>
+              <Link
+                to="/coach/setup/get-paid"
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-brand-500 text-white hover:bg-brand-600"
+              >
+                Set up payments
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmAction && confirmAction.type !== "needs_stripe" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5">
             <h2 id="confirm-title" className="text-lg font-semibold text-slate-900 mb-2">

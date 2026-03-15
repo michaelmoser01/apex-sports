@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
+import { useEffect } from "react";
 import { Authenticator } from "@aws-amplify/ui-react";
 import "@aws-amplify/ui-react/styles.css";
 import { AuthProvider } from "./contexts/AuthContext";
@@ -66,6 +67,14 @@ const authenticatorFormFields = {
     },
   },
 };
+
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
 
 function AppContent() {
   return (
@@ -340,6 +349,7 @@ function App() {
   return (
     <AuthProvider isDevMode={isDevMode}>
       <BrowserRouter>
+        <ScrollToTop />
         <Authenticator.Provider>
           <AppContent />
         </Authenticator.Provider>
