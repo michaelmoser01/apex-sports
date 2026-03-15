@@ -229,6 +229,7 @@ export async function sendBookingRequestedToCoach(params: BookingRequestedToCoac
   const { coachEmail, coachPhone, athleteName, slotStart, slotEnd, message, bookingId } = params;
   const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
   const athlete = athleteName?.trim() || "An athlete";
+  const ctaUrl = bookingId && appUrl ? `${appUrl}/bookings/${bookingId}` : myBookingsUrl;
 
   const subject = `New booking request from ${athlete}`;
   const bodyText = [
@@ -238,7 +239,7 @@ export async function sendBookingRequestedToCoach(params: BookingRequestedToCoac
     message?.trim() ? `Message: ${message.trim()}` : null,
     "",
     "Log in to ApexSports to accept or decline.",
-    myBookingsUrl ? `My Bookings: ${myBookingsUrl}` : null,
+    ctaUrl ? `View booking: ${ctaUrl}` : null,
   ]
     .filter(Boolean)
     .join("\n");
@@ -250,7 +251,8 @@ export async function sendBookingRequestedToCoach(params: BookingRequestedToCoac
       message?.trim() ? `<p style="margin: 0 0 16px;"><strong>Message:</strong> ${escapeHtml(message.trim())}</p>` : "",
       `<p style="margin: 0 0 0;">Log in to Apex Sports to accept or decline.</p>`,
     ].join("\n"),
-    "View My Bookings"
+    "View booking",
+    ctaUrl
   );
 
   try {
@@ -434,12 +436,14 @@ export interface BookingRequestSubmittedToAthleteParams {
   coachDisplayName: string;
   slotStart: string;
   slotEnd: string;
+  bookingId?: string;
 }
 
 export async function sendBookingRequestSubmittedToAthlete(params: BookingRequestSubmittedToAthleteParams): Promise<void> {
-  const { athleteEmail, athleteName, coachDisplayName, slotStart, slotEnd } = params;
+  const { athleteEmail, athleteName, coachDisplayName, slotStart, slotEnd, bookingId } = params;
   const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
   const coach = coachDisplayName?.trim() || "your coach";
+  const ctaUrl = bookingId && appUrl ? `${appUrl}/bookings/${bookingId}` : myBookingsUrl;
 
   const subject = "Booking request sent – we'll notify you when they respond";
   const bodyText = [
@@ -450,7 +454,7 @@ export async function sendBookingRequestSubmittedToAthlete(params: BookingReques
     `Requested time: ${slotStr}`,
     "",
     "We'll email you when they accept or decline.",
-    myBookingsUrl ? `My Bookings: ${myBookingsUrl}` : null,
+    ctaUrl ? `View booking: ${ctaUrl}` : null,
   ]
     .filter(Boolean)
     .join("\n");
@@ -462,7 +466,8 @@ export async function sendBookingRequestSubmittedToAthlete(params: BookingReques
       `<p style="margin: 0 0 16px;"><strong>Requested time:</strong> ${escapeHtml(slotStr)}</p>`,
       `<p style="margin: 0 0 0;">We'll email you when they accept or decline.</p>`,
     ].join("\n"),
-    "My Bookings"
+    "View booking",
+    ctaUrl
   );
 
   try {
@@ -500,12 +505,14 @@ export interface BookingStatusToAthleteParams {
   newStatus: BookingStatusForAthlete;
   slotStart: string;
   slotEnd: string;
+  bookingId?: string;
 }
 
 export async function sendBookingStatusToAthlete(params: BookingStatusToAthleteParams): Promise<void> {
-  const { athleteEmail, athleteName, coachDisplayName, newStatus, slotStart, slotEnd } = params;
+  const { athleteEmail, athleteName, coachDisplayName, newStatus, slotStart, slotEnd, bookingId } = params;
   const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
   const coach = coachDisplayName?.trim() || "Your coach";
+  const ctaUrl = bookingId && appUrl ? `${appUrl}/bookings/${bookingId}` : myBookingsUrl;
 
   const statusMessages: Record<
     BookingStatusForAthlete,
@@ -519,7 +526,7 @@ export async function sendBookingStatusToAthlete(params: BookingStatusToAthleteP
         `Time: ${slotStr}`,
         "",
         "See you then!",
-        myBookingsUrl ? `My Bookings: ${myBookingsUrl}` : null,
+        ctaUrl ? `View booking: ${ctaUrl}` : null,
       ]
         .filter(Boolean)
         .join("\n"),
@@ -529,7 +536,8 @@ export async function sendBookingStatusToAthlete(params: BookingStatusToAthleteP
           `<p style="margin: 0 0 16px;"><strong>Time:</strong> ${escapeHtml(slotStr)}</p>`,
           `<p style="margin: 0 0 0;">See you then!</p>`,
         ].join("\n"),
-        "My Bookings"
+        "View booking",
+        ctaUrl
       ),
     },
     cancelled: {
@@ -540,7 +548,7 @@ export async function sendBookingStatusToAthlete(params: BookingStatusToAthleteP
         `Time: ${slotStr}`,
         "",
         "Log in to ApexSports to book another time.",
-        myBookingsUrl ? `My Bookings: ${myBookingsUrl}` : null,
+        ctaUrl ? `My Bookings: ${ctaUrl}` : null,
       ]
         .filter(Boolean)
         .join("\n"),
@@ -550,7 +558,8 @@ export async function sendBookingStatusToAthlete(params: BookingStatusToAthleteP
           `<p style="margin: 0 0 16px;"><strong>Time:</strong> ${escapeHtml(slotStr)}</p>`,
           `<p style="margin: 0 0 0;">Log in to Apex Sports to book another time.</p>`,
         ].join("\n"),
-        "My Bookings"
+        "My Bookings",
+        ctaUrl
       ),
     },
     completed: {
@@ -561,7 +570,7 @@ export async function sendBookingStatusToAthlete(params: BookingStatusToAthleteP
         `Time: ${slotStr}`,
         "",
         "Thank you for booking with ApexSports! Consider leaving a review.",
-        myBookingsUrl ? `My Bookings: ${myBookingsUrl}` : null,
+        ctaUrl ? `View booking: ${ctaUrl}` : null,
       ]
         .filter(Boolean)
         .join("\n"),
@@ -571,7 +580,8 @@ export async function sendBookingStatusToAthlete(params: BookingStatusToAthleteP
           `<p style="margin: 0 0 16px;"><strong>Time:</strong> ${escapeHtml(slotStr)}</p>`,
           `<p style="margin: 0 0 0;">Thank you for booking with Apex Sports! Consider leaving a review.</p>`,
         ].join("\n"),
-        "My Bookings"
+        "View booking",
+        ctaUrl
       ),
     },
   };
@@ -596,6 +606,103 @@ export async function sendBookingStatusToAthlete(params: BookingStatusToAthleteP
     const sesErr = err as { name?: string; message?: string; Code?: string };
     console.error(
       "[notifications] sendBookingStatusToAthlete failed:",
+      sesErr?.name ?? sesErr?.Code,
+      sesErr?.message ?? err,
+      "from:",
+      fromEmail
+    );
+  }
+}
+
+// --- Payment link email ---
+
+export interface PaymentLinkToAthleteParams {
+  athleteEmail: string;
+  athleteName?: string;
+  coachDisplayName: string;
+  amountCents: number;
+  currency: string;
+  paymentUrl: string;
+  slotStart: string;
+  slotEnd: string;
+  /** When true, the email mentions the session is complete and asks for payment in one message. */
+  sessionCompleted?: boolean;
+}
+
+export async function sendPaymentLinkToAthlete(params: PaymentLinkToAthleteParams): Promise<void> {
+  const { athleteEmail, athleteName, coachDisplayName, amountCents, currency, paymentUrl, slotStart, slotEnd, sessionCompleted } = params;
+  const name = athleteName?.trim() || "there";
+  const coach = coachDisplayName.trim();
+  const amountStr = `$${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()}`;
+  const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
+
+  const subject = sessionCompleted
+    ? `Session complete – payment of ${amountStr} due for your session with ${coach}`
+    : `Payment requested for your session with ${coach}`;
+  const bodyText = sessionCompleted
+    ? [
+        `Hi ${name},`,
+        "",
+        `Your session with ${coach} is complete!`,
+        "",
+        `Time: ${slotStr}`,
+        "",
+        `Please complete your payment of ${amountStr} at the link below.`,
+        `Pay now: ${paymentUrl}`,
+        "",
+        "Thank you,",
+        "Apex Sports",
+      ].join("\n")
+    : [
+        `Hi ${name},`,
+        "",
+        `${coach} has requested payment of ${amountStr} for your coaching session on ${slotStr}.`,
+        "",
+        `Pay now: ${paymentUrl}`,
+        "",
+        "Thank you,",
+        "Apex Sports",
+      ].join("\n");
+
+  const bodyHtml = sessionCompleted
+    ? htmlEmail(
+        [
+          `<p style="margin: 0 0 16px;">Hi ${escapeHtml(name)},</p>`,
+          `<p style="margin: 0 0 16px;">Your session with <strong>${escapeHtml(coach)}</strong> is complete!</p>`,
+          `<p style="margin: 0 0 16px;"><strong>Time:</strong> ${escapeHtml(slotStr)}</p>`,
+          `<p style="margin: 0 0 0;">Please complete your payment of <strong>${escapeHtml(amountStr)}</strong>.</p>`,
+        ].join("\n"),
+        "Pay Now",
+        paymentUrl
+      )
+    : htmlEmail(
+        [
+          `<p style="margin: 0 0 16px;">Hi ${escapeHtml(name)},</p>`,
+          `<p style="margin: 0 0 16px;"><strong>${escapeHtml(coach)}</strong> has requested payment of <strong>${escapeHtml(amountStr)}</strong> for your coaching session.</p>`,
+          `<p style="margin: 0 0 16px;"><strong>Session:</strong> ${escapeHtml(slotStr)}</p>`,
+        ].join("\n"),
+        "Pay Now",
+        paymentUrl
+      );
+
+  try {
+    await ses.send(
+      new SendEmailCommand({
+        Source: fromEmail,
+        Destination: { ToAddresses: [athleteEmail] },
+        Message: {
+          Subject: { Data: subject, Charset: "UTF-8" },
+          Body: {
+            Text: { Data: bodyText, Charset: "UTF-8" },
+            Html: { Data: bodyHtml, Charset: "UTF-8" },
+          },
+        },
+      })
+    );
+  } catch (err) {
+    const sesErr = err as { name?: string; message?: string; Code?: string };
+    console.error(
+      "[notifications] sendPaymentLinkToAthlete failed:",
       sesErr?.name ?? sesErr?.Code,
       sesErr?.message ?? err,
       "from:",

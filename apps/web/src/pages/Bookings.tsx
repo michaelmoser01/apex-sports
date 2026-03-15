@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo, useEffect } from "react";
-import { useLocation, Navigate } from "react-router-dom";
+import { useLocation, Navigate, Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 
@@ -11,6 +11,8 @@ interface BookingsData {
     slot: { id: string; startTime: string; endTime: string };
     message: string | null;
     status: string;
+    amountCents: number | null;
+    paymentStatus: string | null;
     createdAt: string;
     review: { rating: number; comment: string } | null;
   }[];
@@ -20,6 +22,7 @@ interface BookingsData {
     slot: { id: string; startTime: string; endTime: string };
     message: string | null;
     status: string;
+    paymentStatus: string | null;
     createdAt: string;
   }[];
 }
@@ -38,11 +41,9 @@ function isActive(endTime: string, status: string): boolean {
 
 export default function Bookings() {
   const location = useLocation();
+  const navigate = useNavigate();
   const returnTo = (location.state as { returnTo?: string } | null)?.returnTo;
   const queryClient = useQueryClient();
-  const [reviewing, setReviewing] = useState<string | null>(null);
-  const [reviewRating, setReviewRating] = useState(5);
-  const [reviewComment, setReviewComment] = useState("");
   const [activeTab, setActiveTab] = useState<TabId>("athlete");
   const [showPastAthlete, setShowPastAthlete] = useState(false);
   const [showPastCoach, setShowPastCoach] = useState(false);
@@ -53,6 +54,7 @@ export default function Bookings() {
     type: "cancel" | "complete" | "cancel_request";
     bookingId: string;
     athleteName?: string;
+    paymentStatus?: string | null;
   } | null>(null);
 
   const { data: currentUser } = useCurrentUser(true);
@@ -76,6 +78,7 @@ export default function Bookings() {
   });
 
   const [connectStatusSyncing, setConnectStatusSyncing] = useState(false);
+  const [paymentVerifySyncing, setPaymentVerifySyncing] = useState(false);
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (
@@ -91,6 +94,26 @@ export default function Bookings() {
         .finally(() => setConnectStatusSyncing(false));
     }
   }, [location.search, location.pathname, hasCoachProfile, queryClient]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const paymentSuccess = params.get("payment") === "success";
+    const sessionId = params.get("session_id");
+    if (paymentSuccess && sessionId) {
+      setPaymentVerifySyncing(true);
+      api<{ paymentStatus: string }>(`/bookings/verify-checkout-payment?session_id=${encodeURIComponent(sessionId)}`)
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ["bookings"] });
+          setSuccessMessage("Payment confirmed.");
+          setTimeout(() => setSuccessMessage(null), 5000);
+        })
+        .catch(() => {})
+        .finally(() => {
+          setPaymentVerifySyncing(false);
+          window.history.replaceState({}, "", location.pathname);
+        });
+    }
+  }, [location.search, location.pathname, queryClient]);
 
   const { data, isLoading } = useQuery({
     queryKey: ["bookings"],
@@ -128,44 +151,43 @@ export default function Bookings() {
     },
   });
 
-  const reviewMutation = useMutation({
-    mutationFn: ({
-      id,
-      rating,
-      comment,
-    }: {
-      id: string;
-      rating: number;
-      comment: string;
-    }) =>
-      api(`/bookings/${id}/review`, {
-        method: "POST",
-        body: JSON.stringify({ rating, comment }),
-      }),
+  const paymentRequestMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      await api(`/bookings/${bookingId}/payment-request`, { method: "POST" });
+    },
     onSuccess: () => {
-      setReviewing(null);
-      setReviewComment("");
       queryClient.invalidateQueries({ queryKey: ["bookings"] });
     },
   });
 
+
   const asAthlete = data?.asAthlete ?? [];
   const asCoach = data?.asCoach ?? [];
 
-  const { athleteUpcoming, athletePast } = useMemo(() => {
+  const { athleteUpcoming, athleteUnpaid, athletePast } = useMemo(() => {
     const active = asAthlete
       .filter((b) => isActive(b.slot.endTime, b.status))
       .sort((a, b) => new Date(a.slot.startTime).getTime() - new Date(b.slot.startTime).getTime());
-    const past = asAthlete.filter((b) => !isActive(b.slot.endTime, b.status));
-    return { athleteUpcoming: active, athletePast: past };
+    const unpaid = asAthlete.filter(
+      (b) => (b.status === "confirmed" || b.status === "completed") &&
+             (b.paymentStatus === "deferred" || b.paymentStatus === "payment_link_sent")
+    );
+    const unpaidIds = new Set(unpaid.map((b) => b.id));
+    const past = asAthlete.filter((b) => !isActive(b.slot.endTime, b.status) && !unpaidIds.has(b.id));
+    return { athleteUpcoming: active, athleteUnpaid: unpaid, athletePast: past };
   }, [asAthlete]);
 
-  const { coachUpcoming, coachPast } = useMemo(() => {
+  const { coachUpcoming, coachUnpaid, coachPast } = useMemo(() => {
     const active = asCoach
       .filter((b) => isActive(b.slot.endTime, b.status))
       .sort((a, b) => new Date(a.slot.startTime).getTime() - new Date(b.slot.startTime).getTime());
-    const past = asCoach.filter((b) => !isActive(b.slot.endTime, b.status));
-    return { coachUpcoming: active, coachPast: past };
+    const unpaid = asCoach.filter(
+      (b) => (b.status === "confirmed" || b.status === "completed") &&
+             (b.paymentStatus === "deferred" || b.paymentStatus === "payment_link_sent")
+    );
+    const unpaidIds = new Set(unpaid.map((b) => b.id));
+    const past = asCoach.filter((b) => !isActive(b.slot.endTime, b.status) && !unpaidIds.has(b.id));
+    return { coachUpcoming: active, coachUnpaid: unpaid, coachPast: past };
   }, [asCoach]);
 
   const tabs: { id: TabId; label: string }[] = hasCoachProfile
@@ -197,6 +219,10 @@ export default function Bookings() {
     <div className="max-w-4xl mx-auto px-4 py-8 sm:py-12">
       <h1 className="text-2xl font-bold text-slate-900 mb-6">Bookings</h1>
 
+      {paymentVerifySyncing && (
+        <p className="mb-4 text-slate-600 text-sm">Verifying payment…</p>
+      )}
+
       {hasCoachProfile && coachProfile?.hourlyRate && (
         <section className="mb-6 p-6 bg-white rounded-xl border border-slate-200">
           <h2 className="text-lg font-semibold text-slate-900 mb-4">Payments</h2>
@@ -205,12 +231,12 @@ export default function Bookings() {
           ) : coachProfile.stripeOnboardingComplete ? (
             <p className="text-slate-600 text-sm flex items-center gap-2">
               <span className="text-emerald-600 font-medium">Payments set up</span>
-              You&apos;ll receive session payments after the platform fee.
+              You&apos;ll receive payouts directly to your bank after a small platform fee.
             </p>
           ) : (
             <>
               <p className="text-slate-600 text-sm mb-3">
-                Set up Stripe to receive payments when athletes book sessions. You&apos;ll be charged only when you mark a session complete.
+                Connect your Stripe account to get paid when athletes book sessions. A small platform fee is deducted from each payment — you keep the rest.
               </p>
               <button
                 type="button"
@@ -270,7 +296,9 @@ export default function Bookings() {
                 >
                 <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
                   <div className="min-w-0">
-                    <p className="font-medium">{b.coach.displayName}</p>
+                    <Link to={`/bookings/${b.id}`} className="font-medium text-slate-900 hover:underline">
+                      {b.coach.displayName}
+                    </Link>
                     <p className="text-brand-600 text-sm">{b.coach.sports?.length ? b.coach.sports.join(", ") : "—"}</p>
                     <p className="text-slate-500 text-sm mt-1">
                       {new Date(b.slot.startTime).toLocaleString()}
@@ -304,55 +332,52 @@ export default function Bookings() {
                 </div>
                 {b.status === "completed" && !b.review && (
                   <div className="mt-4">
-                    {reviewing === b.id ? (
-                      <div>
-                        <div className="flex gap-2 mb-2">
-                          {[1, 2, 3, 4, 5].map((r) => (
-                            <button
-                              key={r}
-                              onClick={() => setReviewRating(r)}
-                              className={`px-2 py-1 rounded ${
-                                r <= reviewRating
-                                  ? "bg-amber-400 text-white"
-                                  : "bg-slate-200"
-                              }`}
-                            >
-                              ★
-                            </button>
-                          ))}
-                        </div>
-                        <textarea
-                          value={reviewComment}
-                          onChange={(e) => setReviewComment(e.target.value)}
-                          placeholder="Optional comment"
-                          className="w-full p-2 border rounded mb-2"
-                          rows={2}
-                        />
-                        <button
-                          onClick={() =>
-                            reviewMutation.mutate({
-                              id: b.id,
-                              rating: reviewRating,
-                              comment: reviewComment,
-                            })
-                          }
-                          className="bg-brand-500 text-white px-3 py-1 rounded text-sm"
-                        >
-                          Submit Review
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setReviewing(b.id)}
-                        className="text-brand-600 text-sm font-medium hover:underline"
-                      >
-                        Write a review
-                      </button>
-                    )}
+                    <Link
+                      to={`/bookings/${b.id}`}
+                      className="text-brand-600 text-sm font-medium hover:underline"
+                    >
+                      Write a review
+                    </Link>
                   </div>
                 )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {athleteUnpaid.length > 0 && (
+            <div className="mt-8">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">
+                Unpaid sessions
+                <span className="ml-2 text-sm font-normal text-slate-500">({athleteUnpaid.length})</span>
+              </h2>
+              <div className="space-y-4">
+                {athleteUnpaid.map((b) => (
+                  <div
+                    key={`unpaid-${b.id}`}
+                    className="p-5 sm:p-4 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                  >
+                    <Link to={`/bookings/${b.id}`} className="min-w-0 flex-1 block">
+                      <p className="font-medium text-slate-900 hover:underline">{b.coach.displayName}</p>
+                      <p className="text-slate-500 text-sm">
+                        {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                      </p>
+                      {b.amountCents != null && (
+                        <p className="text-slate-600 text-sm mt-0.5 font-medium">
+                          ${(b.amountCents / 100).toFixed(2)}
+                        </p>
+                      )}
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/bookings/${b.id}`)}
+                      className="shrink-0 px-4 py-2.5 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 touch-manipulation"
+                    >
+                      Pay now
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -409,51 +434,12 @@ export default function Bookings() {
                       </div>
                       {b.status === "completed" && !b.review && (
                         <div className="mt-4">
-                          {reviewing === b.id ? (
-                            <div>
-                              <div className="flex gap-2 mb-2">
-                                {[1, 2, 3, 4, 5].map((r) => (
-                                  <button
-                                    key={r}
-                                    onClick={() => setReviewRating(r)}
-                                    className={`px-2 py-1 rounded ${
-                                      r <= reviewRating
-                                        ? "bg-amber-400 text-white"
-                                        : "bg-slate-200"
-                                    }`}
-                                  >
-                                    ★
-                                  </button>
-                                ))}
-                              </div>
-                              <textarea
-                                value={reviewComment}
-                                onChange={(e) => setReviewComment(e.target.value)}
-                                placeholder="Optional comment"
-                                className="w-full p-2 border rounded mb-2"
-                                rows={2}
-                              />
-                              <button
-                                onClick={() =>
-                                  reviewMutation.mutate({
-                                    id: b.id,
-                                    rating: reviewRating,
-                                    comment: reviewComment,
-                                  })
-                                }
-                                className="bg-brand-500 text-white px-3 py-1 rounded text-sm"
-                              >
-                                Submit Review
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setReviewing(b.id)}
-                              className="text-brand-600 text-sm font-medium hover:underline"
-                            >
-                              Write a review
-                            </button>
-                          )}
+                          <Link
+                            to={`/bookings/${b.id}`}
+                            className="text-brand-600 text-sm font-medium hover:underline"
+                          >
+                            Write a review
+                          </Link>
                         </div>
                       )}
                     </div>
@@ -489,7 +475,9 @@ export default function Bookings() {
                 >
                 <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
                   <div className="min-w-0">
-                    <p className="font-medium">{b.athlete.name ?? b.athlete.email}</p>
+                    <Link to={`/bookings/${b.id}`} className="font-medium text-slate-900 hover:underline">
+                      {b.athlete.name ?? b.athlete.email}
+                    </Link>
                     <p className="text-slate-500 text-sm mt-0.5">
                       {new Date(b.slot.startTime).toLocaleString()}
                     </p>
@@ -535,7 +523,7 @@ export default function Bookings() {
                     {b.status === "confirmed" && (
                       <div className="flex flex-col gap-2 sm:flex-row sm:gap-2">
                         <button
-                          onClick={() => setConfirmAction({ type: "complete", bookingId: b.id, athleteName: b.athlete.name ?? undefined })}
+                          onClick={() => setConfirmAction({ type: "complete", bookingId: b.id, athleteName: b.athlete.name ?? undefined, paymentStatus: b.paymentStatus })}
                           disabled={pendingUpdateId != null}
                           className="bg-brand-500 text-white px-4 py-2.5 rounded-lg text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50"
                         >
@@ -554,6 +542,56 @@ export default function Bookings() {
                 </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {coachUnpaid.length > 0 && (
+            <div className="mt-8">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">
+                Unpaid sessions
+                <span className="ml-2 text-sm font-normal text-slate-500">({coachUnpaid.length})</span>
+              </h2>
+              <div className="space-y-4">
+                {coachUnpaid.map((b) => (
+                  <div
+                    key={`unpaid-${b.id}`}
+                    className="p-5 sm:p-4 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-slate-900">{b.athlete.name ?? b.athlete.email}</p>
+                      <p className="text-slate-500 text-sm">
+                        {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                        b.paymentStatus === "payment_link_sent"
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-slate-200 text-slate-600"
+                      }`}>
+                        {b.paymentStatus === "payment_link_sent" ? "Link sent" : "Not sent"}
+                      </span>
+                      {coachProfile?.stripeOnboardingComplete ? (
+                        <button
+                          type="button"
+                          onClick={() => paymentRequestMutation.mutate(b.id)}
+                          disabled={paymentRequestMutation.isPending}
+                          className="px-3 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 touch-manipulation disabled:opacity-50"
+                        >
+                          {b.paymentStatus === "payment_link_sent" ? "Resend" : "Send payment link"}
+                        </button>
+                      ) : (
+                        <a
+                          href="/coach/setup/get-paid"
+                          className="px-3 py-2 text-sm font-medium text-emerald-800 bg-emerald-100 rounded-lg hover:bg-emerald-200 touch-manipulation"
+                        >
+                          Set up payments
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -627,7 +665,11 @@ export default function Bookings() {
             </h2>
             <p className="text-slate-600 text-sm mb-4">
               {confirmAction.type === "complete"
-                ? "This will charge the athlete's card and transfer the session amount to you. This cannot be undone."
+                ? confirmAction.paymentStatus === "authorized" || confirmAction.paymentStatus === "pending_authorization"
+                  ? "This will charge the athlete\u2019s card and transfer the session amount to you. This cannot be undone."
+                  : confirmAction.paymentStatus === "deferred"
+                    ? "This will mark the session as complete and automatically send a payment link to the athlete."
+                    : "This will mark the session as complete."
                 : confirmAction.type === "cancel_request"
                   ? "Your request will be cancelled and the slot will be released."
                   : `This will cancel the booking${confirmAction.athleteName ? ` with ${confirmAction.athleteName}` : ""}. Any payment hold will be released.`}

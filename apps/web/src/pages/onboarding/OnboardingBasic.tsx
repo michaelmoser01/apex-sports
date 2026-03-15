@@ -68,7 +68,7 @@ export default function OnboardingBasic() {
     e.preventDefault();
     setSubmitError(null);
     const trimmed = displayName.trim();
-    if (!trimmed || sports.length === 0 || serviceCities.length === 0) return;
+    if (!trimmed || sports.length === 0 || serviceCities.length === 0 || !hourlyRate || parseFloat(hourlyRate) <= 0) return;
     setSubmitting(true);
     try {
       await api("/coaches/me", {
@@ -78,7 +78,7 @@ export default function OnboardingBasic() {
           sports,
           serviceCities,
           bio: "",
-          hourlyRate: hourlyRate ? parseFloat(hourlyRate) : undefined,
+          hourlyRate: parseFloat(hourlyRate),
         }),
       });
 
@@ -205,13 +205,14 @@ export default function OnboardingBasic() {
           <p className="text-slate-500 text-xs mt-1">Bay Area cities. Add all areas you serve.</p>
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Hourly rate ($)</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Hourly rate ($) <span className="text-red-500">*</span></label>
           <input
             type="number"
-            min={0}
+            min={1}
             step={5}
             value={hourlyRate}
             onChange={(e) => setHourlyRate(e.target.value)}
+            required
             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
             placeholder="75"
           />
@@ -296,7 +297,7 @@ export default function OnboardingBasic() {
         )}
         <button
           type="submit"
-          disabled={submitting || !displayName.trim() || sports.length === 0 || serviceCities.length === 0}
+          disabled={submitting || !displayName.trim() || sports.length === 0 || serviceCities.length === 0 || !hourlyRate || parseFloat(hourlyRate) <= 0}
           className="w-full py-3 rounded-xl bg-brand-500 text-white font-semibold hover:bg-brand-600 disabled:opacity-50 transition"
         >
           {submitting ? "Saving…" : "Continue"}

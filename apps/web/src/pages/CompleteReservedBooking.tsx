@@ -1,4 +1,4 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { format } from "date-fns";
@@ -21,6 +21,7 @@ interface CoachReservedSlot {
 
 export default function CompleteReservedBooking() {
   const { coachId, slotId } = useParams<{ coachId: string; slotId: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { isDevMode, isAuthenticated: isAuthFromContext } = useAuth();
   const { authStatus } = useAuthenticator((c) => [c.authStatus]);
@@ -107,6 +108,7 @@ export default function CompleteReservedBooking() {
       setBookingSuccess("Request sent! We'll email you when the coach responds. Your card won't be charged until the coach marks the session complete.");
       queryClient.invalidateQueries({ queryKey: ["coach", coachId] });
       queryClient.invalidateQueries({ queryKey: ["bookings"] });
+      if (data?.id) navigate(`/bookings/${data.id}`);
     },
     onError: (err: Error) => {
       const msg = err.message ?? "Something went wrong.";

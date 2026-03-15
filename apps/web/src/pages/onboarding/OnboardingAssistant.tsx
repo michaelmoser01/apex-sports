@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { ONBOARDING_BASE } from "@/config/onboarding";
 
 const ASSISTANT_CAPABILITIES = [
   { id: "scheduling", label: "Scheduling" },
@@ -89,7 +88,7 @@ export default function OnboardingAssistant() {
     });
   };
 
-  const handleContinue = () => navigate(`${ONBOARDING_BASE}/plan`, { replace: true });
+  const handleContinue = () => navigate("/dashboard", { replace: true });
 
   const hasNumber = assignedNumber || profile.assistantPhoneNumber;
   const number = assignedNumber ?? profile.assistantPhoneNumber ?? "";

@@ -8,10 +8,12 @@ import {
   isStripeEnabled,
   getOrCreateStripeCustomerId,
   createPaymentIntentAuthOnly,
+  createDeferredBookingPaymentIntent,
   capturePaymentIntent,
   transferToConnectAccount,
   cancelPaymentIntent,
 } from "../stripe.js";
+import { sendPaymentLinkToAthlete } from "../notifications.js";
 
 const router = Router();
 const auth = authMiddleware();
@@ -99,6 +101,228 @@ router.get("/", auth, async (req, res) => {
   });
 });
 
+// Verify Stripe Checkout Session after booking payment (sync fallback when user returns from Stripe)
+router.get("/verify-checkout-payment", auth, async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const sessionId = typeof req.query.session_id === "string" ? req.query.session_id.trim() : null;
+  if (!sessionId || !stripe) {
+    return res.status(400).json({ error: "session_id required and Stripe must be configured" });
+  }
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    if (session.payment_status !== "paid") {
+      return res.status(400).json({ error: "Payment not completed" });
+    }
+    const bookingId = session.metadata?.bookingId as string | undefined;
+    if (!bookingId) {
+      return res.status(400).json({ error: "Invalid session" });
+    }
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { athleteId: true, stripePaymentIntentId: true, paymentStatus: true },
+    });
+    if (!booking || booking.athleteId !== user.id) {
+      return res.status(403).json({ error: "Not your booking" });
+    }
+    if (booking.stripePaymentIntentId !== sessionId) {
+      return res.status(400).json({ error: "Session does not match booking" });
+    }
+    if (booking.paymentStatus === "succeeded") {
+      return res.json({ paymentStatus: "succeeded" });
+    }
+
+    await prisma.booking.update({
+      where: { id: bookingId },
+      data: { paymentStatus: "succeeded" },
+    });
+    res.json({ paymentStatus: "succeeded" });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[bookings] verify-checkout-payment error:", message);
+    res.status(500).json({ error: "Failed to verify payment", detail: message });
+  }
+});
+
+// Get single booking (athlete or coach of that booking)
+router.get("/:id", auth, async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: req.params.id },
+    include: {
+      coach: true,
+      slot: true,
+      athlete: true,
+      review: true,
+    },
+  });
+  if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+  const profile = await prisma.coachProfile.findUnique({
+    where: { userId: user.id },
+  });
+  const isAthlete = booking.athleteId === user.id;
+  const isCoach = profile?.id === booking.coachId;
+  if (!isAthlete && !isCoach) return res.status(403).json({ error: "Not your booking" });
+
+  res.json({
+    id: booking.id,
+    viewerRole: isAthlete ? "athlete" : "coach",
+    coach: {
+      id: booking.coach.id,
+      displayName: booking.coach.displayName,
+      sports: booking.coach.sports,
+      userId: booking.coach.userId,
+    },
+    slot: {
+      id: booking.slot.id,
+      startTime: booking.slot.startTime.toISOString(),
+      endTime: booking.slot.endTime.toISOString(),
+    },
+    athlete: isCoach
+      ? {
+          id: booking.athlete.id,
+          name: booking.athlete.name,
+          email: booking.athlete.email,
+        }
+      : undefined,
+    message: booking.message ?? null,
+    status: booking.status,
+    amountCents: booking.amountCents ?? null,
+    paymentStatus: booking.paymentStatus ?? null,
+    createdAt: booking.createdAt.toISOString(),
+    completedAt: booking.completedAt?.toISOString() ?? null,
+    review: booking.review
+      ? {
+          rating: booking.review.rating,
+          comment: booking.review.comment,
+          createdAt: booking.review.createdAt.toISOString(),
+        }
+      : null,
+  });
+});
+
+// Athlete: pay for a deferred booking with an embedded card form (server-side confirm, no webhook dependency)
+router.post("/:id/pay-now", auth, async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const paymentMethodId = (req.body as { paymentMethodId?: string }).paymentMethodId;
+  if (!paymentMethodId || typeof paymentMethodId !== "string") {
+    return res.status(400).json({ error: "paymentMethodId is required" });
+  }
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: req.params.id },
+    include: { coach: true },
+  });
+  if (!booking) return res.status(404).json({ error: "Booking not found" });
+  if (booking.athleteId !== user.id) return res.status(403).json({ error: "Not your booking" });
+  if (booking.paymentStatus === "succeeded") {
+    return res.json({ paymentStatus: "succeeded" });
+  }
+  if (!["deferred", "payment_link_sent"].includes(booking.paymentStatus ?? "")) {
+    return res.status(400).json({ error: `Payment not needed (status: ${booking.paymentStatus ?? "none"})` });
+  }
+  if (!booking.amountCents || !booking.coach.stripeConnectAccountId || !stripe) {
+    return res.status(400).json({ error: "Payment not configured for this booking" });
+  }
+
+  const athleteUser = await prisma.user.findUnique({
+    where: { id: booking.athleteId },
+    select: { stripeCustomerId: true, email: true },
+  });
+  if (!athleteUser) return res.status(400).json({ error: "Athlete not found" });
+
+  const customerId = await getOrCreateStripeCustomerId(
+    stripe,
+    user.id,
+    athleteUser.email ?? "",
+    athleteUser.stripeCustomerId
+  );
+  if (!athleteUser.stripeCustomerId) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { stripeCustomerId: customerId },
+    });
+  }
+
+  try {
+    const { clientSecret, paymentIntentId, status } = await createDeferredBookingPaymentIntent({
+      amountCents: booking.amountCents,
+      currency: booking.currency ?? "usd",
+      customerId,
+      connectAccountId: booking.coach.stripeConnectAccountId,
+      bookingId: booking.id,
+      idempotencyKey: `deferred-${booking.id}-${Date.now()}`,
+      paymentMethodId,
+    });
+
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: { stripePaymentIntentId: paymentIntentId },
+    });
+
+    if (status === "succeeded") {
+      await prisma.booking.update({
+        where: { id: booking.id },
+        data: { paymentStatus: "succeeded" },
+      });
+      return res.json({ paymentStatus: "succeeded" });
+    }
+
+    if (status === "requires_action") {
+      return res.json({ requiresAction: true, clientSecret, paymentIntentId });
+    }
+
+    return res.status(400).json({ error: `Unexpected payment status: ${status}` });
+  } catch (err) {
+    console.error("[bookings] pay-now error:", err);
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(502).json({ error: "Payment failed. Please try again.", detail: message });
+  }
+});
+
+// Finalize payment after 3DS verification (client calls this after handleCardAction)
+router.post("/:id/pay-now/finalize", auth, async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: req.params.id },
+    select: { athleteId: true, stripePaymentIntentId: true, paymentStatus: true },
+  });
+  if (!booking) return res.status(404).json({ error: "Booking not found" });
+  if (booking.athleteId !== user.id) return res.status(403).json({ error: "Not your booking" });
+  if (booking.paymentStatus === "succeeded") {
+    return res.json({ paymentStatus: "succeeded" });
+  }
+  if (!booking.stripePaymentIntentId || !stripe) {
+    return res.status(400).json({ error: "No payment to finalize" });
+  }
+
+  try {
+    const pi = await stripe.paymentIntents.retrieve(booking.stripePaymentIntentId);
+    if (pi.status === "succeeded") {
+      await prisma.booking.update({
+        where: { id: req.params.id },
+        data: { paymentStatus: "succeeded" },
+      });
+      return res.json({ paymentStatus: "succeeded" });
+    }
+    return res.status(400).json({ error: `Payment not completed (status: ${pi.status})` });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[bookings] pay-now/finalize error:", message);
+    return res.status(500).json({ error: "Failed to verify payment" });
+  }
+});
+
 // Create booking (athlete). If coach has rate + Connect, create auth-hold and return clientSecret.
 router.post("/", auth, async (req, res) => {
   const user = (req as { user?: { id: string } }).user;
@@ -140,14 +364,15 @@ router.post("/", auth, async (req, res) => {
 
   const coach = slot.coach;
   const hourlyRate = coach.hourlyRate ? Number(coach.hourlyRate) : null;
+  const hasRate = hourlyRate != null && hourlyRate > 0;
   const needsPayment =
     isStripeEnabled() &&
     stripe &&
-    hourlyRate != null &&
-    hourlyRate > 0 &&
-    !!coach.stripeConnectAccountId;
+    hasRate &&
+    !!coach.stripeConnectAccountId &&
+    coach.billingMode === "upfront";
 
-  const amountCents = needsPayment ? computeAmountCents(slot, hourlyRate!) : null;
+  const amountCents = hasRate ? computeAmountCents(slot, hourlyRate!) : null;
   const currency = "usd";
 
   if (needsPayment && !paymentMethodId) {
@@ -165,7 +390,7 @@ router.post("/", auth, async (req, res) => {
       message: message?.trim() || null,
       amountCents: amountCents ?? undefined,
       currency,
-      paymentStatus: needsPayment ? "pending_authorization" : undefined,
+      paymentStatus: needsPayment ? "pending_authorization" : (hasRate ? "deferred" : undefined),
     },
     include: {
       coach: { include: { user: { select: { email: true } } } },
@@ -236,6 +461,7 @@ router.post("/", auth, async (req, res) => {
     coachDisplayName: booking.coach.displayName,
     slotStart: booking.slot.startTime.toISOString(),
     slotEnd: booking.slot.endTime.toISOString(),
+    bookingId: booking.id,
   }).catch((err) => console.error("[bookings] notify athlete (request submitted) failed:", err));
 
   const response: Record<string, unknown> = {
@@ -373,7 +599,15 @@ router.patch("/:id", auth, async (req, res) => {
     },
   });
 
-  if (status === "confirmed" || status === "cancelled" || status === "completed") {
+  // When completing a deferred-payment booking, send a single combined email instead of
+  // separate "completed" + "payment requested" emails.
+  const isDeferredCompleted =
+    status === "completed" &&
+    booking.paymentStatus === "deferred" &&
+    booking.amountCents != null &&
+    updated.coach.stripeConnectAccountId;
+
+  if ((status === "confirmed" || status === "cancelled" || status === "completed") && !isDeferredCompleted) {
     sendBookingStatusToAthlete({
       athleteEmail: updated.athlete.email,
       athleteName: updated.athlete.name ?? undefined,
@@ -381,7 +615,34 @@ router.patch("/:id", auth, async (req, res) => {
       newStatus: status,
       slotStart: updated.slot.startTime.toISOString(),
       slotEnd: updated.slot.endTime.toISOString(),
+      bookingId: updated.id,
     }).catch((err) => console.error("[bookings] notify athlete failed:", err));
+  }
+
+  if (isDeferredCompleted) {
+    const frontendUrl = (process.env.APP_URL ?? "http://localhost:5173").replace(/\/$/, "");
+    try {
+      await prisma.booking.update({
+        where: { id: updated.id },
+        data: { paymentStatus: "payment_link_sent" },
+      });
+      updated.paymentStatus = "payment_link_sent";
+      if (updated.athlete.email) {
+        sendPaymentLinkToAthlete({
+          athleteEmail: updated.athlete.email,
+          athleteName: updated.athlete.name ?? undefined,
+          coachDisplayName: updated.coach.displayName,
+          amountCents: booking.amountCents!,
+          currency: booking.currency ?? "usd",
+          paymentUrl: `${frontendUrl}/bookings/${updated.id}`,
+          slotStart: updated.slot.startTime.toISOString(),
+          slotEnd: updated.slot.endTime.toISOString(),
+          sessionCompleted: true,
+        }).catch((err) => console.error("[bookings] auto-send payment link email failed:", err));
+      }
+    } catch (err) {
+      console.error("[bookings] auto-send payment link failed:", err);
+    }
   }
 
   res.json({
@@ -401,6 +662,61 @@ router.patch("/:id", auth, async (req, res) => {
     paymentStatus: updated.paymentStatus ?? null,
     createdAt: updated.createdAt.toISOString(),
   });
+});
+
+// Send payment link to athlete for a deferred-payment booking (coach only)
+router.post("/:id/payment-request", auth, async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: req.params.id },
+    include: {
+      coach: true,
+      slot: true,
+      athlete: { select: { email: true, name: true } },
+    },
+  });
+  if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+  const isCoach = booking.coach.userId === user.id;
+  if (!isCoach) return res.status(403).json({ error: "Only the coach can request payment" });
+
+  if (!["confirmed", "completed"].includes(booking.status)) {
+    return res.status(400).json({ error: "Booking must be confirmed or completed to request payment" });
+  }
+  if (!["deferred", "payment_link_sent"].includes(booking.paymentStatus ?? "")) {
+    return res.status(400).json({ error: `Payment already ${booking.paymentStatus ?? "processed"}` });
+  }
+  if (!booking.coach.stripeConnectAccountId) {
+    return res.status(400).json({ error: "Set up Stripe Connect before requesting payment" });
+  }
+  if (!booking.amountCents) {
+    return res.status(400).json({ error: "Payment amount not set" });
+  }
+
+  const frontendUrl = (process.env.APP_URL ?? "http://localhost:5173").replace(/\/$/, "");
+  const paymentUrl = `${frontendUrl}/bookings/${booking.id}`;
+
+  await prisma.booking.update({
+    where: { id: booking.id },
+    data: { paymentStatus: "payment_link_sent" },
+  });
+
+  if (booking.athlete.email) {
+    sendPaymentLinkToAthlete({
+      athleteEmail: booking.athlete.email,
+      athleteName: booking.athlete.name ?? undefined,
+      coachDisplayName: booking.coach.displayName,
+      amountCents: booking.amountCents,
+      currency: booking.currency ?? "usd",
+      paymentUrl,
+      slotStart: booking.slot.startTime.toISOString(),
+      slotEnd: booking.slot.endTime.toISOString(),
+    }).catch((err) => console.error("[bookings] send payment link email failed:", err));
+  }
+
+  res.json({ paymentStatus: "payment_link_sent", paymentUrl });
 });
 
 // Add review (athlete, only for completed bookings)

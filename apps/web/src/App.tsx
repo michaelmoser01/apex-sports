@@ -12,6 +12,7 @@ import CoachBook from "./pages/CoachBook";
 import CoachBookingSuccess from "./pages/CoachBookingSuccess";
 import { CoachDetailErrorBoundary } from "./components/CoachDetailErrorBoundary";
 import Bookings from "./pages/Bookings";
+import BookingDetail from "./pages/BookingDetail";
 import CompleteReservedBooking from "./pages/CompleteReservedBooking";
 import CoachDashboard from "./pages/CoachDashboard";
 import AthleteProfilePage from "./pages/AthleteProfile";
@@ -104,6 +105,20 @@ function AppContent() {
             ) : (
               <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
                 <Bookings />
+              </Authenticator>
+            )
+          }
+        />
+        <Route
+          path="bookings/:id"
+          element={
+            isDevMode ? (
+              <DevLoginGate>
+                <BookingDetail />
+              </DevLoginGate>
+            ) : (
+              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
+                <BookingDetail />
               </Authenticator>
             )
           }
@@ -245,12 +260,7 @@ function AppContent() {
           <Route index element={<Navigate to="/coach/onboarding/basic" replace />} />
           <Route path="basic" element={<OnboardingBasic />} />
           <Route path="about" element={<OnboardingAbout />} />
-          <Route path="get-paid" element={<OnboardingGetPaid />} />
           <Route path="assistant" element={<OnboardingAssistant />} />
-          <Route path="plan" element={<Outlet />}>
-            <Route index element={<OnboardingPlan />} />
-            <Route path="success" element={<OnboardingPlanSuccess />} />
-          </Route>
         </Route>
         <Route
           path="coach/onboarding/bio"
@@ -266,6 +276,32 @@ function AppContent() {
             )
           }
         />
+        <Route
+          path="coach/setup/get-paid"
+          element={
+            isDevMode ? (
+              <DevLoginGate>
+                <OnboardingGetPaid />
+              </DevLoginGate>
+            ) : (
+              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
+                <OnboardingGetPaid />
+              </Authenticator>
+            )
+          }
+        />
+        <Route path="coach/setup/plan" element={
+          isDevMode ? (
+            <DevLoginGate><Outlet /></DevLoginGate>
+          ) : (
+            <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
+              <Outlet />
+            </Authenticator>
+          )
+        }>
+          <Route index element={<OnboardingPlan />} />
+          <Route path="success" element={<OnboardingPlanSuccess />} />
+        </Route>
         <Route
           path="dashboard/availability"
           element={

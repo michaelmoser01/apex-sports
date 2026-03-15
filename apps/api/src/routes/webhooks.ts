@@ -6,20 +6,19 @@ import { stripe } from "../stripe.js";
 const router = Router();
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-/** Process Stripe event (shared by Express and Lambda handler). */
-function processStripeEvent(event: Stripe.Event): void {
+/** Process Stripe event (shared by Express and Lambda handler). Awaits DB updates so they complete before response. */
+async function processStripeEvent(event: Stripe.Event): Promise<void> {
   switch (event.type) {
     case "payment_intent.succeeded": {
       const pi = event.data.object as Stripe.PaymentIntent;
       const bookingId = pi.metadata?.bookingId;
       if (bookingId) {
         const paymentStatus = pi.status === "succeeded" ? "succeeded" : "authorized";
-        prisma.booking
+        await prisma.booking
           .updateMany({
             where: { id: bookingId, stripePaymentIntentId: pi.id },
             data: { paymentStatus },
           })
-          .then(() => {})
           .catch((err) => console.error("[webhooks] update booking paymentStatus failed:", err));
       }
       break;
@@ -28,12 +27,11 @@ function processStripeEvent(event: Stripe.Event): void {
       const pi = event.data.object as Stripe.PaymentIntent;
       const bookingId = pi.metadata?.bookingId;
       if (bookingId && pi.status === "requires_capture") {
-        prisma.booking
+        await prisma.booking
           .updateMany({
             where: { id: bookingId, stripePaymentIntentId: pi.id },
             data: { paymentStatus: "authorized" },
           })
-          .then(() => {})
           .catch((err) => console.error("[webhooks] update booking paymentStatus failed:", err));
       }
       break;
@@ -44,13 +42,27 @@ function processStripeEvent(event: Stripe.Event): void {
       const bookingId = pi.metadata?.bookingId;
       if (bookingId) {
         const paymentStatus = event.type === "payment_intent.canceled" ? "canceled" : "failed";
-        prisma.booking
+        await prisma.booking
           .updateMany({
             where: { id: bookingId, stripePaymentIntentId: pi.id },
             data: { paymentStatus },
           })
-          .then(() => {})
           .catch((err) => console.error("[webhooks] update booking paymentStatus failed:", err));
+      }
+      break;
+    }
+    case "checkout.session.completed": {
+      const session = event.data.object as Stripe.Checkout.Session;
+      if (session.payment_status === "paid") {
+        const bookingId = session.metadata?.bookingId as string | undefined;
+        if (bookingId && session.id) {
+          await prisma.booking
+            .updateMany({
+              where: { id: bookingId, stripePaymentIntentId: session.id },
+              data: { paymentStatus: "succeeded" },
+            })
+            .catch((err) => console.error("[webhooks] update booking from checkout.session.completed failed:", err));
+        }
       }
       break;
     }
@@ -78,11 +90,11 @@ export async function handleStripeWebhookRaw(
     console.error("[webhooks] Stripe signature verification failed:", message);
     return { statusCode: 400, body: `Webhook Error: ${message}` };
   }
-  processStripeEvent(event);
+  await processStripeEvent(event);
   return { statusCode: 200, body: "" };
 }
 
-export function stripeWebhookHandler(req: Request, res: Response): void {
+export async function stripeWebhookHandler(req: Request, res: Response): Promise<void> {
   if (!webhookSecret || !stripe) {
     res.status(501).send("Stripe not configured");
     return;
@@ -108,7 +120,7 @@ export function stripeWebhookHandler(req: Request, res: Response): void {
     res.status(400).send(`Webhook Error: ${message}`);
     return;
   }
-  processStripeEvent(event);
+  await processStripeEvent(event);
   res.sendStatus(200);
 }
 

@@ -37,6 +37,7 @@ interface CoachProfile {
   assistantDisplayName?: string | null;
   assistantPhoneNumber?: string | null;
   planId?: string | null;
+  billingMode?: string;
 }
 
 interface AvailabilityRule {
@@ -255,6 +256,7 @@ interface BookingsData {
     createdAt: string;
     completedAt: string | null;
     review: { rating: number; comment: string; createdAt: string } | null;
+    paymentStatus: string | null;
   }[];
 }
 
@@ -516,6 +518,24 @@ export default function CoachDashboard() {
     },
   });
 
+  const paymentRequestMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      await api(`/bookings/${bookingId}/payment-request`, { method: "POST" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bookings"] });
+    },
+  });
+
+  const billingModeMutation = useMutation({
+    mutationFn: async (billingMode: "upfront" | "after_session") => {
+      await api("/coaches/me", { method: "PUT", body: JSON.stringify({ billingMode }) });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
+    },
+  });
+
   useEffect(() => {
     if (profile && !("error" in profile) && "photos" in profile && Array.isArray(profile.photos)) {
       const urls = profile.photos.map((p) => p.url);
@@ -558,9 +578,7 @@ export default function CoachDashboard() {
   const nextOnboardingStep = getNextOnboardingStep({
     hasProfile: true,
     hasBio: !!(coach.bio?.trim()),
-    stripeComplete: coach.stripeOnboardingComplete ?? false,
     hasAssistant: !!(coach.assistantPhoneNumber?.trim()),
-    hasPlan: !!(coach.planId?.trim()),
   });
   if (nextOnboardingStep) {
     return <Navigate to={nextOnboardingStep} replace />;
@@ -581,6 +599,10 @@ export default function CoachDashboard() {
       .filter((b) => b.review != null)
       .sort((a, b) => (b.review!.createdAt > a.review!.createdAt ? 1 : -1))
       .slice(0, 3);
+    const unpaidSessions = asCoach.filter(
+      (b) => (b.status === "confirmed" || b.status === "completed") &&
+             (b.paymentStatus === "deferred" || b.paymentStatus === "payment_link_sent")
+    );
     const athletes = athletesData ?? [];
     const recentAthletes = athletes.slice(0, 6);
     const bookingsLoading = !bookingsData && !!profile;
@@ -606,6 +628,70 @@ export default function CoachDashboard() {
             <p className="text-slate-600 text-sm sm:text-base mt-0.5">Here&apos;s what&apos;s happening.</p>
           </div>
         </section>
+
+        {(!coach.stripeOnboardingComplete || !coach.verified) && (
+          <div className="space-y-3 mb-5 sm:mb-6 lg:mb-8">
+            {!coach.stripeOnboardingComplete && (
+              <section className="p-4 sm:p-5 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-amber-900 font-semibold text-sm sm:text-base">Set up payments to get paid for your sessions</p>
+                  <p className="text-amber-700 text-sm mt-0.5">Connect your Stripe account so you can collect payments from athletes.</p>
+                </div>
+                <Link
+                  to="/coach/setup/get-paid"
+                  className="shrink-0 px-4 py-2.5 rounded-lg bg-amber-600 text-white font-semibold text-sm hover:bg-amber-700 transition text-center touch-manipulation"
+                >
+                  Set up payments
+                </Link>
+              </section>
+            )}
+            {!coach.verified && (
+              <section className="p-4 sm:p-5 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-amber-900 font-semibold text-sm sm:text-base">Complete your background check to appear in Find Coaches</p>
+                  <p className="text-amber-700 text-sm mt-0.5">Verification is required before athletes can discover your profile.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowVerifyModal(true)}
+                  className="shrink-0 px-4 py-2.5 rounded-lg bg-amber-600 text-white font-semibold text-sm hover:bg-amber-700 transition text-center touch-manipulation"
+                >
+                  Complete verification
+                </button>
+              </section>
+            )}
+          </div>
+        )}
+
+        {coach.stripeOnboardingComplete && (
+          <section className="mb-5 sm:mb-6 lg:mb-8 flex items-center gap-3 text-sm">
+            <span className="text-slate-600 font-medium">Billing:</span>
+            <button
+              type="button"
+              onClick={() => billingModeMutation.mutate("after_session")}
+              disabled={billingModeMutation.isPending}
+              className={`px-3 py-1.5 rounded-lg font-medium transition touch-manipulation ${
+                coach.billingMode !== "upfront"
+                  ? "bg-brand-500 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Bill after session
+            </button>
+            <button
+              type="button"
+              onClick={() => billingModeMutation.mutate("upfront")}
+              disabled={billingModeMutation.isPending}
+              className={`px-3 py-1.5 rounded-lg font-medium transition touch-manipulation ${
+                coach.billingMode === "upfront"
+                  ? "bg-brand-500 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              Collect upfront
+            </button>
+          </section>
+        )}
 
         {/* Grid: 1 col mobile, 2 cols desktop */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
@@ -798,6 +884,64 @@ export default function CoachDashboard() {
               </ul>
             )}
           </section>
+
+          {/* Unpaid sessions */}
+          {unpaidSessions.length > 0 && (
+            <section className="p-4 sm:p-6 bg-white rounded-xl border border-slate-200 shadow-sm min-h-0 lg:col-span-2">
+              <div className="flex justify-between items-center mb-3 sm:mb-4">
+                <h2 className="text-base sm:text-lg font-semibold text-slate-900">
+                  Unpaid sessions
+                  <span className="ml-2 text-sm font-normal text-slate-500">({unpaidSessions.length})</span>
+                </h2>
+                <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm touch-manipulation">
+                  View all
+                </Link>
+              </div>
+              <div className="space-y-3">
+                {unpaidSessions.map((b) => (
+                  <div
+                    key={`unpaid-${b.id}`}
+                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 rounded-lg bg-slate-50 border border-slate-100"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-slate-900 text-sm truncate">
+                        {b.athlete.name ?? b.athlete.email}
+                      </p>
+                      <p className="text-slate-500 text-xs">
+                        {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                        b.paymentStatus === "payment_link_sent"
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-slate-200 text-slate-600"
+                      }`}>
+                        {b.paymentStatus === "payment_link_sent" ? "Link sent" : "Not sent"}
+                      </span>
+                      {coach.stripeOnboardingComplete ? (
+                        <button
+                          type="button"
+                          onClick={() => paymentRequestMutation.mutate(b.id)}
+                          disabled={paymentRequestMutation.isPending}
+                          className="px-3 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 touch-manipulation disabled:opacity-50"
+                        >
+                          {b.paymentStatus === "payment_link_sent" ? "Resend" : "Send payment link"}
+                        </button>
+                      ) : (
+                        <Link
+                          to="/coach/setup/get-paid"
+                          className="px-3 py-2 text-sm font-medium text-emerald-800 bg-emerald-100 rounded-lg hover:bg-emerald-200 touch-manipulation"
+                        >
+                          Set up payments
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       </div>
     );
@@ -1112,20 +1256,6 @@ export default function CoachDashboard() {
     return (
       <>
       <div className="max-w-4xl mx-auto px-4 py-12">
-        {!coach.verified && (
-          <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-amber-800 font-medium">
-              Complete your verification (background check) to appear in Find Coaches.
-            </p>
-            <button
-              type="button"
-              onClick={() => setShowVerifyModal(true)}
-              className="px-4 py-2 rounded-lg bg-amber-600 text-white font-medium hover:bg-amber-700 transition"
-            >
-              Complete verification
-            </button>
-          </div>
-        )}
         <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mb-6 sm:mb-8">
           Availability
         </h1>
@@ -1358,20 +1488,6 @@ export default function CoachDashboard() {
   return (
     <>
     <div className="max-w-4xl mx-auto px-4 py-12">
-      {!coach.verified && (
-        <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-amber-800 font-medium">
-            Complete your verification (background check) to appear in Find Coaches.
-          </p>
-          <button
-            type="button"
-            onClick={() => setShowVerifyModal(true)}
-            className="px-4 py-2 rounded-lg bg-amber-600 text-white font-medium hover:bg-amber-700 transition"
-          >
-            Complete verification
-          </button>
-        </div>
-      )}
       <h1 className="text-2xl font-bold text-slate-900 mb-8">
         Profile
       </h1>

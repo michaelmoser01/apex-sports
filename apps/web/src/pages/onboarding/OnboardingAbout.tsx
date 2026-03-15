@@ -39,7 +39,7 @@ export default function OnboardingAbout() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
       queryClient.invalidateQueries({ queryKey: ["auth"] });
-      navigate(`${ONBOARDING_BASE}/get-paid`, { replace: true });
+      navigate(`${ONBOARDING_BASE}/assistant`, { replace: true });
     },
   });
 

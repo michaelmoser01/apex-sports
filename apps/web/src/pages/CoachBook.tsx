@@ -26,6 +26,7 @@ interface CoachBookData {
   id: string;
   displayName: string;
   hourlyRate: string | null;
+  paymentMode?: "upfront" | "after_session";
   availabilitySlots: {
     id: string;
     startTime: string;
@@ -135,6 +136,7 @@ export default function CoachBook() {
 
   const needsPaymentForm =
     !!coach?.hourlyRate &&
+    coach?.paymentMode === "upfront" &&
     !!stripePk &&
     !!slotId &&
     !!sessionAmountCents &&
@@ -281,9 +283,14 @@ export default function CoachBook() {
                 </span>
               </p>
             )}
-            {!alreadyBooked && coach.hourlyRate && (
+            {!alreadyBooked && coach.hourlyRate && coach.paymentMode === "upfront" && (
               <p className="text-slate-500 text-sm mt-0.5">
                 ${String(coach.hourlyRate)}/hr · Your card is only authorized now; you’re charged when the coach marks the session complete.
+              </p>
+            )}
+            {!alreadyBooked && coach.hourlyRate && coach.paymentMode !== "upfront" && (
+              <p className="text-slate-500 text-sm mt-0.5">
+                ${String(coach.hourlyRate)}/hr &middot; You&apos;ll receive a payment link after your session.
               </p>
             )}
           </div>

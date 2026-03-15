@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { ONBOARDING_BASE } from "@/config/onboarding";
 
 interface ConnectStatus {
   stripeOnboardingComplete: boolean;
@@ -30,7 +29,7 @@ export default function OnboardingGetPaid() {
     mutationFn: () =>
       api<{ url: string }>("/coaches/me/connect-account-link", {
         method: "POST",
-        body: JSON.stringify({ returnPath: `${ONBOARDING_BASE}/get-paid` }),
+        body: JSON.stringify({ returnPath: "/coach/setup/get-paid" }),
       }),
     onSuccess: (data) => {
       if (data?.url) window.location.href = data.url;
@@ -64,7 +63,7 @@ export default function OnboardingGetPaid() {
         <p className="text-slate-500 text-sm mb-6">Stripe is set up. You’ll receive session payments after the platform fee.</p>
         <button
           type="button"
-          onClick={() => navigate(`${ONBOARDING_BASE}/assistant`, { replace: true })}
+          onClick={() => navigate("/dashboard", { replace: true })}
           className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition"
         >
           Continue

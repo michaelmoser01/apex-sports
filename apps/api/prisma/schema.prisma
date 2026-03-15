@@ -43,6 +43,7 @@ model CoachProfile {
   assistantPhoneNumber     String?  @map("assistant_phone_number")
   assistantCapabilities    Json?    @map("assistant_capabilities") // e.g. { "scheduling": true, "bookings": true }
   planId                   String?  @map("plan_id") // "starter" | "pro" | "elite"
+  billingMode              String   @default("after_session") @map("billing_mode") // "upfront" | "after_session"
 
   photos             CoachPhoto[]
   locations          CoachLocation[]

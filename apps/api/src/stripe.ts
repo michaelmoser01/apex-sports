@@ -106,6 +106,89 @@ export async function cancelPaymentIntent(paymentIntentId: string): Promise<void
   await stripe.paymentIntents.cancel(paymentIntentId);
 }
 
+/** Create and optionally confirm a PaymentIntent for deferred booking payment (immediate capture, destination charge).
+ * When paymentMethodId is provided, the PI is confirmed server-side so the charge happens in one round-trip. */
+export async function createDeferredBookingPaymentIntent(params: {
+  amountCents: number;
+  currency: string;
+  customerId: string;
+  connectAccountId: string;
+  bookingId: string;
+  idempotencyKey: string;
+  paymentMethodId?: string;
+}): Promise<{ clientSecret: string | null; paymentIntentId: string; status: string }> {
+  if (!stripe) throw new Error("Stripe not configured");
+  const feeCents = Math.round((params.amountCents * FEE_PERCENT) / 100);
+  const confirm = !!params.paymentMethodId;
+  if (params.paymentMethodId) {
+    try {
+      await stripe.paymentMethods.attach(params.paymentMethodId, { customer: params.customerId });
+    } catch (err) {
+      const code = err && typeof err === "object" && "code" in err ? (err as { code: string }).code : "";
+      if (code !== "resource_already_attached_to_customer") throw err;
+    }
+  }
+  const pi = await stripe.paymentIntents.create(
+    {
+      amount: params.amountCents,
+      currency: params.currency,
+      customer: params.customerId,
+      payment_method: params.paymentMethodId || undefined,
+      capture_method: "automatic",
+      metadata: { bookingId: params.bookingId },
+      transfer_data: { destination: params.connectAccountId },
+      application_fee_amount: feeCents,
+      confirm,
+      automatic_payment_methods: { enabled: true, allow_redirects: "never" },
+    },
+    { idempotencyKey: params.idempotencyKey }
+  );
+  return {
+    clientSecret: pi.client_secret ?? null,
+    paymentIntentId: pi.id,
+    status: pi.status,
+  };
+}
+
+/** Create a Stripe Checkout Session for a one-time booking payment (destination charge to coach's Connect account). */
+export async function createBookingPaymentCheckout(params: {
+  amountCents: number;
+  currency: string;
+  customerEmail: string;
+  connectAccountId: string;
+  bookingId: string;
+  coachDisplayName: string;
+  successUrl: string;
+  cancelUrl: string;
+}): Promise<{ url: string; sessionId: string }> {
+  if (!stripe) throw new Error("Stripe not configured");
+  const feeCents = Math.round((params.amountCents * FEE_PERCENT) / 100);
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    customer_email: params.customerEmail.trim() || undefined,
+    line_items: [
+      {
+        price_data: {
+          currency: params.currency,
+          product_data: { name: `Coaching session with ${params.coachDisplayName}` },
+          unit_amount: params.amountCents,
+        },
+        quantity: 1,
+      },
+    ],
+    payment_intent_data: {
+      application_fee_amount: feeCents,
+      transfer_data: { destination: params.connectAccountId },
+      metadata: { bookingId: params.bookingId },
+    },
+    metadata: { bookingId: params.bookingId },
+    success_url: params.successUrl,
+    cancel_url: params.cancelUrl,
+  });
+  if (!session.url) throw new Error("Stripe did not return a checkout URL");
+  return { url: session.url, sessionId: session.id };
+}
+
 /** Create a Stripe Checkout Session for a coach plan subscription. Charges the platform Stripe account (monthly fee). */
 export async function createPlanCheckoutSession(params: {
   customerEmail: string;

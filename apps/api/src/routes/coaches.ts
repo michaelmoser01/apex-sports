@@ -95,6 +95,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
     assistantPhoneNumber: profile.assistantPhoneNumber ?? null,
     assistantCapabilities: profile.assistantCapabilities ?? null,
     planId: profile.planId ?? null,
+    billingMode: profile.billingMode ?? "after_session",
   });
 });
 
@@ -529,6 +530,9 @@ router.put("/me", authMiddleware(), async (req, res) => {
     ? (req.body as { photos: string[] }).photos.filter((u): u is string => typeof u === "string" && u.trim().length > 0)
     : undefined;
 
+  const rawBillingMode = (req.body as { billingMode?: string }).billingMode;
+  const billingMode = rawBillingMode === "upfront" || rawBillingMode === "after_session" ? rawBillingMode : undefined;
+
   const existing = await prisma.coachProfile.findUnique({
     where: { userId: user.id },
   });
@@ -564,6 +568,7 @@ router.put("/me", authMiddleware(), async (req, res) => {
         hourlyRate: new Prisma.Decimal(data.hourlyRate),
       }),
       ...(data.phone !== undefined && { phone: data.phone?.trim() || null }),
+      ...(billingMode !== undefined && { billingMode }),
     },
   });
 
@@ -627,6 +632,7 @@ router.put("/me", authMiddleware(), async (req, res) => {
     assistantPhoneNumber: out.assistantPhoneNumber ?? null,
     assistantCapabilities: out.assistantCapabilities ?? null,
     planId: out.planId ?? null,
+    billingMode: out.billingMode ?? "after_session",
     ...(photosSaveSkipped && { photosSaveSkipped: true }),
   });
 });
@@ -1279,6 +1285,7 @@ router.delete("/me/availability/rules/:id", authMiddleware(), async (req, res) =
       newStatus: "cancelled",
       slotStart: b.slot.startTime.toISOString(),
       slotEnd: b.slot.endTime.toISOString(),
+      bookingId: b.id,
     }).catch((err) => console.error("[coaches] cancel booking email failed:", err));
   }
 
@@ -1327,6 +1334,7 @@ router.delete("/me/availability/:id", authMiddleware(), async (req, res) => {
       newStatus: "cancelled",
       slotStart: b.slot.startTime.toISOString(),
       slotEnd: b.slot.endTime.toISOString(),
+      bookingId: b.id,
     }).catch((err) => console.error("[coaches] cancel booking email failed:", err));
   }
 
@@ -1544,6 +1552,10 @@ router.get("/:id", async (req, res) => {
     })),
     reviewCount: coach._count.reviews,
     averageRating: avgRating ? Math.round(avgRating * 10) / 10 : null,
+    paymentMode:
+      coach.stripeConnectAccountId && coach.stripeOnboardingComplete && coach.billingMode === "upfront"
+        ? "upfront"
+        : "after_session",
   });
 });
 

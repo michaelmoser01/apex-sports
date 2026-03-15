@@ -38,7 +38,7 @@ export const coachProfileSchema = z.object({
       message: "Each city must be from the allowed list",
     }),
   bio: z.string().optional().default(""),
-  hourlyRate: z.number().positive("Hourly rate must be positive").optional(),
+  hourlyRate: z.number().positive("Hourly rate must be positive"),
   phone: z.string().max(20).optional(),
 });
 

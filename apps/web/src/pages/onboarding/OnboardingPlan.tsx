@@ -6,7 +6,6 @@ import { Elements } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import { api } from "@/lib/api";
 import { PRICING_PLANS } from "@/data/pricing";
-import { ONBOARDING_BASE } from "@/config/onboarding";
 import { PlanPaymentForm } from "@/components/PlanPaymentForm";
 import type { PricingPlan } from "@/data/pricing";
 
@@ -46,7 +45,7 @@ export default function OnboardingPlan() {
       queryClient.refetchQueries({ queryKey: ["auth"] }),
     ]).finally(() => {
       setNavigating(false);
-      navigate("/dashboard/availability", { replace: true });
+      navigate("/dashboard", { replace: true });
     });
   };
 
@@ -150,14 +149,14 @@ export function OnboardingPlanSuccess() {
 
   useEffect(() => {
     if (!sessionId) {
-      navigate(`${ONBOARDING_BASE}/plan`, { replace: true });
+      navigate("/coach/setup/plan", { replace: true });
       return;
     }
     api<{ planId: string }>(`/coaches/me/plan/checkout-success?session_id=${encodeURIComponent(sessionId)}`)
       .then(() => {
         queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
         queryClient.invalidateQueries({ queryKey: ["auth"] });
-        navigate("/dashboard/availability", { replace: true });
+        navigate("/dashboard", { replace: true });
       })
       .catch(() => {
         // Error is shown below via state; or we could set state and show retry
