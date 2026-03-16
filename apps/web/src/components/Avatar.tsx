@@ -13,7 +13,7 @@ function hashDisplayName(name: string): number {
 
 const PLACEHOLDER_COLORS = [
   "bg-brand-500/90 text-white",
-  "bg-emerald-500/90 text-white",
+  "bg-success-500/90 text-white",
   "bg-amber-500/90 text-white",
   "bg-sky-500/90 text-white",
   "bg-violet-500/90 text-white",

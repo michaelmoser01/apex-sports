@@ -93,7 +93,7 @@ export default function OnboardingAbout() {
 
   if (profileLoading) {
     return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
         <p className="text-slate-500">Loading…</p>
       </div>
     );
@@ -107,8 +107,8 @@ export default function OnboardingAbout() {
   const charCount = editorText.length;
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-      <h1 className="text-xl font-semibold text-slate-900 mb-1">About you</h1>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
+      <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 mb-1">About you</h1>
       <p className="text-slate-500 text-sm mb-6">
         Tell athletes about your experience, who you work with, and your coaching style. Use the AI to draft it, then edit to make it yours.
       </p>
@@ -141,13 +141,13 @@ export default function OnboardingAbout() {
             <span className="text-slate-400 text-sm tabular-nums">{charCount}/{MAX_ABOUT_CHARS}</span>
           </div>
         </div>
-        {error && <p className="text-red-600 text-sm" role="alert">{error}</p>}
+        {error && <p className="text-danger-600 text-sm" role="alert">{error}</p>}
         <p className="text-slate-400 text-xs">You can use markdown (headings, bold, lists).</p>
         <button
           type="button"
           onClick={handleSave}
           disabled={!editorText.trim() || updateBioMutation.isPending}
-          className="w-full py-3 rounded-xl bg-brand-500 text-white font-semibold hover:bg-brand-600 disabled:opacity-50 transition"
+          className="w-full py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 hover:shadow-glow-brand disabled:opacity-50 transition-all"
         >
           {updateBioMutation.isPending ? "Saving…" : "Continue"}
         </button>

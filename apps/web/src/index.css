@@ -7,6 +7,10 @@
   --color-ink: 220 13% 18%;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
   font-family: "Plus Jakarta Sans", system-ui, sans-serif;
@@ -24,6 +28,69 @@ body {
 
 .animate-hero-zoom {
   animation: hero-zoom 20s ease-in-out infinite;
+}
+
+/* ---------- Staggered fade-in-up ---------- */
+.animate-stagger-1 { animation-delay: 0ms; }
+.animate-stagger-2 { animation-delay: 120ms; }
+.animate-stagger-3 { animation-delay: 240ms; }
+.animate-stagger-4 { animation-delay: 360ms; }
+.animate-stagger-5 { animation-delay: 480ms; }
+
+/* Start invisible for staggered elements */
+.stagger-item {
+  opacity: 0;
+}
+
+/* ---------- Gradient text ---------- */
+.text-gradient-brand {
+  @apply bg-clip-text text-transparent;
+  background-image: linear-gradient(135deg, #f09240 0%, #ec741a 50%, #dd5a10 100%);
+}
+
+/* ---------- Gradient backgrounds ---------- */
+.bg-gradient-dark {
+  background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+}
+
+.bg-gradient-hero {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+}
+
+.bg-gradient-hero-overlay {
+  background: linear-gradient(
+    to bottom,
+    rgba(15, 23, 42, 0.85) 0%,
+    rgba(15, 23, 42, 0.6) 40%,
+    rgba(15, 23, 42, 0.8) 100%
+  );
+}
+
+.bg-gradient-brand-subtle {
+  background: linear-gradient(135deg, rgba(236, 116, 26, 0.05) 0%, rgba(236, 116, 26, 0) 100%);
+}
+
+/* ---------- Hover lift ---------- */
+.hover-lift {
+  @apply transition-all duration-300 ease-out;
+}
+.hover-lift:hover {
+  transform: translateY(-4px);
+  @apply shadow-card-hover;
+}
+
+/* ---------- Glass effect ---------- */
+.glass {
+  @apply bg-white/10 backdrop-blur-md border border-white/20;
+}
+
+/* ---------- Section divider with brand accent ---------- */
+.section-divider {
+  @apply relative;
+}
+.section-divider::after {
+  content: "";
+  @apply absolute bottom-0 left-1/2 -translate-x-1/2 w-24 h-1 rounded-full bg-brand-500;
 }
 
 /* Availability calendar: clean overrides */
@@ -102,6 +169,12 @@ body {
   color: rgb(21 128 61);
   border-left: 3px solid rgb(34 197 94);
 }
+/* Coach availability calendar: slot with confirmed or completed booking */
+.availability-calendar:not(.booking-calendar) .rbc-event-booked {
+  background: rgb(254 243 199);
+  color: rgb(146 64 14);
+  border-left: 3px solid rgb(245 158 11);
+}
 /* Public booking calendar: slot you have a confirmed or completed booking for */
 /* Public booking calendar: entire day cell clickable (number + white space + slots) */
 .availability-calendar.booking-calendar .rbc-public-date-cell {
@@ -126,10 +199,19 @@ body {
   cursor: pointer;
 }
 
-.availability-calendar.booking-calendar .rbc-event-booked {
+/* Public booking calendar: available slots (green = has openings, no need to distinguish one-off vs recurring) */
+.availability-calendar.booking-calendar .rbc-event-oneoff:not(.rbc-event-booked):not(.rbc-event-requested) {
   background: rgb(220 252 231);
   color: rgb(21 128 61);
   border-left: 3px solid rgb(34 197 94);
+}
+/* Public booking calendar: slot booked by anyone (taken, not available) */
+.availability-calendar.booking-calendar .rbc-event-booked {
+  background: rgb(241 245 249);
+  color: rgb(100 116 139);
+  border-left: 3px solid rgb(203 213 225);
+  cursor: not-allowed;
+  pointer-events: auto;
 }
 /* Public booking calendar: slot you have a pending request (not yet accepted) */
 .availability-calendar.booking-calendar .rbc-event-requested {
@@ -138,12 +220,26 @@ body {
   border-left: 3px solid rgb(245 158 11);
 }
 
-/* Public booking calendar: whole date cell has sessions (clearer than event bar alone) */
-.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-has-slots {
-  background: rgb(219 234 254);
+/* Public booking calendar: day has open slots (green = availability) */
+.availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-has-open-slots {
+  background: rgb(204 251 241);
+  border-bottom: 3px solid rgb(20 184 166);
 }
-.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-has-slots.rbc-today {
-  background: rgb(191 219 254);
+.availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-has-open-slots.rbc-today {
+  background: rgb(153 246 228);
+  border-bottom-color: rgb(13 148 136);
+}
+.availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-has-open-slots .rbc-date-cell {
+  font-weight: 600;
+  color: rgb(15 23 42);
+}
+/* Public booking calendar: day has slots but all booked (grey) */
+.availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-all-booked {
+  background: rgb(241 245 249);
+  border-bottom: 2px solid rgb(203 213 225);
+}
+.availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-all-booked .rbc-date-cell {
+  color: rgb(100 116 139);
 }
 .availability-calendar .rbc-show-more {
   font-size: 0.6875rem;
@@ -219,11 +315,21 @@ body {
   .availability-calendar .rbc-month-view .rbc-row-content {
     min-height: 2.5rem;
   }
-  /* Mobile: stronger fill for days with sessions so the whole square is obvious */
-  .availability-calendar.booking-calendar .rbc-day-bg.rbc-day-has-slots {
-    background: rgb(191 219 254);
+  /* Mobile: strong fill + bold underline so availability is unmistakable */
+  .availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-has-open-slots {
+    background: rgb(204 251 241);
+    border-bottom: 4px solid rgb(20 184 166);
   }
-  .availability-calendar.booking-calendar .rbc-day-bg.rbc-day-has-slots.rbc-today {
-    background: rgb(147 197 253);
+  .availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-has-open-slots.rbc-today {
+    background: rgb(153 246 228);
+    border-bottom-color: rgb(13 148 136);
+  }
+  .availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-has-open-slots .rbc-date-cell {
+    font-weight: 700;
+    color: rgb(15 23 42);
+  }
+  .availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-all-booked {
+    background: rgb(226 232 240);
+    border-bottom: 2px solid rgb(203 213 225);
   }
 }

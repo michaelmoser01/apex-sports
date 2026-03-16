@@ -9,6 +9,7 @@ import {
 } from "./Join";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { hasCompletedAthleteOnboarding } from "@/lib/athleteProfile";
+import { Dumbbell, Users, ArrowRight } from "lucide-react";
 
 export default function Welcome() {
   const navigate = useNavigate();
@@ -74,14 +75,19 @@ export default function Welcome() {
 
   if (fromInvite) {
     return (
-      <div className="max-w-lg mx-auto px-4 py-16 text-center">
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">Welcome to Apex Sports</h1>
-        <p className="text-slate-600 mb-10">
-          {coachName
-            ? `You're signing up to train with ${coachName}. Continue as an athlete to get connected and book sessions.`
-            : "You're signing up via your coach's link. Continue as an athlete to get connected and book sessions."}
-        </p>
-        <div className="flex flex-col gap-4">
+      <div className="min-h-[70vh] flex items-center justify-center px-4">
+        <div className="max-w-md w-full text-center">
+          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-500/10 text-brand-600 mb-6">
+            <Users className="w-8 h-8" />
+          </div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 mb-3">
+            Welcome to Apex Sports
+          </h1>
+          <p className="text-slate-600 text-lg mb-10 leading-relaxed">
+            {coachName
+              ? `You're signing up to train with ${coachName}. Continue as an athlete to get connected and book sessions.`
+              : "You're signing up via your coach's link. Continue as an athlete to get connected and book sessions."}
+          </p>
           <button
             type="button"
             onClick={() =>
@@ -91,46 +97,60 @@ export default function Welcome() {
               })
             }
             disabled={setRoleMutation.isPending}
-            className="px-8 py-4 rounded-xl bg-brand-500 text-white font-semibold text-lg hover:bg-brand-600 disabled:opacity-50 transition shadow-sm border-2 border-transparent hover:border-brand-600"
+            className="w-full px-8 py-4 rounded-2xl bg-brand-500 text-white font-bold text-lg hover:bg-brand-600 hover:shadow-glow-brand disabled:opacity-50 transition-all inline-flex items-center justify-center gap-2"
           >
-            {setRoleMutation.isPending ? "Setting up…" : "Continue as athlete"}
+            {setRoleMutation.isPending ? "Setting up…" : (
+              <>Continue as athlete <ArrowRight className="w-5 h-5" /></>
+            )}
           </button>
+          {setRoleMutation.isError && (
+            <p className="text-danger-600 text-sm mt-4">{setRoleMutation.error?.message}</p>
+          )}
         </div>
-        {setRoleMutation.isError && (
-          <p className="text-red-600 text-sm mt-4">{setRoleMutation.error?.message}</p>
-        )}
       </div>
     );
   }
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-16 text-center">
-      <h1 className="text-2xl font-bold text-slate-900 mb-2">Welcome to Apex Sports</h1>
-      <p className="text-slate-600 mb-10">How do you want to use Apex Sports?</p>
-      <div className="flex flex-col sm:flex-row gap-4 justify-center">
-        <button
-          type="button"
-          onClick={() => setRoleMutation.mutate({ signupRole: "coach" })}
-          disabled={setRoleMutation.isPending}
-          className="px-8 py-4 rounded-xl bg-brand-500 text-white font-semibold text-lg hover:bg-brand-600 disabled:opacity-50 transition shadow-sm border-2 border-transparent hover:border-brand-600"
-        >
-          I'm a Coach
-        </button>
-        <button
-          type="button"
-          onClick={() => setRoleMutation.mutate({ signupRole: "athlete" })}
-          disabled={setRoleMutation.isPending}
-          className="px-8 py-4 rounded-xl bg-slate-100 text-slate-800 font-semibold text-lg hover:bg-slate-200 disabled:opacity-50 transition border-2 border-slate-300"
-        >
-          I'm an Athlete
-        </button>
+    <div className="min-h-[70vh] flex items-center justify-center px-4">
+      <div className="max-w-2xl w-full text-center">
+        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 mb-3">
+          Welcome to <span className="text-gradient-brand">Apex Sports</span>
+        </h1>
+        <p className="text-slate-600 text-lg mb-12">How do you want to use Apex Sports?</p>
+        <div className="grid sm:grid-cols-2 gap-6 max-w-xl mx-auto">
+          <button
+            type="button"
+            onClick={() => setRoleMutation.mutate({ signupRole: "coach" })}
+            disabled={setRoleMutation.isPending}
+            className="group relative p-8 rounded-2xl border-2 border-slate-200 bg-white hover:border-brand-500 hover:shadow-lg transition-all disabled:opacity-50 text-left"
+          >
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-500/10 text-brand-600 mb-4 group-hover:bg-brand-500 group-hover:text-white transition-colors">
+              <Dumbbell className="w-7 h-7" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 mb-1">I'm a Coach</h2>
+            <p className="text-sm text-slate-500">Set up your profile, manage availability, and grow your coaching business.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setRoleMutation.mutate({ signupRole: "athlete" })}
+            disabled={setRoleMutation.isPending}
+            className="group relative p-8 rounded-2xl border-2 border-slate-200 bg-white hover:border-brand-500 hover:shadow-lg transition-all disabled:opacity-50 text-left"
+          >
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-500/10 text-brand-600 mb-4 group-hover:bg-brand-500 group-hover:text-white transition-colors">
+              <Users className="w-7 h-7" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 mb-1">I'm an Athlete</h2>
+            <p className="text-sm text-slate-500">Find verified coaches, book sessions, and take your training to the next level.</p>
+          </button>
+        </div>
+        <p className="text-slate-400 text-sm mt-8">
+          You can always add a coach profile later or book sessions as an athlete.
+        </p>
+        {setRoleMutation.isError && (
+          <p className="text-danger-600 text-sm mt-4">{setRoleMutation.error?.message}</p>
+        )}
       </div>
-      <p className="text-slate-500 text-sm mt-6">
-        You can always add a coach profile later or book sessions as an athlete.
-      </p>
-      {setRoleMutation.isError && (
-        <p className="text-red-600 text-sm mt-4">{setRoleMutation.error?.message}</p>
-      )}
     </div>
   );
 }

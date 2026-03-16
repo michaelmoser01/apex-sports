@@ -38,6 +38,8 @@ export interface AvailabilityRule {
   endDate: string;
   slotCount: number;
   bookingCount?: number;
+  /** Slot IDs with start times for mapping recurring events to actual slots */
+  slots?: { id: string; startTime: string }[];
 }
 
 export interface OneOffSlot {
@@ -73,12 +75,15 @@ function expandRulesForRange(
     const firstStart = new Date(rule.firstStartTime);
     const endDate = new Date(rule.endDate + "T23:59:59.999Z");
     const durationMs = rule.durationMinutes * 60 * 1000;
+    const ruleSlots = rule.slots ?? [];
+    const slotByStartTime = new Map(ruleSlots.map((s) => [new Date(s.startTime).getTime(), s.id]));
 
     let t = firstStart.getTime();
     while (t <= endDate.getTime()) {
       const start = new Date(t);
       const end = new Date(t + durationMs);
       if (isWithinInterval(start, { start: rangeStart, end: rangeEnd })) {
+        const slotId = slotByStartTime.get(t);
         events.push({
           id: `rule-${rule.id}-${t}`,
           title: eventTitle(start, end),
@@ -86,6 +91,7 @@ function expandRulesForRange(
           end,
           resource: {
             type: "recurring",
+            slotId,
             ruleId: rule.id,
             ruleEndDate: rule.endDate,
             bookingCount: rule.bookingCount,
@@ -140,6 +146,8 @@ interface AvailabilityCalendarProps {
   onAddRecurring?: (firstStartTime: string, durationMinutes: number, endDate: string, locationId?: string | null) => void;
   isAddSubmitting?: boolean;
   addError?: string | null;
+  /** Slot IDs with confirmed or completed bookings – show "Booked" indicator */
+  bookedSlotIds?: Set<string> | ReadonlySet<string>;
 }
 
 const HOUR_OPTIONS = Array.from({ length: 14 }, (_, i) => i + 7); // 7–20
@@ -160,6 +168,7 @@ export function AvailabilityCalendar({
   onAddRecurring,
   isAddSubmitting = false,
   addError,
+  bookedSlotIds,
 }: AvailabilityCalendarProps) {
   const isMobile = useIsMobile();
   const events = useMemo(() => {
@@ -251,25 +260,34 @@ export function AvailabilityCalendar({
                   <p className="text-slate-500 text-sm py-2">No slots yet. Add one below.</p>
                 ) : (
                   <ul className="space-y-2">
-                    {dayEvents.map((ev) => (
-                      <li key={ev.id}>
-                        <button
-                          type="button"
-                          onClick={() => onEventClick(ev)}
-                          className="w-full text-left flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-3 hover:bg-slate-100"
-                        >
-                          <span
-                            className={`shrink-0 w-2 h-10 rounded-sm ${
-                              ev.resource?.type === "recurring" ? "bg-green-500" : "bg-blue-500"
-                            }`}
-                          />
-                          <span className="font-medium text-slate-800">{ev.title}</span>
-                          <span className="text-slate-500 text-sm ml-auto">
-                            {ev.resource?.type === "recurring" ? "Recurring" : "One-off"}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
+                    {dayEvents.map((ev) => {
+                      const slotId = ev.resource?.slotId ?? ev.id;
+                      const isBooked = bookedSlotIds?.has(slotId);
+                      return (
+                        <li key={ev.id}>
+                          <button
+                            type="button"
+                            onClick={() => onEventClick(ev)}
+                            className="w-full text-left flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-3 hover:bg-slate-100"
+                          >
+                            <span
+                              className={`shrink-0 w-2 h-10 rounded-sm ${
+                                ev.resource?.type === "recurring" ? "bg-green-500" : "bg-blue-500"
+                              }`}
+                            />
+                            <span className="font-medium text-slate-800">{ev.title}</span>
+                            <span className="text-slate-500 text-sm ml-auto flex items-center gap-2">
+                              {isBooked && (
+                                <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-800">
+                                  Booked
+                                </span>
+                              )}
+                              {ev.resource?.type === "recurring" ? "Recurring" : "One-off"}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </section>
@@ -350,7 +368,7 @@ export function AvailabilityCalendar({
                         />
                       </div>
                     )}
-                    {addError && <p className="text-sm text-red-600">{addError}</p>}
+                    {addError && <p className="text-sm text-danger-600">{addError}</p>}
                     <div className="flex gap-2">
                       <button
                         type="submit"
@@ -401,27 +419,36 @@ export function AvailabilityCalendar({
                 <p className="text-slate-500 text-sm py-2">No slots yet. Add one below.</p>
               ) : (
                 <ul className="space-y-2">
-                  {dayEvents.map((ev) => (
-                    <li key={ev.id}>
-                      <button
-                        type="button"
-                        onClick={() => onEventClick(ev)}
-                        className="w-full text-left flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-3 min-h-[48px] touch-manipulation active:bg-slate-100"
-                      >
-                        <span
-                          className={`shrink-0 w-2 h-10 rounded-sm ${
-                            ev.resource?.type === "recurring"
-                              ? "bg-green-500"
-                              : "bg-blue-500"
-                          }`}
-                        />
-                        <span className="font-medium text-slate-800">{ev.title}</span>
-                        <span className="text-slate-500 text-sm ml-auto">
-                          {ev.resource?.type === "recurring" ? "Recurring" : "One-off"}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
+                  {dayEvents.map((ev) => {
+                    const slotId = ev.resource?.slotId ?? ev.id;
+                    const isBooked = bookedSlotIds?.has(slotId);
+                    return (
+                      <li key={ev.id}>
+                        <button
+                          type="button"
+                          onClick={() => onEventClick(ev)}
+                          className="w-full text-left flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-3 min-h-[48px] touch-manipulation active:bg-slate-100"
+                        >
+                          <span
+                            className={`shrink-0 w-2 h-10 rounded-sm ${
+                              ev.resource?.type === "recurring"
+                                ? "bg-green-500"
+                                : "bg-blue-500"
+                            }`}
+                          />
+                          <span className="font-medium text-slate-800">{ev.title}</span>
+                          <span className="text-slate-500 text-sm ml-auto flex items-center gap-2">
+                            {isBooked && (
+                              <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-800">
+                                Booked
+                              </span>
+                            )}
+                            {ev.resource?.type === "recurring" ? "Recurring" : "One-off"}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </section>
@@ -509,7 +536,7 @@ export function AvailabilityCalendar({
                       </div>
                     )}
                   </div>
-                  {addError && <p className="text-sm text-red-600">{addError}</p>}
+                  {addError && <p className="text-sm text-danger-600">{addError}</p>}
                   <div className="flex gap-3">
                     <button
                       type="submit"
@@ -548,9 +575,13 @@ export function AvailabilityCalendar({
           defaultView="month"
           eventPropGetter={(event: CalendarEvent) => {
             const isRecurring = event.resource?.type === "recurring";
-            return {
-              className: isRecurring ? "rbc-event-recurring" : "rbc-event-oneoff",
-            };
+            const slotId = event.resource?.slotId ?? event.id;
+            const isBooked = bookedSlotIds?.has(slotId);
+            const classes = [
+              isRecurring ? "rbc-event-recurring" : "rbc-event-oneoff",
+              isBooked ? "rbc-event-booked" : "",
+            ].filter(Boolean);
+            return { className: classes.join(" ") };
           }}
         />
         </div>
@@ -623,7 +654,7 @@ export function AddOneOffModal({
               ))}
             </select>
           </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-sm text-danger-600">{error}</p>}
           <div className="flex gap-3 pt-2">
             <button
               type="button"
@@ -682,7 +713,7 @@ export function EventDetailModal({ event, onClose, onRemove, isRemoving }: Event
             type="button"
             onClick={onRemove}
             disabled={isRemoving}
-            className="flex-1 min-h-[48px] rounded-lg bg-red-600 px-4 py-3 text-base font-medium text-white hover:bg-red-700 disabled:opacity-50 touch-manipulation"
+            className="flex-1 min-h-[48px] rounded-lg bg-danger-600 px-4 py-3 text-base font-medium text-white hover:bg-danger-700 disabled:opacity-50 touch-manipulation"
           >
             Remove
           </button>

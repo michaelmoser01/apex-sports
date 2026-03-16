@@ -255,7 +255,7 @@ export function CoachLocations() {
                         type="button"
                         onClick={() => deleteMutation.mutate(loc.id)}
                         disabled={deleteMutation.isPending}
-                        className="text-red-600 text-sm hover:underline disabled:opacity-50"
+                        className="text-danger-600 text-sm hover:underline disabled:opacity-50"
                       >
                         Remove
                       </button>
@@ -283,7 +283,7 @@ export function CoachLocations() {
             </button>
           )}
           {createMutation.isError && (
-            <p className="text-red-600 text-sm mt-2" role="alert">
+            <p className="text-danger-600 text-sm mt-2" role="alert">
               {createMutation.error instanceof Error ? createMutation.error.message : "Failed to add location."}
             </p>
           )}

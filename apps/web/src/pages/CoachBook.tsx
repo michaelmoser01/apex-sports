@@ -275,7 +275,7 @@ export default function CoachBook() {
                 <span
                   className={
                     existingBooking?.status === "confirmed" || existingBooking?.status === "completed"
-                      ? "text-emerald-600"
+                      ? "text-success-600"
                       : "text-amber-600"
                   }
                 >
@@ -410,7 +410,7 @@ export default function CoachBook() {
                 )}
 
                 {bookingError && (
-                  <p className="text-red-700 text-sm bg-red-50 px-3 py-2 rounded-lg border border-red-200" role="alert">
+                  <p className="text-danger-700 text-sm bg-danger-50 px-3 py-2 rounded-lg border border-danger-200" role="alert">
                     {bookingError}
                   </p>
                 )}

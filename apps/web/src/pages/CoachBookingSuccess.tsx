@@ -23,7 +23,7 @@ export default function CoachBookingSuccess() {
       <div className="max-w-xl mx-auto px-4 sm:px-6 py-12 space-y-8">
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 py-8 sm:py-10 text-center">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 mb-4" aria-hidden>
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-success-100 text-success-600 mb-4" aria-hidden>
               <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>

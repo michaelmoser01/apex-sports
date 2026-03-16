@@ -5,6 +5,17 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
 import { api } from "@/lib/api";
 import { DeferredPaymentForm } from "@/components/DeferredPaymentForm";
+import {
+  ArrowLeft,
+  Calendar,
+  MapPin,
+  DollarSign,
+  Star,
+  Mic,
+  Sparkles,
+  CheckCircle,
+  Clock,
+} from "lucide-react";
 
 const stripePk = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
 const stripePromise = stripePk ? loadStripe(stripePk) : null;
@@ -140,62 +151,88 @@ export default function BookingDetail() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 sm:py-12">
-      <Link to="/bookings" className="text-brand-600 hover:text-brand-700 text-sm font-medium mb-4 inline-block">
-        ← Back to bookings
+      <Link to="/bookings" className="inline-flex items-center gap-1.5 text-brand-600 hover:text-brand-700 text-sm font-medium mb-6">
+        <ArrowLeft className="w-4 h-4" /> Back to bookings
       </Link>
 
       {successMessage && (
-        <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm" role="status">
+        <div className="mb-4 p-3 rounded-xl bg-success-50 border border-success-200 text-success-800 text-sm flex items-center gap-2" role="status">
+          <CheckCircle className="w-4 h-4 text-success-600 shrink-0" />
           {successMessage}
         </div>
       )}
       {updateError && (
-        <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-sm" role="alert">
+        <div className="mb-4 p-3 rounded-xl bg-danger-50 border border-danger-200 text-danger-800 text-sm" role="alert">
           {updateError}
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        {/* Status progress bar */}
+        <div className="h-1 bg-slate-100">
+          <div
+            className={`h-full transition-all duration-500 ${
+              booking.status === "completed"
+                ? "w-full bg-success-500"
+                : booking.status === "confirmed"
+                ? "w-2/3 bg-brand-500"
+                : booking.status === "cancelled"
+                ? "w-full bg-danger-400"
+                : "w-1/3 bg-amber-400"
+            }`}
+          />
+        </div>
+
         {/* Header */}
         <div className="p-6 pb-4">
-          <div className="flex flex-wrap items-center gap-2 mb-4">
-            <h1 className="text-xl font-bold text-slate-900">
+          <div className="flex flex-wrap items-center gap-2.5 mb-4">
+            <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
               {isAthlete ? booking.coach.displayName : booking.athlete?.name ?? booking.athlete?.email ?? "Athlete"}
             </h1>
             <span
-              className={`px-2.5 py-1 rounded-full text-sm font-medium ${
+              className={`px-3 py-1 rounded-full text-xs font-semibold ring-1 ${
                 booking.status === "confirmed"
-                  ? "bg-emerald-100 text-emerald-700"
+                  ? "bg-success-100 text-success-700 ring-success-600/10"
                   : booking.status === "completed"
-                  ? "bg-slate-100 text-slate-700"
+                  ? "bg-slate-100 text-slate-700 ring-slate-600/10"
                   : booking.status === "cancelled"
-                  ? "bg-red-100 text-red-700"
-                  : "bg-amber-100 text-amber-700"
+                  ? "bg-danger-100 text-danger-700 ring-danger-600/10"
+                  : "bg-amber-100 text-amber-700 ring-amber-600/10"
               }`}
             >
               {booking.status}
             </span>
             {(booking.paymentStatus === "succeeded" || booking.paymentStatus === "authorized") && (
-              <span className="px-2.5 py-1 rounded-full text-sm font-medium bg-emerald-100 text-emerald-700">
+              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-success-100 text-success-700 ring-1 ring-success-600/10">
                 Paid
               </span>
             )}
           </div>
 
+          {/* Timeline steps */}
+          <div className="flex items-center gap-2 mb-5 text-xs font-medium">
+            <span className="flex items-center gap-1 text-brand-600">
+              <Clock className="w-3.5 h-3.5" /> Booked
+            </span>
+            <span className="flex-1 h-px bg-slate-200" />
+            <span className={`flex items-center gap-1 ${booking.status !== "pending" ? "text-brand-600" : "text-slate-400"}`}>
+              <CheckCircle className="w-3.5 h-3.5" /> Confirmed
+            </span>
+            <span className="flex-1 h-px bg-slate-200" />
+            <span className={`flex items-center gap-1 ${booking.status === "completed" ? "text-success-600" : "text-slate-400"}`}>
+              <CheckCircle className="w-3.5 h-3.5" /> Complete
+            </span>
+          </div>
+
           {/* Session details */}
-          <div className="space-y-2">
+          <div className="space-y-3">
             <div className="flex items-start gap-3 text-slate-600">
-              <svg className="w-5 h-5 shrink-0 mt-0.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
+              <Calendar className="w-5 h-5 shrink-0 mt-0.5 text-slate-400" />
               <span>{slotTime}</span>
             </div>
             {booking.slot.location && (
               <div className="flex items-start gap-3 text-slate-600">
-                <svg className="w-5 h-5 shrink-0 mt-0.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
+                <MapPin className="w-5 h-5 shrink-0 mt-0.5 text-slate-400" />
                 <div>
                   <p className="font-medium text-slate-700">{booking.slot.location.name}</p>
                   <p className="text-sm">{booking.slot.location.address}</p>
@@ -225,9 +262,7 @@ export default function BookingDetail() {
             )}
             {booking.amountCents != null && (
               <div className="flex items-center gap-3 text-slate-700">
-                <svg className="w-5 h-5 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <DollarSign className="w-5 h-5 shrink-0 text-slate-400" />
                 <span className="font-semibold">${(booking.amountCents / 100).toFixed(2)}</span>
               </div>
             )}
@@ -244,9 +279,9 @@ export default function BookingDetail() {
         {showPaymentSection && (
           <div className={`px-6 py-5 ${needsPayment ? "bg-amber-50 border-y border-amber-200" : ""}`}>
             {paymentJustCompleted || isPaid ? (
-              <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200">
-                <p className="text-emerald-800 font-medium">Payment confirmed</p>
-                <p className="text-emerald-700 text-sm mt-0.5">Thank you for your payment.</p>
+              <div className="p-4 rounded-xl bg-success-50 border border-success-200">
+                <p className="text-success-800 font-medium">Payment confirmed</p>
+                <p className="text-success-700 text-sm mt-0.5">Thank you for your payment.</p>
               </div>
             ) : needsPayment && stripePk ? (
               <div className="p-5 rounded-xl bg-white border-2 border-amber-300 shadow-sm">
@@ -255,7 +290,7 @@ export default function BookingDetail() {
                   Complete your payment of <span className="font-semibold text-slate-900">${(booking.amountCents! / 100).toFixed(2)}</span> for this session.
                 </p>
                 {paymentError && (
-                  <p className="text-red-600 text-sm mb-3" role="alert">
+                  <p className="text-danger-600 text-sm mb-3" role="alert">
                     {paymentError}
                   </p>
                 )}
@@ -324,13 +359,13 @@ export default function BookingDetail() {
                   <button
                     onClick={() => updateMutation.mutate({ status: "confirmed" })}
                     disabled={updateMutation.isPending}
-                    className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+                    className="bg-success-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-success-700 disabled:opacity-50"
                   >
                     Accept
                   </button>
                   <button
                     onClick={() => setConfirmAction({ type: "cancel", athleteName: booking.athlete?.name ?? undefined })}
-                    className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700"
+                    className="bg-danger-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-danger-700"
                   >
                     Decline
                   </button>
@@ -357,7 +392,7 @@ export default function BookingDetail() {
                   </button>
                   <button
                     onClick={() => setConfirmAction({ type: "cancel", athleteName: booking.athlete?.name ?? undefined })}
-                    className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700"
+                    className="bg-danger-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-danger-700"
                   >
                     Cancel
                   </button>
@@ -368,7 +403,7 @@ export default function BookingDetail() {
                 <button
                   onClick={() => paymentRequestMutation.mutate()}
                   disabled={paymentRequestMutation.isPending}
-                  className="px-4 py-2 text-sm font-medium text-emerald-800 bg-emerald-100 rounded-lg hover:bg-emerald-200 disabled:opacity-50"
+                  className="px-4 py-2 text-sm font-medium text-success-800 bg-success-100 rounded-lg hover:bg-success-200 disabled:opacity-50"
                 >
                   Resend payment link
                 </button>
@@ -391,10 +426,10 @@ export default function BookingDetail() {
 
         {booking.review && (
           <div className="px-6 py-5 border-t border-slate-200">
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Review</h2>
-            <div className="flex gap-1 text-amber-500 mb-1">
+            <h2 className="text-lg font-bold text-slate-900 mb-2">Review</h2>
+            <div className="flex gap-0.5 text-amber-500 mb-1">
               {Array.from({ length: booking.review.rating }).map((_, i) => (
-                <span key={i}>★</span>
+                <Star key={i} className="w-5 h-5 fill-current" />
               ))}
             </div>
             {booking.review.comment && (
@@ -405,8 +440,8 @@ export default function BookingDetail() {
       </div>
 
       {confirmAction && confirmAction.type === "needs_stripe" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
             <h2 id="confirm-title" className="text-lg font-semibold text-slate-900 mb-2">Set up payments first</h2>
             <p className="text-slate-600 text-sm mb-4">
               You need to set up your payment account before you can complete sessions. This lets you receive payments from athletes.
@@ -424,12 +459,12 @@ export default function BookingDetail() {
       )}
       {confirmAction && confirmAction.type !== "needs_stripe" && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
           aria-labelledby="confirm-title"
         >
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
             <h2 id="confirm-title" className="text-lg font-semibold text-slate-900 mb-2">
               {confirmAction.type === "complete" ? "Mark session complete?" : "Cancel booking?"}
             </h2>
@@ -460,7 +495,7 @@ export default function BookingDetail() {
                 className={
                   confirmAction.type === "complete"
                     ? "px-4 py-2 rounded-lg text-sm font-medium bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-50"
-                    : "px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                    : "px-4 py-2 rounded-lg text-sm font-medium bg-danger-600 text-white hover:bg-danger-700 disabled:opacity-50"
                 }
               >
                 {confirmAction.type === "complete" ? "Mark complete" : "Yes, cancel"}
@@ -635,7 +670,7 @@ function SessionRecapSection({
       </p>
 
       {error && (
-        <p className="text-red-600 text-sm mb-2" role="alert">{error}</p>
+        <p className="text-danger-600 text-sm mb-2" role="alert">{error}</p>
       )}
 
       <div className="relative">
@@ -654,23 +689,20 @@ function SessionRecapSection({
             onClick={toggleListening}
             disabled={enhancing || saving}
             title={isListening ? "Stop dictation" : "Start dictation"}
-            className={`absolute right-2 top-2 p-2 rounded-lg transition ${
+            className={`absolute right-2 top-2 p-2 rounded-xl transition ${
               isListening
-                ? "bg-red-100 text-red-600 animate-pulse"
+                ? "bg-danger-100 text-danger-600 animate-pulse"
                 : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700"
             } disabled:opacity-50`}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-              <path d="M8.25 4.5a3.75 3.75 0 117.5 0v8.25a3.75 3.75 0 11-7.5 0V4.5z" />
-              <path d="M6 10.5a.75.75 0 01.75.75v1.5a5.25 5.25 0 1010.5 0v-1.5a.75.75 0 011.5 0v1.5a6.751 6.751 0 01-6 6.709v2.291h3a.75.75 0 010 1.5h-7.5a.75.75 0 010-1.5h3v-2.291a6.751 6.751 0 01-6-6.709v-1.5A.75.75 0 016 10.5z" />
-            </svg>
+            <Mic className="w-5 h-5" />
           </button>
         )}
       </div>
 
       {isListening && (
-        <p className="text-red-600 text-xs mt-1 flex items-center gap-1">
-          <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+        <p className="text-danger-600 text-xs mt-1 flex items-center gap-1">
+          <span className="w-2 h-2 bg-danger-500 rounded-full animate-pulse" />
           Listening… tap the mic to stop
         </p>
       )}
@@ -692,9 +724,7 @@ function SessionRecapSection({
             </>
           ) : (
             <>
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                <path fillRule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.813.691 1.456 1.405 1.02L10 15.591l4.069 2.485c.713.436 1.598-.207 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401z" clipRule="evenodd" />
-              </svg>
+              <Sparkles className="w-4 h-4" />
               Enhance with AI
             </>
           )}

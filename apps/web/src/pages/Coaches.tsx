@@ -146,9 +146,9 @@ export default function Coaches() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
-      <h1 className="text-2xl font-bold text-slate-900 mb-6">Find a Coach</h1>
+      <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 mb-6">Find a Coach</h1>
 
-      <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
+      <div className="mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-200">
         <form onSubmit={handleSearchSubmit} className="space-y-4">
           <div className="flex flex-wrap gap-4 items-end">
             <div className="flex-1 min-w-[200px]">
@@ -262,7 +262,7 @@ export default function Coaches() {
                   <Link
                     key={coach.id}
                     to={`/coaches/${coach.id}`}
-                    className="block p-6 bg-white rounded-xl border border-slate-200 hover:border-brand-200 hover:shadow-md transition overflow-hidden"
+                    className="block p-6 bg-white rounded-2xl border border-slate-200 hover:border-brand-200 hover:shadow-md transition overflow-hidden"
                   >
                     <div className="flex gap-4">
                       {profilePhoto && (
@@ -277,10 +277,10 @@ export default function Coaches() {
                       )}
                       <div className="flex-1 min-w-0 flex justify-between items-start gap-4">
                         <div>
-                          <h2 className="text-lg font-semibold text-slate-900">
+                          <h2 className="text-lg font-bold text-slate-900">
                             {coach.displayName}
                             {coach.verified && (
-                              <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">
+                              <span className="ml-2 text-xs bg-success-100 text-success-700 px-2.5 py-0.5 rounded-full font-semibold ring-1 ring-success-600/10">
                                 Verified
                               </span>
                             )}

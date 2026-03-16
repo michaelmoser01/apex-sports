@@ -162,7 +162,7 @@ export default function Join() {
       <div className="flex flex-col sm:flex-row gap-3 justify-center">
         <Link
           to="/sign-up"
-          className="inline-flex justify-center items-center px-8 py-3.5 rounded-xl bg-brand-500 text-white font-semibold hover:bg-brand-600 transition shadow-sm"
+          className="inline-flex justify-center items-center px-8 py-3.5 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 hover:shadow-glow-brand transition-all shadow-sm"
         >
           Create account
         </Link>

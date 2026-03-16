@@ -14,6 +14,13 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { CoachDetailMap } from "@/components/CoachDetailMap";
 import { PublicBookingCalendar } from "@/components/PublicBookingCalendar";
 import ReactMarkdown from "react-markdown";
+import {
+  ArrowLeft,
+  ShieldCheck,
+  ChevronLeft,
+  ChevronRight,
+  X,
+} from "lucide-react";
 
 interface CoachPhoto {
   id: string;
@@ -46,6 +53,8 @@ interface CoachDetail {
     id: string;
     startTime: string;
     endTime: string;
+    status: "available" | "booked";
+    recurrence?: string;
     location: CoachLocation | null;
   }[];
   reviews: {
@@ -176,16 +185,6 @@ export default function CoachDetail() {
     );
   }, [coach?.id, myBookings]);
 
-  /** Slot IDs where the current user has a confirmed or completed booking for calendar "Booked" state */
-  const myBookedSlotIds = useMemo(() => {
-    if (!coach?.id || !myBookings?.asAthlete) return new Set<string>();
-    return new Set(
-      myBookings.asAthlete
-        .filter((b) => b.coach.id === coach.id && (b.status === "confirmed" || b.status === "completed"))
-        .map((b) => b.slot.id)
-    );
-  }, [coach?.id, myBookings]);
-
   const contactMutation = useMutation({
     mutationFn: async (message: string) =>
       api<{ sent: boolean }>(`/coaches/${id}/contact`, {
@@ -195,28 +194,25 @@ export default function CoachDetail() {
     onSuccess: () => setContactMessage(""),
   });
 
-  // Slots to show on calendar: coach's available slots + current user's confirmed/completed slots (so "Booked" shows)
+  // All slots from API (available and booked) - filter invalid dates
   const slots = useMemo(() => {
     if (!coach) return [];
-    const available = Array.isArray(coach.availabilitySlots)
-      ? coach.availabilitySlots.filter(
-          (s) => s && typeof s.startTime === "string" && !Number.isNaN(new Date(s.startTime).getTime())
-        )
-      : [];
-    const availableIds = new Set(available.map((s) => s.id));
-    if (!isAuthenticated || !myBookings?.asAthlete) return available;
-    const myBookedWithCoach = myBookings.asAthlete.filter(
-      (b) => b.coach.id === coach.id && (b.status === "confirmed" || b.status === "completed")
+    return (Array.isArray(coach.availabilitySlots) ? coach.availabilitySlots : []).filter(
+      (s) => s && typeof s.startTime === "string" && !Number.isNaN(new Date(s.startTime).getTime())
     );
-    const extraSlots = myBookedWithCoach
-      .filter((b) => !availableIds.has(b.slot.id))
-      .map((b) => ({
-        id: b.slot.id,
-        startTime: b.slot.startTime,
-        endTime: b.slot.endTime,
-      }));
-    return [...available, ...extraSlots];
-  }, [coach, isAuthenticated, myBookings]);
+  }, [coach]);
+
+  /** Slot IDs from API that are available - source of truth for green vs grey day coloring */
+  const availableSlotIds = useMemo(
+    () => new Set(slots.filter((s) => s.status === "available").map((s) => s.id)),
+    [slots]
+  );
+
+  /** Slot IDs from API that are booked (by anyone) - for "Booked" badge on events */
+  const bookedSlotIds = useMemo(
+    () => new Set(slots.filter((s) => s.status === "booked").map((s) => s.id)),
+    [slots]
+  );
 
   if (isLoading || (!coach && !isError)) {
     return (
@@ -307,10 +303,9 @@ export default function CoachDetail() {
           to="/find"
           className="inline-flex items-center gap-1.5 text-slate-500 hover:text-slate-700 text-sm font-medium transition-colors touch-manipulation"
         >
-          ← Back to find coaches
+          <ArrowLeft className="w-4 h-4" /> Back to find coaches
         </Link>
 
-        {/* Mobile-first header: full-width photo on mobile, then stacked info */}
         <header className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-stretch sm:items-start">
           {/* Photo: full width on mobile, fixed size on desktop */}
           <div className="relative w-full sm:w-auto flex justify-center sm:block sm:flex-shrink-0">
@@ -355,12 +350,12 @@ export default function CoachDetail() {
           <div className="min-w-0 flex-1 flex flex-col gap-3 sm:gap-1">
             <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+                <h1 className="text-xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
                   {coach.displayName ?? "Coach"}
                 </h1>
                 {coach.verified && (
-                  <span className="inline-flex items-center gap-1 text-sm bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full font-medium">
-                    <span aria-hidden>✓</span> Verified
+                  <span className="inline-flex items-center gap-1 text-xs bg-success-100 text-success-700 px-2.5 py-1 rounded-full font-semibold ring-1 ring-success-600/10">
+                    <ShieldCheck className="w-3.5 h-3.5" /> Verified
                   </span>
                 )}
               </div>
@@ -418,9 +413,7 @@ export default function CoachDetail() {
               className="absolute top-4 right-4 z-10 p-2 rounded-full text-white/90 hover:text-white hover:bg-white/10 transition-colors"
               aria-label="Close"
             >
-              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l18 18" />
-              </svg>
+              <X className="w-8 h-8" />
             </button>
             <span className="absolute top-4 left-1/2 -translate-x-1/2 z-10 text-white/90 text-sm font-medium">
               {photoLightboxIndex + 1} / {photoUrls.length}
@@ -436,9 +429,7 @@ export default function CoachDetail() {
                   className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-10 p-2 sm:p-3 rounded-full text-white/90 hover:text-white hover:bg-white/10 transition-colors"
                   aria-label="Previous photo"
                 >
-                  <svg className="w-8 h-8 sm:w-10 sm:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
+                  <ChevronLeft className="w-8 h-8 sm:w-10 sm:h-10" />
                 </button>
                 <button
                   type="button"
@@ -449,9 +440,7 @@ export default function CoachDetail() {
                   className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-10 p-2 sm:p-3 rounded-full text-white/90 hover:text-white hover:bg-white/10 transition-colors"
                   aria-label="Next photo"
                 >
-                  <svg className="w-8 h-8 sm:w-10 sm:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
+                  <ChevronRight className="w-8 h-8 sm:w-10 sm:h-10" />
                 </button>
               </>
             )}
@@ -533,9 +522,7 @@ export default function CoachDetail() {
                   className="p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   aria-label="Close"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l18 18" />
-                  </svg>
+                  <X className="w-5 h-5" />
                 </button>
               </div>
               <div className="p-5 space-y-4">
@@ -567,7 +554,7 @@ export default function CoachDetail() {
                       disabled={contactMutation.isPending}
                     />
                     {contactMutation.isError && (
-                      <p className="text-sm text-red-600" role="alert">
+                      <p className="text-sm text-danger-600" role="alert">
                         {contactMutation.error instanceof Error ? contactMutation.error.message : "Failed to send message."}
                       </p>
                     )}
@@ -600,9 +587,9 @@ export default function CoachDetail() {
 
         {/* About */}
         {(coach.bio != null && String(coach.bio).trim() !== "") && (
-          <section className="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-100 bg-slate-50/50">
-              <h2 className="text-base sm:text-lg font-semibold text-slate-900">About</h2>
+          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 sm:px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base sm:text-lg font-bold text-slate-900">About</h2>
             </div>
             <div className="p-4 sm:p-6 text-slate-600 text-sm sm:text-base prose prose-slate prose-sm sm:prose-base max-w-none [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mt-4 [&_h2]:mb-2 [&_h2:first-child]:mt-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_p]:my-2 [&_strong]:font-semibold [&_strong]:text-slate-800">
               <ReactMarkdown>{String(coach.bio)}</ReactMarkdown>
@@ -612,9 +599,9 @@ export default function CoachDetail() {
 
         {/* Locations + map */}
         {locations.length > 0 && (
-          <section className="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-100 bg-slate-50/50">
-              <h2 className="text-base sm:text-lg font-semibold text-slate-900">Locations</h2>
+          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 sm:px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base sm:text-lg font-bold text-slate-900">Locations</h2>
               <p className="text-slate-500 text-xs sm:text-sm mt-0.5">Where sessions take place</p>
             </div>
             <div className="p-4 sm:p-6">
@@ -631,9 +618,9 @@ export default function CoachDetail() {
         )}
 
         {/* Request a booking */}
-        <section className="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-100 bg-slate-50/50">
-            <h2 className="text-base sm:text-lg font-semibold text-slate-900">
+        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 sm:px-6 py-4 border-b border-slate-100">
+            <h2 className="text-base sm:text-lg font-bold text-slate-900">
               {slots.length === 0 ? "Availability" : "Request a booking"}
             </h2>
             <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
@@ -658,8 +645,9 @@ export default function CoachDetail() {
                 <PublicBookingCalendar
                   slots={slots}
                   onSelectSlot={(slotId) => navigate(`/coaches/${id}/book?slotId=${slotId}`)}
+                  availableSlotIds={availableSlotIds}
                   requestedSlotIds={isAuthenticated ? myRequestedSlotIds : undefined}
-                  bookedSlotIds={isAuthenticated ? myBookedSlotIds : undefined}
+                  bookedSlotIds={bookedSlotIds}
                 />
               </>
             )}
@@ -667,9 +655,9 @@ export default function CoachDetail() {
         </section>
 
         {/* Reviews */}
-        <section id="reviews" className="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-100 bg-slate-50/50">
-            <h2 className="text-base sm:text-lg font-semibold text-slate-900">Reviews</h2>
+        <section id="reviews" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 sm:px-6 py-4 border-b border-slate-100">
+            <h2 className="text-base sm:text-lg font-bold text-slate-900">Reviews</h2>
             {(Number(coach.reviewCount) ?? 0) > 0 && (
               <p className="text-slate-500 text-xs sm:text-sm mt-0.5 inline-flex items-center gap-2">
                 <StarRating rating={coach.averageRating != null ? Number(coach.averageRating) : 0} className="text-sm" />

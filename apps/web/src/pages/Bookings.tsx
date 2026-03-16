@@ -3,6 +3,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useLocation, Navigate, Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { ChevronDown, Calendar, Star, ChevronRight, Clock, CheckCircle, XCircle } from "lucide-react";
 
 interface BookingsData {
   asAthlete: {
@@ -222,20 +223,25 @@ export default function Bookings() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 sm:py-12">
-      <h1 className="text-2xl font-bold text-slate-900 mb-6">Bookings</h1>
+      <div className="flex items-center gap-3 mb-8">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-500/10 text-brand-600">
+          <Calendar className="w-5 h-5" />
+        </div>
+        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">Bookings</h1>
+      </div>
 
       {paymentVerifySyncing && (
         <p className="mb-4 text-slate-600 text-sm">Verifying payment…</p>
       )}
 
       {hasCoachProfile && coachProfile?.hourlyRate && (
-        <section className="mb-6 p-6 bg-white rounded-xl border border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">Payments</h2>
+        <section className="mb-6 p-6 bg-white rounded-2xl border border-slate-200 shadow-sm">
+          <h2 className="text-lg font-bold text-slate-900 mb-4">Payments</h2>
           {connectStatusSyncing ? (
             <p className="text-slate-500 text-sm">Checking payment setup…</p>
           ) : coachProfile.stripeOnboardingComplete ? (
             <p className="text-slate-600 text-sm flex items-center gap-2">
-              <span className="text-emerald-600 font-medium">Payments set up</span>
+              <span className="text-success-600 font-medium">Payments set up</span>
             </p>
           ) : (
             <>
@@ -244,7 +250,7 @@ export default function Bookings() {
               </p>
               <Link
                 to="/coach/setup/get-paid"
-                className="inline-block bg-brand-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-600"
+                className="inline-block bg-brand-500 text-white px-4 py-2.5 rounded-xl font-semibold hover:bg-brand-600 transition-colors"
               >
                 Set up payments
               </Link>
@@ -254,19 +260,22 @@ export default function Bookings() {
       )}
 
       {tabs.length > 1 && (
-        <div className="flex gap-1 p-1 bg-slate-100 rounded-lg mb-6 sm:mb-8 w-full sm:w-fit">
+        <div className="flex gap-0 border-b border-slate-200 mb-8">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-md text-sm font-medium transition-colors ${
+              className={`px-5 py-3 text-sm font-semibold transition-colors relative ${
                 activeTab === tab.id
-                  ? "bg-white text-slate-900 shadow-sm"
-                  : "text-slate-600 hover:text-slate-900"
+                  ? "text-brand-600"
+                  : "text-slate-500 hover:text-slate-900"
               }`}
             >
               {tab.label}
+              {activeTab === tab.id && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-500 rounded-full" />
+              )}
             </button>
           ))}
         </div>
@@ -274,9 +283,9 @@ export default function Bookings() {
 
       {activeTab === "athlete" && (
         <section className="mb-10 sm:mb-12">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">Active bookings</h2>
+          <h2 className="text-lg font-bold text-slate-900 mb-4">Active bookings</h2>
           {successMessage && (
-            <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm" role="status">
+            <div className="mb-4 p-3 rounded-lg bg-success-50 border border-success-200 text-success-800 text-sm" role="status">
               {successMessage}
             </div>
           )}
@@ -287,14 +296,15 @@ export default function Bookings() {
               {athleteUpcoming.map((b) => (
                 <div
                   key={b.id}
-                  className="p-5 sm:p-4 bg-white rounded-xl border border-slate-200 shadow-sm"
+                  className="group p-5 sm:p-5 bg-white rounded-2xl border border-slate-200 border-l-4 border-l-brand-500 shadow-sm hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200"
                 >
                 <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
-                  <div className="min-w-0">
-                    <Link to={`/bookings/${b.id}`} className="font-medium text-slate-900 hover:text-brand-600 transition-colors">
+                  <div className="min-w-0 flex-1">
+                    <Link to={`/bookings/${b.id}`} className="inline-flex items-center gap-1.5 font-bold text-slate-900 hover:text-brand-600 transition-colors">
                       {b.coach.displayName}
+                      <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-brand-500 shrink-0" />
                     </Link>
-                    <p className="text-brand-600 text-sm">{b.coach.sports?.length ? b.coach.sports.join(", ") : "—"}</p>
+                    <p className="text-brand-600 text-sm font-semibold mt-0.5">{b.coach.sports?.length ? b.coach.sports.join(", ") : "—"}</p>
                     <p className="text-slate-500 text-sm mt-1">
                       {new Date(b.slot.startTime).toLocaleString()}
                     </p>
@@ -304,16 +314,19 @@ export default function Bookings() {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span
-                      className={`self-start px-2.5 py-1 rounded-full text-sm font-medium ${
+                      className={`self-start inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ring-1 ${
                         b.status === "confirmed"
-                          ? "bg-emerald-100 text-emerald-700"
+                          ? "bg-success-100 text-success-700 ring-success-600/10"
                           : b.status === "completed"
-                          ? "bg-slate-100 text-slate-700"
+                          ? "bg-slate-100 text-slate-700 ring-slate-600/10"
                           : b.status === "cancelled"
-                          ? "bg-red-100 text-red-700"
-                          : "bg-amber-100 text-amber-700"
+                          ? "bg-danger-100 text-danger-700 ring-danger-600/10"
+                          : "bg-amber-100 text-amber-700 ring-amber-600/10"
                       }`}
                     >
+                      {b.status === "pending" && <Clock className="w-3.5 h-3.5" />}
+                      {(b.status === "confirmed" || b.status === "completed") && <CheckCircle className="w-3.5 h-3.5" />}
+                      {b.status === "cancelled" && <XCircle className="w-3.5 h-3.5" />}
                       {b.status}
                     </span>
                     {b.status === "pending" && (
@@ -321,7 +334,7 @@ export default function Bookings() {
                         type="button"
                         onClick={() => setConfirmAction({ type: "cancel_request", bookingId: b.id })}
                         disabled={pendingUpdateId != null}
-                        className="text-red-600 hover:text-red-700 text-sm font-medium underline disabled:opacity-50"
+                        className="text-danger-600 hover:text-danger-700 text-sm font-medium underline disabled:opacity-50"
                       >
                         Cancel request
                       </button>
@@ -335,7 +348,7 @@ export default function Bookings() {
                   >
                     <span className="flex gap-0.5 text-amber-400">
                       {[1, 2, 3, 4, 5].map((i) => (
-                        <span key={i}>★</span>
+                        <Star key={i} className="w-4 h-4 fill-current" />
                       ))}
                     </span>
                     Add a review
@@ -353,10 +366,10 @@ export default function Bookings() {
                 <span className="ml-2 text-sm font-normal text-slate-500">({athleteUnpaid.length})</span>
               </h2>
               <div className="space-y-4">
-                {athleteUnpaid.map((b) => (
+                  {athleteUnpaid.map((b) => (
                   <div
                     key={`unpaid-${b.id}`}
-                    className="p-5 sm:p-4 bg-amber-50 rounded-xl border-2 border-amber-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shadow-sm"
+                    className="p-5 sm:p-4 bg-amber-50 rounded-2xl border-2 border-amber-200 border-l-4 border-l-amber-500 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shadow-sm hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200"
                   >
                     <Link to={`/bookings/${b.id}`} className="min-w-0 flex-1 block group">
                       <p className="font-semibold text-slate-900 group-hover:text-brand-600 transition-colors">{b.coach.displayName}</p>
@@ -395,14 +408,7 @@ export default function Bookings() {
                 <span>
                   {showPastAthlete ? "Hide" : "Show"} past or closed ({athletePast.length})
                 </span>
-                <svg
-                  className={`w-4 h-4 transition-transform ${showPastAthlete ? "rotate-180" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+                <ChevronDown className={`w-4 h-4 transition-transform ${showPastAthlete ? "rotate-180" : ""}`} />
               </button>
               {showPastAthlete && (
                 <div className="space-y-5 sm:space-y-4">
@@ -412,12 +418,13 @@ export default function Bookings() {
                   {athletePast.map((b) => (
                     <div
                       key={b.id}
-                      className="p-5 sm:p-4 bg-white rounded-xl border border-slate-200 opacity-90 shadow-sm"
+                      className="p-5 sm:p-4 bg-white rounded-2xl border border-slate-200 border-l-4 border-l-slate-300 shadow-sm opacity-90 hover:opacity-100 transition-opacity"
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
                         <div className="min-w-0">
-                          <Link to={`/bookings/${b.id}`} className="font-medium text-slate-900 hover:text-brand-600 transition-colors">
+                          <Link to={`/bookings/${b.id}`} className="inline-flex items-center gap-1.5 font-medium text-slate-900 hover:text-brand-600 transition-colors">
                             {b.coach.displayName}
+                            <ChevronRight className="w-4 h-4 text-slate-400" />
                           </Link>
                           <p className="text-brand-600 text-sm">{b.coach.sports?.length ? b.coach.sports.join(", ") : "—"}</p>
                           <p className="text-slate-500 text-sm mt-1">
@@ -428,16 +435,19 @@ export default function Bookings() {
                           )}
                         </div>
                         <span
-                          className={`self-start px-2.5 py-1 rounded-full text-sm font-medium shrink-0 ${
+                          className={`self-start inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ring-1 shrink-0 ${
                             b.status === "confirmed"
-                              ? "bg-emerald-100 text-emerald-700"
+                              ? "bg-success-100 text-success-700 ring-success-600/10"
                               : b.status === "completed"
-                              ? "bg-slate-100 text-slate-700"
+                              ? "bg-slate-100 text-slate-700 ring-slate-600/10"
                               : b.status === "cancelled"
-                              ? "bg-red-100 text-red-700"
-                              : "bg-amber-100 text-amber-700"
+                              ? "bg-danger-100 text-danger-700 ring-danger-600/10"
+                              : "bg-amber-100 text-amber-700 ring-amber-600/10"
                           }`}
                         >
+                          {b.status === "pending" && <Clock className="w-3.5 h-3.5" />}
+                          {(b.status === "confirmed" || b.status === "completed") && <CheckCircle className="w-3.5 h-3.5" />}
+                          {b.status === "cancelled" && <XCircle className="w-3.5 h-3.5" />}
                           {b.status}
                         </span>
                       </div>
@@ -448,7 +458,7 @@ export default function Bookings() {
                         >
                           <span className="flex gap-0.5 text-amber-400">
                             {[1, 2, 3, 4, 5].map((i) => (
-                              <span key={i}>★</span>
+                              <Star key={i} className="w-4 h-4 fill-current" />
                             ))}
                           </span>
                           Add a review
@@ -465,14 +475,14 @@ export default function Bookings() {
 
       {activeTab === "coach" && (
         <section>
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">Active bookings</h2>
+          <h2 className="text-lg font-bold text-slate-900 mb-4">Active bookings</h2>
           {successMessage && (
-            <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm" role="status">
+            <div className="mb-4 p-3 rounded-lg bg-success-50 border border-success-200 text-success-800 text-sm" role="status">
               {successMessage}
             </div>
           )}
           {updateError && (
-            <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-sm" role="alert">
+            <div className="mb-4 p-3 rounded-lg bg-danger-50 border border-danger-200 text-danger-800 text-sm" role="alert">
               {updateError}
             </div>
           )}
@@ -483,12 +493,13 @@ export default function Bookings() {
               {coachUpcoming.map((b) => (
                 <div
                   key={b.id}
-                  className="p-5 sm:p-4 bg-white rounded-xl border border-slate-200"
+                  className="group p-5 sm:p-5 bg-white rounded-2xl border border-slate-200 border-l-4 border-l-brand-500 shadow-sm hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200"
                 >
                 <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
-                  <div className="min-w-0">
-                    <Link to={`/bookings/${b.id}`} className="font-medium text-slate-900 hover:text-brand-600 transition-colors">
+                  <div className="min-w-0 flex-1">
+                    <Link to={`/bookings/${b.id}`} className="inline-flex items-center gap-1.5 font-bold text-slate-900 hover:text-brand-600 transition-colors">
                       {b.athlete.name ?? b.athlete.email}
+                      <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-brand-500 shrink-0" />
                     </Link>
                     <p className="text-slate-500 text-sm mt-0.5">
                       {new Date(b.slot.startTime).toLocaleString()}
@@ -502,16 +513,19 @@ export default function Bookings() {
                   </div>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2 shrink-0">
                     <span
-                      className={`self-start px-2.5 py-1 rounded text-sm font-medium ${
+                      className={`self-start inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ring-1 ${
                         b.status === "confirmed"
-                          ? "bg-emerald-100 text-emerald-700"
+                          ? "bg-success-100 text-success-700 ring-success-600/10"
                           : b.status === "completed"
-                          ? "bg-slate-100 text-slate-700"
+                          ? "bg-slate-100 text-slate-700 ring-slate-600/10"
                           : b.status === "cancelled"
-                          ? "bg-red-100 text-red-700"
-                          : "bg-amber-100 text-amber-700"
+                          ? "bg-danger-100 text-danger-700 ring-danger-600/10"
+                          : "bg-amber-100 text-amber-700 ring-amber-600/10"
                       }`}
                     >
+                      {b.status === "pending" && <Clock className="w-3.5 h-3.5" />}
+                      {(b.status === "confirmed" || b.status === "completed") && <CheckCircle className="w-3.5 h-3.5" />}
+                      {b.status === "cancelled" && <XCircle className="w-3.5 h-3.5" />}
                       {b.status}
                     </span>
                     {b.status === "pending" && (
@@ -522,14 +536,14 @@ export default function Bookings() {
                             updateMutation.mutate({ id: b.id, status: "confirmed" });
                           }}
                           disabled={pendingUpdateId === b.id || updateMutation.isPending}
-                          className="bg-emerald-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50"
+                          className="bg-success-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50"
                         >
                           {pendingUpdateId === b.id ? "Accepting…" : "Accept"}
                         </button>
                         <button
                           onClick={() => setConfirmAction({ type: "cancel", bookingId: b.id, athleteName: b.athlete.name ?? undefined })}
                           disabled={pendingUpdateId != null}
-                          className="bg-red-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50"
+                          className="bg-danger-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50"
                         >
                           Decline
                         </button>
@@ -553,7 +567,7 @@ export default function Bookings() {
                         <button
                           onClick={() => setConfirmAction({ type: "cancel", bookingId: b.id, athleteName: b.athlete.name ?? undefined })}
                           disabled={pendingUpdateId != null}
-                          className="bg-red-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50"
+                          className="bg-danger-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50"
                         >
                           Cancel
                         </button>
@@ -576,7 +590,7 @@ export default function Bookings() {
                 {coachUnpaid.map((b) => (
                   <div
                     key={`unpaid-${b.id}`}
-                    className="p-5 sm:p-4 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                    className="p-5 sm:p-4 bg-amber-50/50 rounded-2xl border-2 border-amber-200 border-l-4 border-l-amber-500 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-sm hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200"
                   >
                     <div className="min-w-0 flex-1">
                       <Link to={`/bookings/${b.id}`} className="font-medium text-slate-900 hover:text-brand-600 transition-colors">{b.athlete.name ?? b.athlete.email}</Link>
@@ -606,14 +620,14 @@ export default function Bookings() {
                           type="button"
                           onClick={() => paymentRequestMutation.mutate(b.id)}
                           disabled={paymentRequestMutation.isPending}
-                          className="px-3 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 touch-manipulation disabled:opacity-50"
+                          className="px-3 py-2 text-sm font-medium text-white bg-success-600 rounded-lg hover:bg-success-700 touch-manipulation disabled:opacity-50"
                         >
                           {b.paymentStatus === "payment_link_sent" ? "Resend" : "Send payment link"}
                         </button>
                       ) : (
                         <a
                           href="/coach/setup/get-paid"
-                          className="px-3 py-2 text-sm font-medium text-emerald-800 bg-emerald-100 rounded-lg hover:bg-emerald-200 touch-manipulation"
+                          className="px-3 py-2 text-sm font-medium text-success-800 bg-success-100 rounded-lg hover:bg-success-200 touch-manipulation"
                         >
                           Set up payments
                         </a>
@@ -635,14 +649,7 @@ export default function Bookings() {
                 <span>
                   {showPastCoach ? "Hide" : "Show"} past or closed ({coachPast.length})
                 </span>
-                <svg
-                  className={`w-4 h-4 transition-transform ${showPastCoach ? "rotate-180" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+                <ChevronDown className={`w-4 h-4 transition-transform ${showPastCoach ? "rotate-180" : ""}`} />
               </button>
               {showPastCoach && (
                 <div className="space-y-5 sm:space-y-4">
@@ -652,11 +659,14 @@ export default function Bookings() {
                   {coachPast.map((b) => (
                     <div
                       key={b.id}
-                      className="p-5 sm:p-4 bg-white rounded-xl border border-slate-200 opacity-90"
+                      className="p-5 sm:p-4 bg-white rounded-2xl border border-slate-200 border-l-4 border-l-slate-300 opacity-90 hover:opacity-100 transition-opacity"
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
                         <div className="min-w-0">
-                          <Link to={`/bookings/${b.id}`} className="font-medium hover:text-brand-600 transition-colors">{b.athlete.name ?? b.athlete.email}</Link>
+                          <Link to={`/bookings/${b.id}`} className="inline-flex items-center gap-1.5 font-medium hover:text-brand-600 transition-colors">
+                            {b.athlete.name ?? b.athlete.email}
+                            <ChevronRight className="w-4 h-4 text-slate-400" />
+                          </Link>
                           <p className="text-slate-500 text-sm">
                             {new Date(b.slot.startTime).toLocaleString()}
                           </p>
@@ -668,16 +678,19 @@ export default function Bookings() {
                           )}
                         </div>
                         <span
-                          className={`self-start px-2.5 py-1 rounded text-sm font-medium shrink-0 ${
+                          className={`self-start inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ring-1 shrink-0 ${
                             b.status === "confirmed"
-                              ? "bg-emerald-100 text-emerald-700"
+                              ? "bg-success-100 text-success-700 ring-success-600/10"
                               : b.status === "completed"
-                              ? "bg-slate-100 text-slate-700"
+                              ? "bg-slate-100 text-slate-700 ring-slate-600/10"
                               : b.status === "cancelled"
-                              ? "bg-red-100 text-red-700"
-                              : "bg-amber-100 text-amber-700"
+                              ? "bg-danger-100 text-danger-700 ring-danger-600/10"
+                              : "bg-amber-100 text-amber-700 ring-amber-600/10"
                           }`}
                         >
+                          {b.status === "pending" && <Clock className="w-3.5 h-3.5" />}
+                          {(b.status === "confirmed" || b.status === "completed") && <CheckCircle className="w-3.5 h-3.5" />}
+                          {b.status === "cancelled" && <XCircle className="w-3.5 h-3.5" />}
                           {b.status}
                         </span>
                       </div>
@@ -701,8 +714,8 @@ export default function Bookings() {
       )}
 
       {confirmAction && confirmAction.type === "needs_stripe" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
             <h2 id="confirm-title" className="text-lg font-semibold text-slate-900 mb-2">Set up payments first</h2>
             <p className="text-slate-600 text-sm mb-4">
               You need to set up your payment account before you can complete sessions. This lets you receive payments from athletes.
@@ -726,8 +739,8 @@ export default function Bookings() {
         </div>
       )}
       {confirmAction && confirmAction.type !== "needs_stripe" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
             <h2 id="confirm-title" className="text-lg font-semibold text-slate-900 mb-2">
               {confirmAction.type === "complete" ? "Mark session complete?" : "Cancel booking?"}
             </h2>
@@ -761,7 +774,7 @@ export default function Bookings() {
                 className={
                   confirmAction.type === "complete"
                     ? "px-4 py-2 rounded-lg text-sm font-medium bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-50"
-                    : "px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                    : "px-4 py-2 rounded-lg text-sm font-medium bg-danger-600 text-white hover:bg-danger-700 disabled:opacity-50"
                 }
               >
                 {confirmAction.type === "complete" ? "Mark complete" : "Yes, cancel"}

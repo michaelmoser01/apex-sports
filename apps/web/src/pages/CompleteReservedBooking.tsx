@@ -199,7 +199,7 @@ export default function CompleteReservedBooking() {
           </p>
 
           {showAlreadyPending ? (
-            <div className="mt-6 p-4 bg-amber-50 rounded-xl border border-amber-200">
+            <div className="mt-6 p-4 bg-amber-50 rounded-2xl border border-amber-200">
               <p className="text-amber-800 font-medium">You already have a pending request for this time.</p>
               <p className="text-amber-700 text-sm mt-1">We'll email you when the coach responds.</p>
               <Link to="/bookings" className="mt-3 inline-block text-brand-600 font-medium hover:underline">
@@ -207,8 +207,8 @@ export default function CompleteReservedBooking() {
               </Link>
             </div>
           ) : showSuccessState ? (
-            <div className="mt-6 p-4 bg-emerald-50 rounded-xl border border-emerald-200" role="status">
-              <p className="text-emerald-800 font-medium">
+            <div className="mt-6 p-4 bg-success-50 rounded-2xl border border-success-200" role="status">
+              <p className="text-success-800 font-medium">
                 {bookingSuccess || "You're all set. We'll email you when the coach responds."}
               </p>
               <Link to="/bookings" className="mt-2 inline-block text-brand-600 font-medium hover:underline">
@@ -271,7 +271,7 @@ export default function CompleteReservedBooking() {
                     type="button"
                     onClick={() => bookMutation.mutate({ slotId, message: bookingMessage })}
                     disabled={bookMutation.isPending}
-                    className="w-full bg-brand-500 text-white px-4 py-3 rounded-xl font-semibold hover:bg-brand-600 disabled:opacity-50"
+                    className="w-full bg-brand-500 text-white px-4 py-3 rounded-xl font-bold hover:bg-brand-600 hover:shadow-glow-brand disabled:opacity-50 transition-all"
                   >
                     {bookMutation.isPending ? "Requesting…" : "Complete booking request"}
                   </button>
@@ -281,7 +281,7 @@ export default function CompleteReservedBooking() {
           )}
 
           {bookingError && (
-            <p className="mt-4 text-red-700 text-sm bg-red-50 px-3 py-2 rounded-lg border border-red-200" role="alert">
+            <p className="mt-4 text-danger-700 text-sm bg-danger-50 px-3 py-2 rounded-lg border border-danger-200" role="alert">
               {bookingError}
             </p>
           )}

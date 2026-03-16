@@ -1088,7 +1088,7 @@ router.get("/me/availability", authMiddleware(), async (req, res) => {
           include: {
             bookings: {
               where: { status: { not: "cancelled" } },
-              select: { id: true },
+              select: { id: true, status: true },
             },
           },
         },
@@ -1097,9 +1097,27 @@ router.get("/me/availability", authMiddleware(), async (req, res) => {
     }),
     prisma.availabilitySlot.findMany({
       where: { coachId: profile.id, ruleId: null },
+      include: {
+        bookings: {
+          where: { status: { not: "cancelled" } },
+          select: { id: true, status: true },
+        },
+      },
       orderBy: { startTime: "asc" },
     }),
   ]);
+
+  const bookedSlotIds: string[] = [];
+  const isBooked = (bookings: { status: string }[]) =>
+    bookings.some((b) => b.status === "confirmed" || b.status === "completed");
+  for (const r of rules) {
+    for (const s of r.slots) {
+      if (isBooked(s.bookings)) bookedSlotIds.push(s.id);
+    }
+  }
+  for (const s of oneOffSlots) {
+    if (isBooked(s.bookings)) bookedSlotIds.push(s.id);
+  }
 
   res.json({
     rules: rules.map((r) => ({
@@ -1111,6 +1129,10 @@ router.get("/me/availability", authMiddleware(), async (req, res) => {
       slotCount: r._count.slots,
       bookingCount: r.slots.reduce((sum, s) => sum + s.bookings.length, 0),
       locationId: r.locationId ?? undefined,
+      slots: r.slots.map((s) => ({
+        id: s.id,
+        startTime: s.startTime.toISOString(),
+      })),
     })),
     oneOffSlots: oneOffSlots.map((s) => ({
       id: s.id,
@@ -1119,6 +1141,7 @@ router.get("/me/availability", authMiddleware(), async (req, res) => {
       status: s.status,
       locationId: s.locationId ?? undefined,
     })),
+    bookedSlotIds,
   });
 });
 
@@ -1476,19 +1499,17 @@ router.get("/:id", async (req, res) => {
       user: { select: { email: true } },
       photos: { orderBy: { sortOrder: "asc" } },
       locations: { orderBy: { name: "asc" } },
-      // Same bookable slots as coach view: future, available, no confirmed/completed booking
+      // All future slots (available and booked) for public calendar
       availabilitySlots: {
-        where: {
-          startTime: { gte: new Date() },
-          status: "available",
-          NOT: {
-            bookings: {
-              some: { status: { in: ["confirmed", "completed"] } },
-            },
+        where: { startTime: { gte: new Date() } },
+        orderBy: { startTime: "asc" },
+        include: {
+          location: true,
+          bookings: {
+            where: { status: { in: ["confirmed", "completed"] } },
+            select: { id: true },
           },
         },
-        orderBy: { startTime: "asc" },
-        include: { location: true },
       },
       reviews: {
         include: { athlete: { select: { name: true } } },
@@ -1532,6 +1553,8 @@ router.get("/:id", async (req, res) => {
       id: s.id,
       startTime: s.startTime.toISOString(),
       endTime: s.endTime.toISOString(),
+      status: s.bookings.length > 0 ? "booked" : "available",
+      recurrence: s.recurrence ?? "none",
       location: s.location
         ? {
             id: s.location.id,

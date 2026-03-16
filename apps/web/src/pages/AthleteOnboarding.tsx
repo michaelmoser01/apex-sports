@@ -198,12 +198,12 @@ export default function AthleteOnboarding() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-12">
-      <h1 className="text-2xl font-bold text-slate-900 mb-2">Set up your athlete profile</h1>
+      <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 mb-2">Set up your athlete profile</h1>
       <p className="text-slate-600 mb-8">
         Tell us a bit about you so coaches can understand your sport, level, and where you train.
       </p>
 
-      <form onSubmit={handleSubmit} className="space-y-6 bg-white rounded-xl border border-slate-200 p-6">
+      <form onSubmit={handleSubmit} className="space-y-6 bg-white rounded-2xl border border-slate-200 p-6 sm:p-8">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Display name</label>
           <input
@@ -329,7 +329,7 @@ export default function AthleteOnboarding() {
         <button
           type="submit"
           disabled={updateProfileMutation.isPending || !displayName.trim() || !serviceCity.trim() || sports.length === 0}
-          className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 disabled:opacity-50"
+          className="inline-flex items-center justify-center px-6 py-2.5 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 hover:shadow-glow-brand disabled:opacity-50 transition-all"
         >
           {updateProfileMutation.isPending ? "Saving…" : "Save and continue"}
         </button>

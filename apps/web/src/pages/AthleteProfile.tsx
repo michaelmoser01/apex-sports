@@ -128,12 +128,12 @@ export default function AthleteProfilePage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-12">
-      <h1 className="text-2xl font-bold text-slate-900 mb-2">Athlete profile</h1>
+      <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 mb-2">Athlete profile</h1>
       <p className="text-slate-600 mb-8">
         Tell us a bit about you so coaches can understand your sport, level, and where you train.
       </p>
 
-      <form onSubmit={handleSubmit} className="space-y-6 bg-white rounded-xl border border-slate-200 p-6">
+      <form onSubmit={handleSubmit} className="space-y-6 bg-white rounded-2xl border border-slate-200 p-6 sm:p-8">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Display name</label>
           <input

@@ -121,10 +121,10 @@ export default function CoachOnboardingBio() {
 
   return (
     <div className="min-h-screen bg-slate-100/80 flex items-start justify-center px-4 py-8">
-      <div className="w-full max-w-2xl bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+      <div className="w-full max-w-2xl bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-2">
-          <h1 className="text-xl font-semibold text-slate-900">
+          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900">
             Edit about
           </h1>
           <button
@@ -186,7 +186,7 @@ export default function CoachOnboardingBio() {
           </p>
 
           {error && (
-            <p className="text-red-600 text-sm" role="alert">
+            <p className="text-danger-600 text-sm" role="alert">
               {error}
             </p>
           )}
@@ -200,7 +200,7 @@ export default function CoachOnboardingBio() {
               type="button"
               onClick={handleSaveToProfile}
               disabled={!editorText.trim() || updateBioMutation.isPending}
-              className="px-6 py-2 bg-brand-500 text-white font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50"
+              className="px-6 py-2.5 bg-brand-500 text-white font-bold rounded-xl hover:bg-brand-600 hover:shadow-glow-brand disabled:opacity-50 transition-all"
             >
               {updateBioMutation.isPending ? "Saving..." : "Save"}
             </button>

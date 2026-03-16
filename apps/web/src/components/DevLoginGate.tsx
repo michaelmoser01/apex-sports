@@ -105,7 +105,7 @@ export default function DevLoginGate({ children }: DevLoginGateProps) {
             />
           </div>
           {signUpError && (
-            <p className="text-sm text-red-600">{signUpError}</p>
+            <p className="text-sm text-danger-600">{signUpError}</p>
           )}
           <div className="flex gap-3">
             <button

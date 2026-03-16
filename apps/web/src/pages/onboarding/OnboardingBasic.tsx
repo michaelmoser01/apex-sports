@@ -128,8 +128,8 @@ export default function OnboardingBasic() {
   ];
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-      <h1 className="text-xl font-semibold text-slate-900 mb-1">Basic info</h1>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
+      <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 mb-1">Basic info</h1>
       <p className="text-slate-500 text-sm mb-6">
         Sports, rate, and where you coach. We’ve pre-filled your name from sign-up—you can change it below. Optionally add a profile photo; the first one will be your main photo.
       </p>
@@ -205,7 +205,7 @@ export default function OnboardingBasic() {
           <p className="text-slate-500 text-xs mt-1">Bay Area cities. Add all areas you serve.</p>
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Hourly rate ($) <span className="text-red-500">*</span></label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Hourly rate ($) <span className="text-danger-500">*</span></label>
           <input
             type="number"
             min={1}
@@ -240,7 +240,7 @@ export default function OnboardingBasic() {
                   <button
                     type="button"
                     onClick={() => removePhoto(i)}
-                    className="absolute top-0 right-0 bg-red-500/90 text-white rounded-full w-5 h-5 inline-flex items-center justify-center p-0 hover:bg-red-600 text-xs"
+                    className="absolute top-0 right-0 bg-danger-500/90 text-white rounded-full w-5 h-5 inline-flex items-center justify-center p-0 hover:bg-danger-600 text-xs"
                     aria-label="Remove photo"
                   >
                     ×
@@ -291,14 +291,14 @@ export default function OnboardingBasic() {
           </div>
         </div>
         {submitError && (
-          <p className="text-red-600 text-sm" role="alert">
+          <p className="text-danger-600 text-sm" role="alert">
             {submitError}
           </p>
         )}
         <button
           type="submit"
           disabled={submitting || !displayName.trim() || sports.length === 0 || serviceCities.length === 0 || !hourlyRate || parseFloat(hourlyRate) <= 0}
-          className="w-full py-3 rounded-xl bg-brand-500 text-white font-semibold hover:bg-brand-600 disabled:opacity-50 transition"
+          className="w-full py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 hover:shadow-glow-brand disabled:opacity-50 transition-all"
         >
           {submitting ? "Saving…" : "Continue"}
         </button>

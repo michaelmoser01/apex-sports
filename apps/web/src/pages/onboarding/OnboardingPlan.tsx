@@ -6,6 +6,7 @@ import { Elements } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import { api } from "@/lib/api";
 import { PRICING_PLANS } from "@/data/pricing";
+import { CheckCircle } from "lucide-react";
 import { PlanPaymentForm } from "@/components/PlanPaymentForm";
 import type { PricingPlan } from "@/data/pricing";
 
@@ -51,19 +52,17 @@ export default function OnboardingPlan() {
 
   if (paymentSuccess) {
     return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 text-center">
-        <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-emerald-100 text-emerald-600 mb-5" aria-hidden>
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-12 h-12">
-            <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z" clipRule="evenodd" />
-          </svg>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 text-center">
+        <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-success-100 text-success-600 mb-5" aria-hidden>
+          <CheckCircle className="w-12 h-12" />
         </div>
-        <h1 className="text-xl font-semibold text-slate-900 mb-1">You&apos;re all set up</h1>
+        <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 mb-1">You&apos;re all set up</h1>
         <p className="text-slate-500 text-sm mb-6">Your plan is active. Next, set your availability so athletes can book sessions.</p>
         <button
           type="button"
           onClick={handleContinueToAvailability}
           disabled={navigating}
-          className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition disabled:opacity-70"
+          className="w-full py-3 rounded-xl bg-success-600 text-white font-semibold hover:bg-success-700 transition disabled:opacity-70"
         >
           {navigating ? "Loading…" : "Set up your availability"}
         </button>
@@ -72,8 +71,8 @@ export default function OnboardingPlan() {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-      <h1 className="text-xl font-semibold text-slate-900 mb-1">Select plan</h1>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
+      <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 mb-1">Select plan</h1>
       <p className="text-slate-500 text-sm mb-6">
         Choose your plan and enter your card below. You’ll be charged the monthly fee. You can change it later from your profile.
       </p>
@@ -133,7 +132,7 @@ export default function OnboardingPlan() {
       )}
 
       {paymentError && (
-        <p className="text-red-600 text-sm mt-4" role="alert">
+        <p className="text-danger-600 text-sm mt-4" role="alert">
           {paymentError}
         </p>
       )}
@@ -164,7 +163,7 @@ export function OnboardingPlanSuccess() {
   }, [sessionId, navigate, queryClient]);
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 text-center">
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 text-center">
       <p className="text-slate-600">Confirming your payment…</p>
     </div>
   );

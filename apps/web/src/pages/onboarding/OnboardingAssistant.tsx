@@ -72,7 +72,7 @@ export default function OnboardingAssistant() {
 
   if (profileLoading || !profile) {
     return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
         <p className="text-slate-500">Loading…</p>
       </div>
     );
@@ -94,8 +94,8 @@ export default function OnboardingAssistant() {
   const number = assignedNumber ?? profile.assistantPhoneNumber ?? "";
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-      <h1 className="text-xl font-semibold text-slate-900 mb-1">Setup assistant</h1>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
+      <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 mb-1">Setup assistant</h1>
       <p className="text-slate-500 text-sm mb-6">
         Give your assistant a name and your phone number. We’ll create a dedicated number for your assistant (same area code when possible). Parents and athletes text this number; your assistant coordinates with you.
       </p>
@@ -141,14 +141,14 @@ export default function OnboardingAssistant() {
             </div>
           </div>
           {setupMutation.error && (
-            <p className="text-red-600 text-sm" role="alert">
+            <p className="text-danger-600 text-sm" role="alert">
               {setupMutation.error instanceof Error ? setupMutation.error.message : "Something went wrong."}
             </p>
           )}
           <button
             type="submit"
             disabled={setupMutation.isPending || !displayName.trim() || !coachPhone.trim()}
-            className="w-full py-3 rounded-xl bg-brand-500 text-white font-semibold hover:bg-brand-600 disabled:opacity-50 transition"
+            className="w-full py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 hover:shadow-glow-brand disabled:opacity-50 transition-all"
           >
             {setupMutation.isPending ? "Creating number…" : "Get my number"}
           </button>
@@ -156,8 +156,8 @@ export default function OnboardingAssistant() {
       ) : (
         <>
           <div className="space-y-4">
-            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
-              <p className="text-sm font-medium text-emerald-800 mb-1">This is your assistant’s new number</p>
+            <div className="p-4 bg-success-50 border border-success-200 rounded-lg">
+              <p className="text-sm font-medium text-success-800 mb-1">This is your assistant’s new number</p>
               <p className="text-lg font-mono text-slate-900 font-semibold">{number}</p>
               <p className="text-slate-600 text-sm mt-2">
                 Parents and athletes will text this number. Your assistant handles scheduling, bookings, session recaps, and follow-ups so you can focus on coaching.
@@ -167,7 +167,7 @@ export default function OnboardingAssistant() {
           <button
             type="button"
             onClick={handleContinue}
-            className="w-full py-3 rounded-xl bg-brand-500 text-white font-semibold hover:bg-brand-600 transition mt-6"
+            className="w-full py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 hover:shadow-glow-brand transition-all mt-6"
           >
             Continue
           </button>

@@ -1,7 +1,7 @@
 import { Link, useLocation, Navigate } from "react-router-dom";
 import { getNextOnboardingStep } from "@/config/onboarding";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { startOfMonth, endOfMonth, format, isBefore } from "date-fns";
 import { api } from "@/lib/api";
 import { ALLOWED_SPORTS } from "@apex-sports/shared";
@@ -14,6 +14,17 @@ import {
 } from "@/components/AvailabilityCalendar";
 import { CoachLocations } from "@/components/CoachLocations";
 import { Avatar } from "@/components/Avatar";
+import {
+  AlertTriangle,
+  ShieldCheck,
+  CreditCard,
+  Calendar,
+  Users,
+  Star,
+  ArrowRight,
+  DollarSign,
+  ChevronRight,
+} from "lucide-react";
 
 interface CoachPhoto {
   id: string;
@@ -48,6 +59,7 @@ interface AvailabilityRule {
   endDate: string;
   slotCount: number;
   bookingCount?: number;
+  slots?: { id: string; startTime: string }[];
 }
 
 interface OneOffSlot {
@@ -60,6 +72,7 @@ interface OneOffSlot {
 interface AvailabilityResponse {
   rules: AvailabilityRule[];
   oneOffSlots: OneOffSlot[];
+  bookedSlotIds?: string[];
 }
 
 function EditProfileFormInline({
@@ -348,6 +361,10 @@ export default function CoachDashboard() {
   });
   const rules = availability?.rules ?? [];
   const oneOffSlots = availability?.oneOffSlots ?? [];
+  const bookedSlotIds = useMemo(
+    () => new Set(availability?.bookedSlotIds ?? []),
+    [availability?.bookedSlotIds]
+  );
 
   const updateProfileMutation = useMutation({
     mutationFn: (data: {
@@ -614,50 +631,63 @@ export default function CoachDashboard() {
     return (
       <>
       <div className="max-w-6xl mx-auto px-4 py-6 sm:py-8">
-        {/* Hero - full width, mobile-friendly */}
-        <section className="flex items-center gap-3 sm:gap-4 mb-5 sm:mb-6 lg:mb-8">
-          <Avatar
-            src={coachPhotoUrl}
-            displayName={coach.displayName}
-            size="xl"
-            className="shrink-0 w-14 h-14 sm:w-16 sm:h-16"
-          />
-          <div className="min-w-0">
-            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 truncate">
-              Hi, {coach.displayName.split(/\s+/)[0] || "Coach"}
-            </h1>
-            <p className="text-slate-600 text-sm sm:text-base mt-0.5">Here&apos;s what&apos;s happening.</p>
+        {/* Hero welcome banner */}
+        <section className="relative rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 p-6 sm:p-8 mb-6 sm:mb-8 overflow-hidden">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_80%_20%,rgba(236,116,26,0.12),transparent_60%)]" />
+          <div className="relative flex items-center gap-4 sm:gap-5">
+            <Avatar
+              src={coachPhotoUrl}
+              displayName={coach.displayName}
+              size="xl"
+              className="shrink-0 w-14 h-14 sm:w-16 sm:h-16 ring-2 ring-white/20"
+            />
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-white tracking-tight truncate">
+                Hi, {coach.displayName.split(/\s+/)[0] || "Coach"}
+              </h1>
+              <p className="text-slate-400 text-sm sm:text-base mt-0.5">Here&apos;s what&apos;s happening.</p>
+            </div>
           </div>
         </section>
 
         {(!coach.stripeOnboardingComplete || !coach.verified) && (
-          <div className="space-y-3 mb-5 sm:mb-6 lg:mb-8">
+          <div className="space-y-3 mb-6 sm:mb-8">
             {!coach.stripeOnboardingComplete && (
-              <section className="p-4 sm:p-5 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-                <div className="flex-1 min-w-0">
-                  <p className="text-amber-900 font-semibold text-sm sm:text-base">Set up payments to get paid for your sessions</p>
-                  <p className="text-amber-700 text-sm mt-0.5">Connect your Stripe account so you can collect payments from athletes.</p>
+              <section className="p-4 sm:p-5 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                <div className="flex items-start gap-3 flex-1 min-w-0">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-600 shrink-0 mt-0.5">
+                    <CreditCard className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-amber-900 font-semibold text-sm sm:text-base">Set up payments to get paid for your sessions</p>
+                    <p className="text-amber-700 text-sm mt-0.5">Connect your Stripe account so you can collect payments from athletes.</p>
+                  </div>
                 </div>
                 <Link
                   to="/coach/setup/get-paid"
-                  className="shrink-0 px-4 py-2.5 rounded-lg bg-amber-600 text-white font-semibold text-sm hover:bg-amber-700 transition text-center touch-manipulation"
+                  className="shrink-0 px-4 py-2.5 rounded-xl bg-amber-600 text-white font-semibold text-sm hover:bg-amber-700 transition text-center touch-manipulation inline-flex items-center gap-1.5"
                 >
-                  Set up payments
+                  Set up payments <ArrowRight className="w-4 h-4" />
                 </Link>
               </section>
             )}
             {!coach.verified && (
-              <section className="p-4 sm:p-5 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-                <div className="flex-1 min-w-0">
-                  <p className="text-amber-900 font-semibold text-sm sm:text-base">Complete your background check to appear in Find Coaches</p>
-                  <p className="text-amber-700 text-sm mt-0.5">Verification is required before athletes can discover your profile.</p>
+              <section className="p-4 sm:p-5 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                <div className="flex items-start gap-3 flex-1 min-w-0">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-600 shrink-0 mt-0.5">
+                    <ShieldCheck className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-amber-900 font-semibold text-sm sm:text-base">Complete your background check to appear in Find Coaches</p>
+                    <p className="text-amber-700 text-sm mt-0.5">Verification is required before athletes can discover your profile.</p>
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowVerifyModal(true)}
-                  className="shrink-0 px-4 py-2.5 rounded-lg bg-amber-600 text-white font-semibold text-sm hover:bg-amber-700 transition text-center touch-manipulation"
+                  className="shrink-0 px-4 py-2.5 rounded-xl bg-amber-600 text-white font-semibold text-sm hover:bg-amber-700 transition text-center touch-manipulation inline-flex items-center gap-1.5"
                 >
-                  Complete verification
+                  Complete verification <ArrowRight className="w-4 h-4" />
                 </button>
               </section>
             )}
@@ -697,11 +727,14 @@ export default function CoachDashboard() {
         {/* Grid: 1 col mobile, 2 cols desktop */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
           {/* Actions & follow-ups */}
-          <section className="p-4 sm:p-6 bg-white rounded-xl border border-slate-200 shadow-sm min-h-0">
+          <section className="p-4 sm:p-6 bg-white rounded-2xl border border-slate-200 shadow-sm min-h-0 border-l-4 border-l-brand-500">
             <div className="flex justify-between items-center mb-3 sm:mb-4">
-              <h2 className="text-base sm:text-lg font-semibold text-slate-900">Actions &amp; follow-ups</h2>
-              <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm touch-manipulation">
-                View all
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-brand-500" />
+                <h2 className="text-base sm:text-lg font-bold text-slate-900">Actions &amp; follow-ups</h2>
+              </div>
+              <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm touch-manipulation inline-flex items-center gap-1">
+                View all <ChevronRight className="w-4 h-4" />
               </Link>
             </div>
             {bookingsLoading ? (
@@ -768,11 +801,14 @@ export default function CoachDashboard() {
           </section>
 
           {/* Next up */}
-          <section className="p-4 sm:p-6 bg-white rounded-xl border border-slate-200 shadow-sm min-h-0">
+          <section className="p-4 sm:p-6 bg-white rounded-2xl border border-slate-200 shadow-sm min-h-0 border-l-4 border-l-success-500">
             <div className="flex justify-between items-center mb-3 sm:mb-4">
-              <h2 className="text-base sm:text-lg font-semibold text-slate-900">Next up</h2>
-              <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm touch-manipulation">
-                View all
+              <div className="flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-success-500" />
+                <h2 className="text-base sm:text-lg font-bold text-slate-900">Next up</h2>
+              </div>
+              <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm touch-manipulation inline-flex items-center gap-1">
+                View all <ChevronRight className="w-4 h-4" />
               </Link>
             </div>
             {bookingsLoading ? (
@@ -809,11 +845,14 @@ export default function CoachDashboard() {
           </section>
 
           {/* Recent athletes */}
-          <section className="p-4 sm:p-6 bg-white rounded-xl border border-slate-200 shadow-sm min-h-0">
+          <section className="p-4 sm:p-6 bg-white rounded-2xl border border-slate-200 shadow-sm min-h-0 border-l-4 border-l-sky-500">
             <div className="flex justify-between items-center mb-3 sm:mb-4">
-              <h2 className="text-base sm:text-lg font-semibold text-slate-900">Recent athletes</h2>
-              <Link to="/dashboard/athletes" className="text-brand-600 font-medium hover:underline text-sm touch-manipulation">
-                View all
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-sky-500" />
+                <h2 className="text-base sm:text-lg font-bold text-slate-900">Recent athletes</h2>
+              </div>
+              <Link to="/dashboard/athletes" className="text-brand-600 font-medium hover:underline text-sm touch-manipulation inline-flex items-center gap-1">
+                View all <ChevronRight className="w-4 h-4" />
               </Link>
             </div>
             {athletesLoading ? (
@@ -844,11 +883,14 @@ export default function CoachDashboard() {
           </section>
 
           {/* Recent reviews */}
-          <section className="p-4 sm:p-6 bg-white rounded-xl border border-slate-200 shadow-sm min-h-0">
+          <section className="p-4 sm:p-6 bg-white rounded-2xl border border-slate-200 shadow-sm min-h-0 border-l-4 border-l-amber-500">
             <div className="flex justify-between items-center mb-3 sm:mb-4">
-              <h2 className="text-base sm:text-lg font-semibold text-slate-900">Recent reviews</h2>
-              <Link to={`/coaches/${coach.id}`} className="text-brand-600 font-medium hover:underline text-sm touch-manipulation">
-                View profile
+              <div className="flex items-center gap-2">
+                <Star className="w-5 h-5 text-amber-500" />
+                <h2 className="text-base sm:text-lg font-bold text-slate-900">Recent reviews</h2>
+              </div>
+              <Link to={`/coaches/${coach.id}`} className="text-brand-600 font-medium hover:underline text-sm touch-manipulation inline-flex items-center gap-1">
+                View profile <ChevronRight className="w-4 h-4" />
               </Link>
             </div>
             {bookingsLoading ? (
@@ -888,14 +930,17 @@ export default function CoachDashboard() {
 
           {/* Unpaid sessions */}
           {unpaidSessions.length > 0 && (
-            <section className="p-4 sm:p-6 bg-white rounded-xl border border-slate-200 shadow-sm min-h-0 lg:col-span-2">
+            <section className="p-4 sm:p-6 bg-white rounded-2xl border border-slate-200 shadow-sm min-h-0 lg:col-span-2 border-l-4 border-l-amber-500">
               <div className="flex justify-between items-center mb-3 sm:mb-4">
-                <h2 className="text-base sm:text-lg font-semibold text-slate-900">
-                  Unpaid sessions
-                  <span className="ml-2 text-sm font-normal text-slate-500">({unpaidSessions.length})</span>
-                </h2>
-                <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm touch-manipulation">
-                  View all
+                <div className="flex items-center gap-2">
+                  <DollarSign className="w-5 h-5 text-amber-500" />
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                    Unpaid sessions
+                    <span className="ml-2 text-sm font-normal text-slate-500">({unpaidSessions.length})</span>
+                  </h2>
+                </div>
+                <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm touch-manipulation inline-flex items-center gap-1">
+                  View all <ChevronRight className="w-4 h-4" />
                 </Link>
               </div>
               <div className="space-y-3">
@@ -925,14 +970,14 @@ export default function CoachDashboard() {
                           type="button"
                           onClick={() => paymentRequestMutation.mutate(b.id)}
                           disabled={paymentRequestMutation.isPending}
-                          className="px-3 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 touch-manipulation disabled:opacity-50"
+                          className="px-3 py-2 text-sm font-medium text-white bg-success-600 rounded-lg hover:bg-success-700 touch-manipulation disabled:opacity-50"
                         >
                           {b.paymentStatus === "payment_link_sent" ? "Resend" : "Send payment link"}
                         </button>
                       ) : (
                         <Link
                           to="/coach/setup/get-paid"
-                          className="px-3 py-2 text-sm font-medium text-emerald-800 bg-emerald-100 rounded-lg hover:bg-emerald-200 touch-manipulation"
+                          className="px-3 py-2 text-sm font-medium text-success-800 bg-success-100 rounded-lg hover:bg-success-200 touch-manipulation"
                         >
                           Set up payments
                         </Link>
@@ -1055,7 +1100,7 @@ export default function CoachDashboard() {
                 </div>
               )}
               {updateInviteMutation.isError && (
-                <p className="text-red-600 text-sm" role="alert">
+                <p className="text-danger-600 text-sm" role="alert">
                   {updateInviteMutation.error?.message ?? "Failed to update link name."}
                 </p>
               )}
@@ -1302,6 +1347,7 @@ export default function CoachDashboard() {
               <AvailabilityCalendar
                 rules={rules}
                 oneOffSlots={oneOffSlots}
+                bookedSlotIds={bookedSlotIds}
                 rangeStart={calendarRange.start}
                 rangeEnd={calendarRange.end}
                 onSlotClick={(start) => {
@@ -1358,7 +1404,7 @@ export default function CoachDashboard() {
                               <button
                                 onClick={() => setRemoveTarget({ type: "rule", id: rule.id, bookingCount: rule.bookingCount ?? 0 })}
                                 disabled={deleteRuleMutation.isPending}
-                                className="text-red-600 hover:underline text-sm shrink-0 ml-2"
+                                className="text-danger-600 hover:underline text-sm shrink-0 ml-2"
                               >
                                 Remove
                               </button>
@@ -1403,7 +1449,7 @@ export default function CoachDashboard() {
                                     <button
                                       onClick={() => setRemoveTarget({ type: "slot", id: slot.id })}
                                       disabled={deleteSlotMutation.isPending}
-                                      className="text-red-600 hover:underline text-sm shrink-0 ml-2"
+                                      className="text-danger-600 hover:underline text-sm shrink-0 ml-2"
                                     >
                                       Remove
                                     </button>
@@ -1456,7 +1502,7 @@ export default function CoachDashboard() {
                           }
                         }}
                         disabled={deleteRuleMutation.isPending || deleteSlotMutation.isPending}
-                        className="px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                        className="px-3 py-1.5 bg-danger-600 text-white rounded hover:bg-danger-700 disabled:opacity-50"
                       >
                         Remove
                       </button>
@@ -1568,10 +1614,10 @@ export default function CoachDashboard() {
           Upload a photo or add an image URL. These appear on your public profile.
         </p>
         {uploadError && (
-          <p className="text-red-600 text-sm mb-2" role="alert">{uploadError}</p>
+          <p className="text-danger-600 text-sm mb-2" role="alert">{uploadError}</p>
         )}
         {savePhotosMutation.isError && (
-          <p className="text-red-600 text-sm mb-2" role="alert">
+          <p className="text-danger-600 text-sm mb-2" role="alert">
             Failed to save photos. {savePhotosMutation.error instanceof Error ? savePhotosMutation.error.message : "Please try again."}
           </p>
         )}
@@ -1626,7 +1672,7 @@ export default function CoachDashboard() {
                       setPhotosSaved(false);
                       setPhotosSaveSkippedMessage(null);
                     }}
-                    className="bg-red-500/90 text-white rounded-full w-6 h-6 inline-flex items-center justify-center p-0 hover:bg-red-600"
+                    className="bg-danger-500/90 text-white rounded-full w-6 h-6 inline-flex items-center justify-center p-0 hover:bg-danger-600"
                     aria-label="Remove photo"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="w-3.5 h-3.5 shrink-0" aria-hidden><path d="M15 5L5 15M5 5l10 10" /></svg>

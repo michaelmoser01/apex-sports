@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useRef, createContext, useContext, type ReactNode } from "react";
 import { Calendar, dateFnsLocalizer } from "react-big-calendar";
-import { format, getDay, startOfWeek, isWithinInterval, isSameDay, startOfMonth, endOfMonth, addDays } from "date-fns";
+import { format, getDay, startOfWeek, isWithinInterval, isSameDay, startOfMonth, endOfMonth, addDays, isToday } from "date-fns";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 
 type CalendarView = "month" | "week" | "day" | "agenda" | "work_week";
@@ -88,6 +88,8 @@ export interface PublicBookingCalendarProps {
   requestedSlotIds?: Set<string> | ReadonlySet<string>;
   /** Slot IDs where the current user has a confirmed or completed booking – show "Booked". */
   bookedSlotIds?: Set<string> | ReadonlySet<string>;
+  /** Slot IDs from API (actually available). When provided, green = day has at least one of these; grey = day has slots but none of these. */
+  availableSlotIds?: Set<string> | ReadonlySet<string>;
 }
 
 export function PublicBookingCalendar({
@@ -100,6 +102,7 @@ export function PublicBookingCalendar({
   onCloseModal,
   requestedSlotIds,
   bookedSlotIds,
+  availableSlotIds,
 }: PublicBookingCalendarProps) {
   const isMobile = useIsMobile();
   const [rangeStart, setRangeStart] = useState<Date>(() =>
@@ -123,17 +126,44 @@ export function PublicBookingCalendar({
       .sort((a, b) => a.start.getTime() - b.start.getTime());
   }, [events, selectedDay]);
 
-  /** Dates (yyyy-MM-dd) that have at least one slot, for highlighting the whole day cell in month view */
-  const datesWithSlots = useMemo(() => {
+  /** Dates (yyyy-MM-dd) that have at least one open slot. When availableSlotIds provided: day has slot in that set. Otherwise: exclude booked/requested (backward compat). */
+  const datesWithOpenSlots = useMemo(() => {
     const set = new Set<string>();
-    events.forEach((ev) => set.add(format(ev.start, "yyyy-MM-dd")));
+    if (availableSlotIds) {
+      events.forEach((ev) => {
+        if (availableSlotIds.has(ev.id)) set.add(format(ev.start, "yyyy-MM-dd"));
+      });
+    } else {
+      const booked = bookedSlotIds ?? new Set<string>();
+      const requested = requestedSlotIds ?? new Set<string>();
+      events.forEach((ev) => {
+        if (!booked.has(ev.id) && !requested.has(ev.id)) {
+          set.add(format(ev.start, "yyyy-MM-dd"));
+        }
+      });
+    }
     return set;
-  }, [events]);
+  }, [events, availableSlotIds, bookedSlotIds, requestedSlotIds]);
+
+  /** Dates (yyyy-MM-dd) that have slots but all are booked or requested */
+  const datesWithAllBooked = useMemo(() => {
+    const withSlots = new Set<string>();
+    events.forEach((ev) => withSlots.add(format(ev.start, "yyyy-MM-dd")));
+    const allBooked = new Set<string>();
+    withSlots.forEach((d) => {
+      if (!datesWithOpenSlots.has(d)) allBooked.add(d);
+    });
+    return allBooked;
+  }, [events, datesWithOpenSlots]);
 
   const dayPropGetter = useMemo(
-    () => (date: Date) =>
-      datesWithSlots.has(format(date, "yyyy-MM-dd")) ? { className: "rbc-day-has-slots" } : {},
-    [datesWithSlots]
+    () => (date: Date) => {
+      const key = format(date, "yyyy-MM-dd");
+      if (datesWithOpenSlots.has(key)) return { className: "rbc-day-has-open-slots" };
+      if (datesWithAllBooked.has(key)) return { className: "rbc-day-all-booked" };
+      return {};
+    },
+    [datesWithOpenSlots, datesWithAllBooked]
   );
 
   const handleRangeChange = (range: Date[] | { start: Date; end: Date }) => {
@@ -152,8 +182,12 @@ export function PublicBookingCalendar({
   };
 
   const handleSelectEvent = (event: BookingEvent) => {
+    if (bookedSlotIds?.has(event.id)) return;
     setSelectedDay(event.start);
-    onSelectSlot(event.id);
+    // On mobile, always show the slot list first; don't go straight to booking
+    if (!isMobile) {
+      onSelectSlot(event.id);
+    }
   };
 
   const handleCloseDayView = () => {
@@ -162,6 +196,7 @@ export function PublicBookingCalendar({
   };
 
   const handleSlotClickFromList = (slotId: string) => {
+    if (bookedSlotIds?.has(slotId)) return;
     onSelectSlot(slotId);
   };
 
@@ -174,13 +209,17 @@ export function PublicBookingCalendar({
         value: Date;
         children: React.ReactNode;
       }) {
+        const key = format(value, "yyyy-MM-dd");
+        const hasOpenSlots = datesWithOpenSlots.has(key);
+        const hasAllBooked = datesWithAllBooked.has(key);
+        const isTodayDate = isToday(value);
         const handleCellClick = (e: React.MouseEvent) => {
           if ((e.target as HTMLElement).closest?.(".rbc-event")) return;
           handleDrillDown(value);
         };
         return (
           <div
-            className="rbc-public-date-cell"
+            className={`rbc-public-date-cell${hasOpenSlots ? " rbc-day-has-open-slots" : ""}${hasAllBooked ? " rbc-day-all-booked" : ""}${isTodayDate ? " rbc-today" : ""}`}
             onClick={handleCellClick}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
@@ -197,7 +236,7 @@ export function PublicBookingCalendar({
           </div>
         );
       },
-    [handleDrillDown]
+    [handleDrillDown, datesWithOpenSlots, datesWithAllBooked]
   );
 
   const calendarWrapRef = useRef<HTMLDivElement>(null);
@@ -291,12 +330,13 @@ export function PublicBookingCalendar({
                         <li key={ev.id}>
                           <button
                             type="button"
+                            disabled={isBooked}
                             onClick={() => handleSlotClickFromList(ev.id)}
                             className={`w-full text-left flex items-center gap-3 rounded-lg border px-4 py-3 transition ${
-                              isSelected
-                                ? "border-brand-500 bg-brand-50 text-slate-900"
-                                : isBooked
-                                  ? "border-emerald-200 bg-emerald-50/80 hover:bg-emerald-50"
+                              isBooked
+                                ? "border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed"
+                                : isSelected
+                                  ? "border-brand-500 bg-brand-50 text-slate-900"
                                   : isRequested
                                     ? "border-amber-200 bg-amber-50/80 hover:bg-amber-50"
                                     : "border-slate-200 bg-slate-50/50 hover:bg-slate-100"
@@ -304,14 +344,14 @@ export function PublicBookingCalendar({
                           >
                             <span
                               className={`shrink-0 w-2 h-10 rounded-sm ${
-                                isBooked ? "bg-emerald-500" : isRequested ? "bg-amber-500" : "bg-brand-500"
+                                isBooked ? "bg-slate-400" : isRequested ? "bg-amber-500" : "bg-brand-500"
                               }`}
                             />
                             <span className="font-medium text-slate-800">
                               {ev.title}
                             </span>
                             {isBooked && (
-                              <span className="ml-auto text-xs font-medium text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                              <span className="ml-auto text-xs font-medium text-slate-600 bg-slate-200 px-2 py-0.5 rounded">
                                 Booked
                               </span>
                             )}
@@ -388,23 +428,24 @@ export function PublicBookingCalendar({
                       <li key={ev.id}>
                         <button
                           type="button"
+                          disabled={isBooked}
                           onClick={() => handleSlotClickFromList(ev.id)}
                           className={`w-full text-left flex items-center gap-3 rounded-lg border px-4 py-3 min-h-[48px] touch-manipulation ${
-                            isSelected
-                              ? "border-brand-500 bg-brand-50 text-slate-900"
-                              : isBooked
-                                ? "border-emerald-200 bg-emerald-50/80 active:bg-emerald-50"
+                            isBooked
+                              ? "border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed"
+                              : isSelected
+                                ? "border-brand-500 bg-brand-50 text-slate-900"
                                 : isRequested
                                   ? "border-amber-200 bg-amber-50/80 active:bg-amber-50"
                                   : "border-slate-200 bg-slate-50/50 active:bg-slate-100"
                           }`}
                         >
-                          <span className={`shrink-0 w-2 h-10 rounded-sm ${isBooked ? "bg-emerald-500" : isRequested ? "bg-amber-500" : "bg-brand-500"}`} />
+                          <span className={`shrink-0 w-2 h-10 rounded-sm ${isBooked ? "bg-slate-400" : isRequested ? "bg-amber-500" : "bg-brand-500"}`} />
                           <span className="font-medium text-slate-800">
                             {ev.title}
                           </span>
                           {isBooked && (
-                            <span className="ml-auto text-xs font-medium text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                            <span className="ml-auto text-xs font-medium text-slate-600 bg-slate-200 px-2 py-0.5 rounded">
                               Booked
                             </span>
                           )}
