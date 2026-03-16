@@ -77,7 +77,7 @@ export default function ForCoaches() {
       {/* ── Hero ── */}
       <section className="relative bg-slate-950 text-white overflow-hidden">
         <img
-          src="https://images.unsplash.com/photo-1461896836934-bd45ba8fcf9b?w=1920&q=80&auto=format&fit=crop"
+          src="/images/coach-valueprop-hero.png"
           alt=""
           className="absolute inset-0 h-full w-full object-cover object-center opacity-30"
           aria-hidden

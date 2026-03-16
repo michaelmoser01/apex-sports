@@ -14,9 +14,9 @@ import { Button } from "@/components/ui";
 import { SectionHeader } from "@/components/ui";
 
 const HERO_IMAGES = [
-  "https://images.unsplash.com/photo-1526232761682-d26e03ac148e?w=1920&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=1920&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?w=1920&q=80&auto=format&fit=crop",
+  "/images/coach-hero.png",
+  "/images/coach-hero-baseball.png",
+  "/images/coach-hero-female.png",
 ];
 const HERO_ROTATE_MS = 6000;
 const HERO_CROSSFADE_MS = 1500;
