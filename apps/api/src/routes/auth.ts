@@ -273,4 +273,39 @@ router.post("/me/connect-invite", authMiddleware(), async (req, res) => {
   res.json({ linked: true });
 });
 
+// Test cleanup: delete a user by email from DB + Cognito (dev stage only)
+router.delete("/test-cleanup", async (req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(404).json({ error: "Not available" });
+  }
+
+  const email = typeof req.query.email === "string" ? req.query.email.trim().toLowerCase() : "";
+  if (!email) return res.status(400).json({ error: "email query param required" });
+
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, cognitoSub: true, email: true },
+  });
+  if (!user) return res.status(404).json({ error: "User not found" });
+
+  // Delete from Cognito if they have a sub
+  if (user.cognitoSub && process.env.COGNITO_USER_POOL_ID) {
+    try {
+      const { CognitoIdentityProviderClient, AdminDeleteUserCommand } = await import("@aws-sdk/client-cognito-identity-provider");
+      const cognito = new CognitoIdentityProviderClient({ region: process.env.COGNITO_REGION ?? "us-east-1" });
+      await cognito.send(new AdminDeleteUserCommand({
+        UserPoolId: process.env.COGNITO_USER_POOL_ID,
+        Username: user.cognitoSub,
+      }));
+    } catch (err) {
+      console.warn("[test-cleanup] Cognito delete failed:", err);
+    }
+  }
+
+  // Delete from DB (cascades to profiles, bookings, reviews, etc.)
+  await prisma.user.delete({ where: { id: user.id } });
+
+  res.json({ deleted: true });
+});
+
 export default router;

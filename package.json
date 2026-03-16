@@ -22,9 +22,13 @@
     "web": "npm run dev --workspace=web",
     "api": "npm run dev --workspace=api",
     "start:all": "./scripts/setup-and-run.sh",
-    "deploy:retain-og-handler": "./scripts/deploy-retain-og-handler.sh"
+    "deploy:retain-og-handler": "./scripts/deploy-retain-og-handler.sh",
+    "test:e2e": "npx playwright test",
+    "test:e2e:ui": "npx playwright test --ui",
+    "test:e2e:report": "npx playwright show-report"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "serverless": "^3.38.0",
     "serverless-esbuild": "^1.52.0",
     "serverless-finch": "^2.6.0",

@@ -205,7 +205,17 @@ functions:
       patterns:
         - "node_modules/.prisma/client/**"
 
+  cognitoPreSignUp:
+    handler: apps/api/src/cognito-pre-signup.handler
+    description: Auto-confirms Cognito sign-ups in dev (no email verification)
+    memorySize: 128
+    timeout: 5
+
 resources:
+  Conditions:
+    IsDevStage:
+      !Equals ["${self:provider.stage}", "dev"]
+
   Resources:
     # VPC
     Vpc:
@@ -434,10 +444,24 @@ resources:
           - email
         AutoVerifiedAttributes:
           - email
+        LambdaConfig:
+          PreSignUp: !If
+            - IsDevStage
+            - !GetAtt CognitoPreSignUpLambdaFunction.Arn
+            - !Ref AWS::NoValue
         Schema:
           - Name: email
             Required: true
             Mutable: true
+
+    CognitoPreSignUpPermission:
+      Type: AWS::Lambda::Permission
+      Condition: IsDevStage
+      Properties:
+        FunctionName: !GetAtt CognitoPreSignUpLambdaFunction.Arn
+        Action: lambda:InvokeFunction
+        Principal: cognito-idp.amazonaws.com
+        SourceArn: !GetAtt AuthUserPool.Arn
 
     AuthUserPoolClient:
       Type: AWS::Cognito::UserPoolClient
