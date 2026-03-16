@@ -379,6 +379,7 @@ function DevLayout() {
             Verified coaches for athletes
           </p>
         </div>
+        <p className="text-center text-slate-300 text-xs mt-6">v {__BUILD_VERSION__}</p>
       </footer>
     </div>
   );
@@ -774,6 +775,7 @@ function CognitoLayout() {
             Verified coaches for athletes
           </p>
         </div>
+        <p className="text-center text-slate-300 text-xs mt-6">v {__BUILD_VERSION__}</p>
       </footer>
     </div>
   );

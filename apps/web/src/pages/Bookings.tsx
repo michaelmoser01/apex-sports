@@ -8,7 +8,12 @@ interface BookingsData {
   asAthlete: {
     id: string;
     coach: { id: string; displayName: string; sports: string[] };
-    slot: { id: string; startTime: string; endTime: string };
+    slot: {
+      id: string;
+      startTime: string;
+      endTime: string;
+      location: { name: string; address: string; notes: string | null } | null;
+    };
     message: string | null;
     status: string;
     amountCents: number | null;
@@ -19,12 +24,18 @@ interface BookingsData {
   asCoach: {
     id: string;
     athlete: { id: string; name: string | null; email: string };
-    slot: { id: string; startTime: string; endTime: string };
+    slot: {
+      id: string;
+      startTime: string;
+      endTime: string;
+      location: { name: string; address: string; notes: string | null } | null;
+    };
     message: string | null;
     status: string;
     amountCents: number | null;
     paymentStatus: string | null;
     createdAt: string;
+    coachRecap: string | null;
   }[];
 }
 
@@ -124,12 +135,16 @@ export default function Bookings() {
         method: "PATCH",
         body: JSON.stringify({ status }),
       }),
-    onSuccess: (data: { status: string }) => {
+    onSuccess: (data: { status: string }, variables) => {
       setUpdateError(null);
       setPendingUpdateId(null);
       setConfirmAction(null);
-      if (data?.status === "completed") setSuccessMessage("Session marked complete. Payment was captured.");
-      else if (data?.status === "cancelled") setSuccessMessage("Booking cancelled.");
+      if (data?.status === "completed") {
+        queryClient.invalidateQueries({ queryKey: ["bookings"] });
+        navigate(`/bookings/${variables.id}`);
+        return;
+      }
+      if (data?.status === "cancelled") setSuccessMessage("Booking cancelled.");
       else if (data?.status === "confirmed") setSuccessMessage("Booking confirmed.");
       setTimeout(() => setSuccessMessage(null), 5000);
       queryClient.invalidateQueries({ queryKey: ["bookings"] });
@@ -272,21 +287,24 @@ export default function Bookings() {
               {athleteUpcoming.map((b) => (
                 <div
                   key={b.id}
-                  className="p-5 sm:p-4 bg-white rounded-xl border border-slate-200"
+                  className="p-5 sm:p-4 bg-white rounded-xl border border-slate-200 shadow-sm"
                 >
                 <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
                   <div className="min-w-0">
-                    <Link to={`/bookings/${b.id}`} className="font-medium text-slate-900 hover:underline">
+                    <Link to={`/bookings/${b.id}`} className="font-medium text-slate-900 hover:text-brand-600 transition-colors">
                       {b.coach.displayName}
                     </Link>
                     <p className="text-brand-600 text-sm">{b.coach.sports?.length ? b.coach.sports.join(", ") : "—"}</p>
                     <p className="text-slate-500 text-sm mt-1">
                       {new Date(b.slot.startTime).toLocaleString()}
                     </p>
+                    {b.slot.location && (
+                      <p className="text-slate-500 text-sm mt-0.5">{b.slot.location.name}</p>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span
-                      className={`self-start px-2.5 py-1 rounded text-sm font-medium ${
+                      className={`self-start px-2.5 py-1 rounded-full text-sm font-medium ${
                         b.status === "confirmed"
                           ? "bg-emerald-100 text-emerald-700"
                           : b.status === "completed"
@@ -311,14 +329,17 @@ export default function Bookings() {
                   </div>
                 </div>
                 {b.status === "completed" && !b.review && (
-                  <div className="mt-4">
-                    <Link
-                      to={`/bookings/${b.id}`}
-                      className="text-brand-600 text-sm font-medium hover:underline"
-                    >
-                      Write a review
-                    </Link>
-                  </div>
+                  <Link
+                    to={`/bookings/${b.id}`}
+                    className="mt-4 flex items-center gap-2 text-amber-600 hover:text-amber-700 font-medium text-sm"
+                  >
+                    <span className="flex gap-0.5 text-amber-400">
+                      {[1, 2, 3, 4, 5].map((i) => (
+                        <span key={i}>★</span>
+                      ))}
+                    </span>
+                    Add a review
+                  </Link>
                 )}
                 </div>
               ))}
@@ -335,23 +356,26 @@ export default function Bookings() {
                 {athleteUnpaid.map((b) => (
                   <div
                     key={`unpaid-${b.id}`}
-                    className="p-5 sm:p-4 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                    className="p-5 sm:p-4 bg-amber-50 rounded-xl border-2 border-amber-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shadow-sm"
                   >
-                    <Link to={`/bookings/${b.id}`} className="min-w-0 flex-1 block">
-                      <p className="font-medium text-slate-900 hover:underline">{b.coach.displayName}</p>
-                      <p className="text-slate-500 text-sm">
+                    <Link to={`/bookings/${b.id}`} className="min-w-0 flex-1 block group">
+                      <p className="font-semibold text-slate-900 group-hover:text-brand-600 transition-colors">{b.coach.displayName}</p>
+                      <p className="text-slate-600 text-sm mt-0.5">
                         {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                       </p>
+                      {b.slot.location && (
+                        <p className="text-slate-500 text-sm mt-1">{b.slot.location.name}</p>
+                      )}
                       {b.amountCents != null && (
-                        <p className="text-slate-600 text-sm mt-0.5 font-medium">
-                          ${(b.amountCents / 100).toFixed(2)}
+                        <p className="text-amber-800 font-semibold text-sm mt-2">
+                          ${(b.amountCents / 100).toFixed(2)} due
                         </p>
                       )}
                     </Link>
                     <button
                       type="button"
                       onClick={() => navigate(`/bookings/${b.id}`)}
-                      className="shrink-0 px-4 py-2.5 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 touch-manipulation"
+                      className="shrink-0 px-5 py-3 text-sm font-semibold text-white bg-amber-600 rounded-lg hover:bg-amber-700 touch-manipulation shadow-sm"
                     >
                       Pay now
                     </button>
@@ -388,18 +412,23 @@ export default function Bookings() {
                   {athletePast.map((b) => (
                     <div
                       key={b.id}
-                      className="p-5 sm:p-4 bg-white rounded-xl border border-slate-200 opacity-90"
+                      className="p-5 sm:p-4 bg-white rounded-xl border border-slate-200 opacity-90 shadow-sm"
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
                         <div className="min-w-0">
-                          <p className="font-medium">{b.coach.displayName}</p>
+                          <Link to={`/bookings/${b.id}`} className="font-medium text-slate-900 hover:text-brand-600 transition-colors">
+                            {b.coach.displayName}
+                          </Link>
                           <p className="text-brand-600 text-sm">{b.coach.sports?.length ? b.coach.sports.join(", ") : "—"}</p>
                           <p className="text-slate-500 text-sm mt-1">
                             {new Date(b.slot.startTime).toLocaleString()}
                           </p>
+                          {b.slot.location && (
+                            <p className="text-slate-500 text-sm mt-0.5">{b.slot.location.name}</p>
+                          )}
                         </div>
                         <span
-                          className={`self-start px-2.5 py-1 rounded text-sm font-medium shrink-0 ${
+                          className={`self-start px-2.5 py-1 rounded-full text-sm font-medium shrink-0 ${
                             b.status === "confirmed"
                               ? "bg-emerald-100 text-emerald-700"
                               : b.status === "completed"
@@ -413,14 +442,17 @@ export default function Bookings() {
                         </span>
                       </div>
                       {b.status === "completed" && !b.review && (
-                        <div className="mt-4">
-                          <Link
-                            to={`/bookings/${b.id}`}
-                            className="text-brand-600 text-sm font-medium hover:underline"
-                          >
-                            Write a review
-                          </Link>
-                        </div>
+                        <Link
+                          to={`/bookings/${b.id}`}
+                          className="mt-4 flex items-center gap-2 text-amber-600 hover:text-amber-700 font-medium text-sm"
+                        >
+                          <span className="flex gap-0.5 text-amber-400">
+                            {[1, 2, 3, 4, 5].map((i) => (
+                              <span key={i}>★</span>
+                            ))}
+                          </span>
+                          Add a review
+                        </Link>
                       )}
                     </div>
                   ))}
@@ -455,12 +487,15 @@ export default function Bookings() {
                 >
                 <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
                   <div className="min-w-0">
-                    <Link to={`/bookings/${b.id}`} className="font-medium text-slate-900 hover:underline">
+                    <Link to={`/bookings/${b.id}`} className="font-medium text-slate-900 hover:text-brand-600 transition-colors">
                       {b.athlete.name ?? b.athlete.email}
                     </Link>
                     <p className="text-slate-500 text-sm mt-0.5">
                       {new Date(b.slot.startTime).toLocaleString()}
                     </p>
+                    {b.slot.location && (
+                      <p className="text-slate-500 text-sm mt-0.5">{b.slot.location.name}</p>
+                    )}
                     {b.message != null && b.message.trim() !== "" && (
                       <p className="text-slate-600 text-sm mt-2 whitespace-pre-wrap">{b.message}</p>
                     )}
@@ -544,10 +579,19 @@ export default function Bookings() {
                     className="p-5 sm:p-4 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium text-slate-900">{b.athlete.name ?? b.athlete.email}</p>
+                      <Link to={`/bookings/${b.id}`} className="font-medium text-slate-900 hover:text-brand-600 transition-colors">{b.athlete.name ?? b.athlete.email}</Link>
                       <p className="text-slate-500 text-sm">
                         {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                       </p>
+                      {b.slot.location && (
+                        <p className="text-slate-500 text-sm mt-0.5">{b.slot.location.name}</p>
+                      )}
+                      <Link
+                        to={`/bookings/${b.id}`}
+                        className="text-brand-600 text-sm font-medium hover:underline mt-1 inline-block"
+                      >
+                        {b.coachRecap ? "View booking" : "Add session recap"}
+                      </Link>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
@@ -612,10 +656,13 @@ export default function Bookings() {
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
                         <div className="min-w-0">
-                          <p className="font-medium">{b.athlete.name ?? b.athlete.email}</p>
+                          <Link to={`/bookings/${b.id}`} className="font-medium hover:text-brand-600 transition-colors">{b.athlete.name ?? b.athlete.email}</Link>
                           <p className="text-slate-500 text-sm">
                             {new Date(b.slot.startTime).toLocaleString()}
                           </p>
+                          {b.slot.location && (
+                            <p className="text-slate-500 text-sm mt-0.5">{b.slot.location.name}</p>
+                          )}
                           {b.message != null && b.message.trim() !== "" && (
                             <p className="text-slate-600 text-sm mt-2 whitespace-pre-wrap">{b.message}</p>
                           )}
@@ -634,6 +681,16 @@ export default function Bookings() {
                           {b.status}
                         </span>
                       </div>
+                      {b.status === "completed" && (
+                        <div className="mt-4">
+                          <Link
+                            to={`/bookings/${b.id}`}
+                            className="text-brand-600 text-sm font-medium hover:underline"
+                          >
+                            {b.coachRecap ? "View booking" : "Add session recap"}
+                          </Link>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

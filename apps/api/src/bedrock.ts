@@ -262,3 +262,88 @@ export async function invokeBioDraft(input: BioDraftInput): Promise<BioDraftOutp
   const text = firstBlock && "text" in firstBlock ? (firstBlock as { text: string }).text : "";
   return parseResponse(text ?? "");
 }
+
+// ---- Session Recap AI ----
+
+const SYSTEM_PROMPT_RECAP = (ctx: {
+  coachName: string;
+  athleteName: string;
+  sport?: string;
+  sessionTime?: string;
+}) => `You are writing a professional session recap on behalf of a coach for their athlete. The coach has provided raw notes (possibly from speech-to-text dictation) about what happened during the session. Your job is to turn those notes into a polished, concise recap.
+
+**Session details:**
+- Coach: ${ctx.coachName}
+- Athlete: ${ctx.athleteName}
+${ctx.sport ? `- Sport: ${ctx.sport}` : ""}
+${ctx.sessionTime ? `- Session: ${ctx.sessionTime}` : ""}
+
+**Rules:**
+- Use ONLY the facts from the coach's notes. Do not invent drills, exercises, stats, or feedback that were not mentioned.
+- Write in first person from the coach's perspective ("We worked on…", "I noticed…").
+- Keep it warm, professional, and encouraging.
+- Structure with short paragraphs or a few clear sections. No markdown headings needed — keep it feeling like a personal note, not a report.
+- Highlight what was covered, any progress observed, and suggestions for next time if mentioned.
+- Keep it concise: 3–6 short paragraphs. Every sentence should add value.
+- If the notes are very brief, write a shorter recap. Do not pad with generic filler.
+
+Respond with ONLY the polished recap text. No JSON, no wrapping, no markdown code fences — just the recap itself.`;
+
+export interface RecapDraftInput {
+  rawText: string;
+  coachName: string;
+  athleteName: string;
+  sport?: string;
+  sessionTime?: string;
+}
+
+export interface RecapDraftOutput {
+  recap: string;
+}
+
+export async function invokeRecapDraft(input: RecapDraftInput): Promise<RecapDraftOutput> {
+  const bedrock = getClient();
+  const systemPrompt = SYSTEM_PROMPT_RECAP({
+    coachName: input.coachName,
+    athleteName: input.athleteName,
+    sport: input.sport,
+    sessionTime: input.sessionTime,
+  });
+
+  const bedrockMessages: Message[] = [
+    { role: "user", content: [{ text: input.rawText.trim() || "Write a brief session recap." }] as ContentBlock[] },
+  ];
+
+  const command = new ConverseCommand({
+    modelId: BEDROCK_MODEL_ID,
+    system: [{ text: systemPrompt }] as SystemContentBlock[],
+    messages: bedrockMessages,
+    inferenceConfig: {
+      maxTokens: 1024,
+      temperature: 0.5,
+      topP: 0.9,
+    },
+  });
+
+  const response = await bedrock.send(command);
+  const output = response.output;
+  if (!output || !("message" in output)) {
+    throw new Error("Bedrock returned no message");
+  }
+  const msg = (output as { message: { content: Array<{ text?: string }> } }).message;
+  const firstBlock = msg?.content?.[0];
+  const text = firstBlock && "text" in firstBlock ? (firstBlock as { text: string }).text : "";
+
+  const cleaned = text.replace(/```json\s*/g, "").replace(/```/g, "").trim();
+  if (!cleaned) throw new Error("AI returned empty recap");
+
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (typeof parsed.recap === "string" && parsed.recap.trim()) {
+      return { recap: parsed.recap.trim() };
+    }
+  } catch {
+    // Not JSON — use as plain text (expected path)
+  }
+  return { recap: cleaned };
+}

@@ -151,6 +151,7 @@ model Booking {
   paymentStatus         String?  @map("payment_status") // authorized, succeeded, refunded, failed, canceled
   createdAt             DateTime @default(now()) @map("created_at")
   completedAt           DateTime? @map("completed_at")
+  coachRecap            String?  @map("coach_recap") @db.Text
 
   review Review?
 

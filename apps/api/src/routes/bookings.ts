@@ -33,7 +33,7 @@ router.get("/", auth, async (req, res) => {
     where: { athleteId: user.id },
     include: {
       coach: true,
-      slot: true,
+      slot: { include: { location: true } },
       review: true,
     },
     orderBy: { createdAt: "desc" },
@@ -47,7 +47,7 @@ router.get("/", auth, async (req, res) => {
         where: { coachId: profile.id },
         include: {
           athlete: true,
-          slot: true,
+          slot: { include: { location: true } },
           review: true,
         },
         orderBy: { createdAt: "desc" },
@@ -66,6 +66,9 @@ router.get("/", auth, async (req, res) => {
         id: b.slot.id,
         startTime: b.slot.startTime.toISOString(),
         endTime: b.slot.endTime.toISOString(),
+        location: b.slot.location
+          ? { name: b.slot.location.name, address: b.slot.location.address, notes: b.slot.location.notes ?? null }
+          : null,
       },
       message: b.message ?? null,
       status: b.status,
@@ -87,6 +90,9 @@ router.get("/", auth, async (req, res) => {
         id: b.slot.id,
         startTime: b.slot.startTime.toISOString(),
         endTime: b.slot.endTime.toISOString(),
+        location: b.slot.location
+          ? { name: b.slot.location.name, address: b.slot.location.address, notes: b.slot.location.notes ?? null }
+          : null,
       },
       message: b.message ?? null,
       status: b.status,
@@ -94,6 +100,7 @@ router.get("/", auth, async (req, res) => {
       paymentStatus: b.paymentStatus ?? null,
       createdAt: b.createdAt.toISOString(),
       completedAt: b.completedAt?.toISOString() ?? null,
+      coachRecap: b.coachRecap ?? null,
       review: b.review
         ? { rating: b.review.rating, comment: b.review.comment, createdAt: b.review.createdAt.toISOString() }
         : null,
@@ -156,7 +163,7 @@ router.get("/:id", auth, async (req, res) => {
     where: { id: req.params.id },
     include: {
       coach: true,
-      slot: true,
+      slot: { include: { location: true } },
       athlete: true,
       review: true,
     },
@@ -184,6 +191,15 @@ router.get("/:id", auth, async (req, res) => {
       id: booking.slot.id,
       startTime: booking.slot.startTime.toISOString(),
       endTime: booking.slot.endTime.toISOString(),
+      location: booking.slot.location
+        ? {
+            name: booking.slot.location.name,
+            address: booking.slot.location.address,
+            notes: booking.slot.location.notes ?? null,
+            latitude: booking.slot.location.latitude != null ? Number(booking.slot.location.latitude) : null,
+            longitude: booking.slot.location.longitude != null ? Number(booking.slot.location.longitude) : null,
+          }
+        : null,
     },
     athlete: isCoach
       ? {
@@ -198,6 +214,7 @@ router.get("/:id", auth, async (req, res) => {
     paymentStatus: booking.paymentStatus ?? null,
     createdAt: booking.createdAt.toISOString(),
     completedAt: booking.completedAt?.toISOString() ?? null,
+    coachRecap: booking.coachRecap ?? null,
     review: booking.review
       ? {
           rating: booking.review.rating,
@@ -206,6 +223,82 @@ router.get("/:id", auth, async (req, res) => {
         }
       : null,
   });
+});
+
+// Coach: generate AI-enhanced session recap draft (preview only, not saved)
+router.post("/:id/recap-draft", auth, async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const rawText = (req.body as { rawText?: string }).rawText;
+  if (!rawText || typeof rawText !== "string" || !rawText.trim()) {
+    return res.status(400).json({ error: "rawText is required" });
+  }
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: req.params.id },
+    include: { coach: true, slot: true, athlete: { select: { name: true } } },
+  });
+  if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
+  if (!profile || profile.id !== booking.coachId) {
+    return res.status(403).json({ error: "Only the coach can write a recap" });
+  }
+  if (booking.status !== "completed") {
+    return res.status(400).json({ error: "Session must be completed first" });
+  }
+
+  try {
+    const { invokeRecapDraft } = await import("../bedrock.js");
+    const slotStr = `${booking.slot.startTime.toLocaleString()} – ${booking.slot.endTime.toLocaleString()}`;
+    const result = await invokeRecapDraft({
+      rawText: rawText.trim(),
+      coachName: booking.coach.displayName,
+      athleteName: booking.athlete.name ?? "the athlete",
+      sport: booking.coach.sports?.[0],
+      sessionTime: slotStr,
+    });
+    res.json({ recap: result.recap });
+  } catch (err) {
+    console.error("[bookings] recap-draft error:", err);
+    const message = err instanceof Error ? err.message : "Failed to generate recap";
+    res.status(502).json({ error: message });
+  }
+});
+
+// Coach: save session recap
+router.post("/:id/recap", auth, async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const recap = (req.body as { recap?: string }).recap;
+  if (!recap || typeof recap !== "string" || !recap.trim()) {
+    return res.status(400).json({ error: "recap is required" });
+  }
+  if (recap.length > 5000) {
+    return res.status(400).json({ error: "Recap is too long (max 5000 characters)" });
+  }
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: req.params.id },
+  });
+  if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
+  if (!profile || profile.id !== booking.coachId) {
+    return res.status(403).json({ error: "Only the coach can write a recap" });
+  }
+  if (booking.status !== "completed") {
+    return res.status(400).json({ error: "Session must be completed first" });
+  }
+
+  await prisma.booking.update({
+    where: { id: req.params.id },
+    data: { coachRecap: recap.trim() },
+  });
+
+  res.json({ coachRecap: recap.trim() });
 });
 
 // Athlete: pay for a deferred booking with an embedded card form (server-side confirm, no webhook dependency)
@@ -336,158 +429,180 @@ router.post("/", auth, async (req, res) => {
   const { coachId, slotId, message } = parsed.data;
   const paymentMethodId = (req.body as { payment_method?: string }).payment_method as string | undefined;
 
-  const slot = await prisma.availabilitySlot.findFirst({
-    where: { id: slotId, coachId },
-    include: { coach: true },
-  });
-  if (!slot)
-    return res.status(404).json({ error: "Slot not found" });
-  if (slot.status !== "available")
-    return res.status(400).json({ error: "Slot is not available" });
-
-  const myExisting = await prisma.booking.findFirst({
-    where: { slotId, athleteId: user.id, status: { not: "cancelled" } },
-  });
-  if (myExisting)
-    return res.status(409).json({ error: "You already have a pending request for this slot", code: "PENDING_REQUEST" });
-
-  const confirmedBooking = await prisma.booking.findFirst({
-    where: { slotId, status: "confirmed" },
-  });
-  if (confirmedBooking)
-    return res.status(409).json({ error: "Slot is already booked" });
-
-  const athleteUser = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { email: true, stripeCustomerId: true },
-  });
-  if (!athleteUser) return res.status(401).json({ error: "User not found" });
-
-  const coach = slot.coach;
-  const hourlyRate = coach.hourlyRate ? Number(coach.hourlyRate) : null;
-  const hasRate = hourlyRate != null && hourlyRate > 0;
-  const needsPayment =
-    isStripeEnabled() &&
-    stripe &&
-    hasRate &&
-    !!coach.stripeConnectAccountId &&
-    coach.billingMode === "upfront";
-
-  const amountCents = hasRate ? computeAmountCents(slot, hourlyRate!) : null;
-  const currency = "usd";
-
-  if (needsPayment && !paymentMethodId) {
-    return res.status(400).json({
-      error: "Payment method required.",
-      code: "PAYMENT_METHOD_REQUIRED",
+  try {
+    const slot = await prisma.availabilitySlot.findFirst({
+      where: { id: slotId, coachId },
+      include: { coach: { include: { user: { select: { email: true } } } } },
     });
-  }
+    if (!slot)
+      return res.status(404).json({ error: "Slot not found" });
+    if (slot.status !== "available")
+      return res.status(400).json({ error: "Slot is not available" });
+    if (!slot.coach?.user) {
+      console.error("[bookings] create booking: coach has no user record", { coachId: slot.coach?.id });
+      return res.status(503).json({ error: "Coach account is not set up correctly. Please try again later." });
+    }
 
-  const booking = await prisma.booking.create({
-    data: {
-      athleteId: user.id,
-      coachId,
-      slotId,
-      message: message?.trim() || null,
-      amountCents: amountCents ?? undefined,
-      currency,
-      paymentStatus: needsPayment ? "pending_authorization" : (hasRate ? "deferred" : undefined),
-    },
-    include: {
-      coach: { include: { user: { select: { email: true } } } },
-      slot: true,
-      athlete: { select: { email: true, name: true } },
-    },
-  });
+    const myExisting = await prisma.booking.findFirst({
+      where: { slotId, athleteId: user.id, status: { not: "cancelled" } },
+    });
+    if (myExisting)
+      return res.status(409).json({ error: "You already have a pending request for this slot", code: "PENDING_REQUEST" });
 
-  let clientSecret: string | null = null;
+    const confirmedBooking = await prisma.booking.findFirst({
+      where: { slotId, status: "confirmed" },
+    });
+    if (confirmedBooking)
+      return res.status(409).json({ error: "Slot is already booked" });
 
-  if (needsPayment && amountCents != null && stripe) {
-    try {
-      const customerId = await getOrCreateStripeCustomerId(
-        stripe,
-        user.id,
-        athleteUser.email ?? "",
-        athleteUser.stripeCustomerId
-      );
-      if (!athleteUser.stripeCustomerId)
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { stripeCustomerId: customerId },
-        });
+    const athleteUser = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { email: true, stripeCustomerId: true },
+    });
+    if (!athleteUser) return res.status(401).json({ error: "User not found" });
 
-      const { clientSecret: secret, paymentIntentId, status: piStatus } = await createPaymentIntentAuthOnly({
-        amountCents,
-        currency,
-        customerId,
-        paymentMethodId: paymentMethodId || undefined,
-        idempotencyKey: booking.id,
-        metadata: { bookingId: booking.id },
-        connectAccountId: booking.coach.stripeConnectAccountId ?? undefined,
-      });
-      // When we had a payment method, we confirmed on the server: requires_capture = done; requires_action = 3DS on client.
-      clientSecret = piStatus === "requires_action" ? secret : null;
-      await prisma.booking.update({
-        where: { id: booking.id },
-        data: {
-          stripePaymentIntentId: paymentIntentId,
-          ...(piStatus === "requires_capture" && { paymentStatus: "authorized" as const }),
-        },
-      });
-    } catch (err) {
-      console.error("[bookings] create PaymentIntent failed:", err);
-      await prisma.booking.update({
-        where: { id: booking.id },
-        data: { paymentStatus: "failed" },
-      });
-      return res.status(502).json({
-        error: "Payment setup failed. Please try again or use a different card.",
+    const coach = slot.coach;
+    const hourlyRate = coach.hourlyRate ? Number(coach.hourlyRate) : null;
+    const hasRate = hourlyRate != null && hourlyRate > 0;
+    const needsPayment =
+      isStripeEnabled() &&
+      stripe &&
+      hasRate &&
+      !!coach.stripeConnectAccountId &&
+      coach.billingMode === "upfront";
+
+    const amountCents = hasRate ? computeAmountCents(slot, hourlyRate!) : null;
+    const currency = "usd";
+
+    if (needsPayment && !paymentMethodId) {
+      return res.status(400).json({
+        error: "Payment method required.",
+        code: "PAYMENT_METHOD_REQUIRED",
       });
     }
+
+    const booking = await prisma.booking.create({
+      data: {
+        athleteId: user.id,
+        coachId,
+        slotId,
+        message: message?.trim() || null,
+        amountCents: amountCents ?? undefined,
+        currency,
+        paymentStatus: needsPayment ? "pending_authorization" : (hasRate ? "deferred" : undefined),
+      },
+      include: {
+        coach: { include: { user: { select: { email: true } } } },
+        slot: true,
+        athlete: { select: { email: true, name: true } },
+      },
+    });
+
+    let clientSecret: string | null = null;
+
+    if (needsPayment && amountCents != null && stripe) {
+      try {
+        const customerId = await getOrCreateStripeCustomerId(
+          stripe,
+          user.id,
+          athleteUser.email ?? "",
+          athleteUser.stripeCustomerId
+        );
+        if (!athleteUser.stripeCustomerId)
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { stripeCustomerId: customerId },
+          });
+
+        const { clientSecret: secret, paymentIntentId, status: piStatus } = await createPaymentIntentAuthOnly({
+          amountCents,
+          currency,
+          customerId,
+          paymentMethodId: paymentMethodId || undefined,
+          idempotencyKey: booking.id,
+          metadata: { bookingId: booking.id },
+          connectAccountId: booking.coach.stripeConnectAccountId ?? undefined,
+        });
+        // When we had a payment method, we confirmed on the server: requires_capture = done; requires_action = 3DS on client.
+        clientSecret = piStatus === "requires_action" ? secret : null;
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: {
+            stripePaymentIntentId: paymentIntentId,
+            ...(piStatus === "requires_capture" && { paymentStatus: "authorized" as const }),
+          },
+        });
+      } catch (err) {
+        console.error("[bookings] create PaymentIntent failed:", err);
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: { paymentStatus: "failed" },
+        });
+        return res.status(502).json({
+          error: "Payment setup failed. Please try again or use a different card.",
+        });
+      }
+    }
+
+    if (booking.coach?.user) {
+      sendBookingRequestedToCoach({
+        coachEmail: booking.coach.user.email,
+        coachPhone: booking.coach.phone ?? null,
+        athleteName: booking.athlete?.name ?? null,
+        slotStart: booking.slot.startTime.toISOString(),
+        slotEnd: booking.slot.endTime.toISOString(),
+        message: booking.message,
+        bookingId: booking.id,
+      }).catch((err) => console.error("[bookings] notify coach failed:", err));
+    } else {
+      console.error("[bookings] create booking: skipping coach notification (no coach.user)", { bookingId: booking.id });
+    }
+
+    if (booking.athlete) {
+      sendBookingRequestSubmittedToAthlete({
+        athleteEmail: booking.athlete.email,
+        athleteName: booking.athlete.name ?? null,
+        coachDisplayName: booking.coach.displayName,
+        slotStart: booking.slot.startTime.toISOString(),
+        slotEnd: booking.slot.endTime.toISOString(),
+        bookingId: booking.id,
+      }).catch((err) => console.error("[bookings] notify athlete (request submitted) failed:", err));
+    } else {
+      console.error("[bookings] create booking: skipping athlete notification (no athlete)", { bookingId: booking.id });
+    }
+
+    const response: Record<string, unknown> = {
+      id: booking.id,
+      coach: {
+        id: booking.coach.id,
+        displayName: booking.coach.displayName,
+        sports: booking.coach.sports,
+      },
+      slot: {
+        id: booking.slot.id,
+        startTime: booking.slot.startTime.toISOString(),
+        endTime: booking.slot.endTime.toISOString(),
+      },
+      status: booking.status,
+      amountCents: booking.amountCents ?? null,
+      paymentStatus: booking.paymentStatus ?? null,
+      createdAt: booking.createdAt.toISOString(),
+    };
+    if (clientSecret) {
+      (response as { clientSecret: string }).clientSecret = clientSecret;
+      (response as { requiresAction: boolean }).requiresAction = true;
+    }
+
+    res.status(201).json(response);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error("[bookings] create booking error:", message, stack ?? "");
+    res.status(500).json({
+      error: "Internal server error",
+      ...(process.env.NODE_ENV !== "production" && { detail: message }),
+    });
   }
-
-  sendBookingRequestedToCoach({
-    coachEmail: booking.coach.user.email,
-    coachPhone: booking.coach.phone ?? null,
-    athleteName: booking.athlete.name ?? null,
-    slotStart: booking.slot.startTime.toISOString(),
-    slotEnd: booking.slot.endTime.toISOString(),
-    message: booking.message,
-    bookingId: booking.id,
-  }).catch((err) => console.error("[bookings] notify coach failed:", err));
-
-  sendBookingRequestSubmittedToAthlete({
-    athleteEmail: booking.athlete.email,
-    athleteName: booking.athlete.name ?? null,
-    coachDisplayName: booking.coach.displayName,
-    slotStart: booking.slot.startTime.toISOString(),
-    slotEnd: booking.slot.endTime.toISOString(),
-    bookingId: booking.id,
-  }).catch((err) => console.error("[bookings] notify athlete (request submitted) failed:", err));
-
-  const response: Record<string, unknown> = {
-    id: booking.id,
-    coach: {
-      id: booking.coach.id,
-      displayName: booking.coach.displayName,
-      sports: booking.coach.sports,
-    },
-    slot: {
-      id: booking.slot.id,
-      startTime: booking.slot.startTime.toISOString(),
-      endTime: booking.slot.endTime.toISOString(),
-    },
-    status: booking.status,
-    amountCents: booking.amountCents ?? null,
-    paymentStatus: booking.paymentStatus ?? null,
-    createdAt: booking.createdAt.toISOString(),
-  };
-  if (clientSecret) {
-    (response as { clientSecret: string }).clientSecret = clientSecret;
-    (response as { requiresAction: boolean }).requiresAction = true;
-  }
-
-  res.status(201).json(response);
 });
 
 // Update booking (accept/decline/complete). Charge and transfer to coach only on "completed".
