@@ -645,22 +645,22 @@ export default function CoachDashboard() {
         {/* Hero welcome banner */}
         <section className="relative rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 p-6 sm:p-8 mb-6 sm:mb-8 overflow-hidden">
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_80%_20%,rgba(236,116,26,0.12),transparent_60%)]" />
-          <div className="relative flex items-center justify-between gap-4 sm:gap-5">
-            <div className="flex items-center gap-4 sm:gap-5 min-w-0">
+          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+            <div className="flex items-center gap-4 sm:gap-5 min-w-0 flex-1">
               <Avatar
                 src={coachPhotoUrl}
                 displayName={coach.displayName}
                 size="xl"
                 className="shrink-0 w-14 h-14 sm:w-16 sm:h-16 ring-2 ring-white/20"
               />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-white tracking-tight truncate">
                   Hi, {coach.displayName.split(/\s+/)[0] || "Coach"}
                 </h1>
                 <p className="text-slate-400 text-sm sm:text-base mt-0.5">Here&apos;s what&apos;s happening.</p>
               </div>
             </div>
-            <div className="shrink-0 flex flex-col items-end gap-1">
+            <div className="shrink-0 flex flex-col items-stretch sm:items-end gap-1">
               <button
                 type="button"
                 onClick={() => {

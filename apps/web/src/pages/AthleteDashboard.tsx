@@ -99,19 +99,19 @@ function paymentBadge(paymentStatus: string | null, amountCents: number | null) 
   if (!amountCents) return null;
   if (paymentStatus === "succeeded")
     return (
-      <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+      <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 whitespace-nowrap">
         Paid {formatCurrency(amountCents)}
       </span>
     );
   if (paymentStatus === "deferred" || paymentStatus === "payment_link_sent")
     return (
-      <span className="inline-flex items-center rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-medium text-orange-800">
+      <span className="inline-flex items-center rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-medium text-orange-800 whitespace-nowrap">
         {formatCurrency(amountCents)} due
       </span>
     );
   if (paymentStatus === "authorized")
     return (
-      <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
+      <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800 whitespace-nowrap">
         {formatCurrency(amountCents)} held
       </span>
     );
@@ -130,14 +130,14 @@ function ProfileCard({
   };
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-      <div className="flex items-start justify-between">
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-6 shadow-sm">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
             <User className="h-7 w-7" />
           </div>
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">
+          <div className="min-w-0">
+            <h2 className="text-xl font-semibold text-gray-900 truncate">
               {profile.displayName || "Athlete"}
             </h2>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
@@ -146,7 +146,7 @@ function ProfileCard({
               )}
               {profile.serviceCity && (
                 <span className="flex items-center gap-1">
-                  <MapPin className="h-3.5 w-3.5" />
+                  <MapPin className="h-3.5 w-3.5 shrink-0" />
                   {profile.serviceCity}
                 </span>
               )}
@@ -157,7 +157,7 @@ function ProfileCard({
         </div>
         <Link
           to="/athlete/profile"
-          className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          className="shrink-0 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 text-center"
         >
           Edit Profile
         </Link>
@@ -181,15 +181,15 @@ function UpcomingSessions({ bookings }: { bookings: AthleteBooking[] }) {
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
-      <div className="flex items-center gap-2 border-b border-gray-100 px-6 py-4">
-        <Calendar className="h-5 w-5 text-indigo-600" />
-        <h3 className="text-lg font-semibold text-gray-900">Upcoming Sessions</h3>
-        <span className="ml-auto rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
+      <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-4 sm:px-6">
+        <Calendar className="h-5 w-5 shrink-0 text-indigo-600" />
+        <h3 className="text-lg font-semibold text-gray-900 min-w-0">Upcoming Sessions</h3>
+        <span className="ml-auto shrink-0 rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
           {upcoming.length}
         </span>
       </div>
       {upcoming.length === 0 ? (
-        <div className="p-6 text-center text-sm text-gray-500">
+        <div className="p-4 sm:p-6 text-center text-sm text-gray-500">
           <p>No upcoming sessions.</p>
           <Link
             to="/find"
@@ -204,7 +204,7 @@ function UpcomingSessions({ bookings }: { bookings: AthleteBooking[] }) {
             <li key={b.id}>
               <Link
                 to={`/bookings/${b.id}`}
-                className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors"
+                className="flex items-center gap-4 px-4 py-4 hover:bg-gray-50 transition-colors sm:px-6"
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
@@ -259,17 +259,17 @@ function PastSessions({ bookings }: { bookings: AthleteBooking[] }) {
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
-      <div className="flex items-center gap-2 border-b border-gray-100 px-6 py-4">
-        <FileText className="h-5 w-5 text-indigo-600" />
-        <h3 className="text-lg font-semibold text-gray-900">Past Sessions</h3>
-        <span className="ml-auto rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
+      <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-4 sm:px-6">
+        <FileText className="h-5 w-5 shrink-0 text-indigo-600" />
+        <h3 className="text-lg font-semibold text-gray-900 min-w-0">Past Sessions</h3>
+        <span className="ml-auto shrink-0 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
           {past.length}
         </span>
       </div>
       <ul className="divide-y divide-gray-100">
         {past.map((b) => (
-            <li key={b.id} className="px-6 py-4">
-              <div className="flex items-start justify-between">
+            <li key={b.id} className="px-4 py-4 sm:px-6">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-900">
@@ -293,7 +293,7 @@ function PastSessions({ bookings }: { bookings: AthleteBooking[] }) {
                 </div>
                 <Link
                   to={`/bookings/${b.id}`}
-                  className="ml-4 flex-shrink-0 text-sm text-indigo-600 hover:text-indigo-700"
+                  className="shrink-0 text-sm text-indigo-600 hover:text-indigo-700 sm:ml-4"
                 >
                   View
                 </Link>
@@ -348,32 +348,32 @@ function PaymentsSection({ bookings }: { bookings: AthleteBooking[] }) {
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
-      <div className="flex items-center gap-2 border-b border-gray-100 px-6 py-4">
-        <DollarSign className="h-5 w-5 text-indigo-600" />
+      <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-4 sm:px-6">
+        <DollarSign className="h-5 w-5 shrink-0 text-indigo-600" />
         <h3 className="text-lg font-semibold text-gray-900">Payments</h3>
       </div>
 
       {unpaid.length > 0 && (
-        <div className="border-b border-gray-100 px-6 py-3">
+        <div className="border-b border-gray-100 px-4 py-3 sm:px-6">
           <h4 className="mb-2 text-sm font-semibold text-orange-700">
             Payment Due
           </h4>
-          <ul className="space-y-2">
+          <ul className="space-y-3">
             {unpaid.map((b) => (
-              <li key={b.id} className="flex items-center justify-between">
-                <div className="text-sm">
+              <li key={b.id} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm min-w-0">
                   <span className="font-medium text-gray-900">
                     {b.coach.displayName}
                   </span>
-                  <span className="ml-2 text-gray-500">
+                  <span className="ml-2 text-gray-500 whitespace-nowrap">
                     {formatDate(b.slot.startTime)}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   {paymentBadge(b.paymentStatus, b.amountCents)}
                   <Link
                     to={`/bookings/${b.id}`}
-                    className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700"
+                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 whitespace-nowrap"
                   >
                     Pay Now
                   </Link>
@@ -385,22 +385,22 @@ function PaymentsSection({ bookings }: { bookings: AthleteBooking[] }) {
       )}
 
       {paid.length > 0 && (
-        <div className="px-6 py-3">
+        <div className="px-4 py-3 sm:px-6">
           <h4 className="mb-2 text-sm font-semibold text-gray-600">
             Payment History
           </h4>
-          <ul className="space-y-2">
+          <ul className="space-y-3">
             {paid.map((b) => (
-              <li key={b.id} className="flex items-center justify-between">
-                <div className="text-sm">
+              <li key={b.id} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm min-w-0">
                   <span className="font-medium text-gray-900">
                     {b.coach.displayName}
                   </span>
-                  <span className="ml-2 text-gray-500">
+                  <span className="ml-2 text-gray-500 whitespace-nowrap">
                     {formatDate(b.slot.startTime)}
                   </span>
                 </div>
-                {paymentBadge(b.paymentStatus, b.amountCents)}
+                <div className="shrink-0">{paymentBadge(b.paymentStatus, b.amountCents)}</div>
               </li>
             ))}
           </ul>
@@ -436,12 +436,12 @@ export default function AthleteDashboard() {
   const athleteBookings = bookingsData?.asAthlete ?? [];
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">
+    <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+      <h1 className="mb-4 sm:mb-6 text-xl sm:text-2xl font-bold text-gray-900">
         Welcome back{profile?.displayName ? `, ${profile.displayName}` : ""}
       </h1>
 
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {profile && <ProfileCard profile={profile} />}
 
         {bookingsLoading ? (
