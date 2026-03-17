@@ -14,6 +14,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
     where: { id: user.id },
     include: {
       athleteProfile: true,
+      coachProfile: { select: { id: true } },
     },
   });
 
@@ -21,7 +22,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
 
   let profile = dbUser.athleteProfile;
   if (!profile) {
-    if (dbUser.signupRole === "coach") {
+    if (dbUser.signupRole === "coach" || dbUser.coachProfile) {
       return res.status(404).json({ error: "No athlete profile. You signed up as a coach." });
     }
     profile = await prisma.athleteProfile.create({
@@ -60,9 +61,13 @@ router.put("/me", authMiddleware(), async (req, res) => {
 
   const dbUser = await prisma.user.findUnique({
     where: { id: user.id },
-    select: { id: true, name: true },
+    select: { id: true, name: true, signupRole: true, coachProfile: { select: { id: true } } },
   });
   if (!dbUser) return res.status(404).json({ error: "User not found" });
+
+  if (dbUser.signupRole === "coach" || dbUser.coachProfile) {
+    return res.status(403).json({ error: "Coach accounts cannot create or update athlete profiles." });
+  }
 
   const existing = await prisma.athleteProfile.findUnique({
     where: { userId: user.id },

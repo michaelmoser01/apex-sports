@@ -207,9 +207,11 @@ functions:
 
   cognitoPreSignUp:
     handler: apps/api/src/cognito-pre-signup.handler
-    description: Auto-confirms Cognito sign-ups in dev (no email verification)
+    description: Auto-confirms Cognito sign-ups in dev unless REQUIRE_SIGNUP_VERIFICATION=true
     memorySize: 128
     timeout: 5
+    environment:
+      REQUIRE_SIGNUP_VERIFICATION: ${env:REQUIRE_SIGNUP_VERIFICATION, 'true'}
 
 resources:
   Conditions:

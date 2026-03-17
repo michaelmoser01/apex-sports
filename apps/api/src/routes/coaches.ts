@@ -520,6 +520,16 @@ router.put("/me", authMiddleware(), async (req, res) => {
   const user = (req as { user?: { id: string } }).user;
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
+  const dbUserCheck = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { signupRole: true, athleteProfile: { select: { id: true } } },
+  });
+  if (dbUserCheck?.signupRole === "athlete" || dbUserCheck?.athleteProfile) {
+    return res.status(403).json({
+      error: "You signed up as an athlete. Use a different account to create a coach profile.",
+    });
+  }
+
   const parsed = coachProfileUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -721,10 +731,10 @@ router.post("/me", authMiddleware(), async (req, res) => {
 
     const dbUser = await prisma.user.findUnique({
       where: { id: user.id },
-      select: { signupRole: true },
+      select: { signupRole: true, athleteProfile: { select: { id: true } } },
     });
     if (!dbUser) return res.status(404).json({ error: "User not found" });
-    if (dbUser.signupRole === "athlete") {
+    if (dbUser.signupRole === "athlete" || dbUser.athleteProfile) {
       return res.status(403).json({
         error: "You signed up as an athlete. Use a different account to create a coach profile.",
       });

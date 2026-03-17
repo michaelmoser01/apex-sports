@@ -1,10 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { Authenticator } from "@aws-amplify/ui-react";
-import "@aws-amplify/ui-react/styles.css";
 import { AuthProvider } from "./contexts/AuthContext";
 import Layout from "./components/Layout";
-import DevLoginGate from "./components/DevLoginGate";
+import ProtectedRoute from "./components/ProtectedRoute";
 import Home from "./pages/Home";
 import Coaches from "./pages/Coaches";
 import ForCoaches from "./pages/ForCoaches";
@@ -21,6 +20,8 @@ import AthleteOnboarding from "./pages/AthleteOnboarding";
 import CoachOnboardingBio from "./pages/CoachOnboardingBio";
 import Welcome from "./pages/Welcome";
 import Join from "./pages/Join";
+import SignUpPage from "./pages/SignUp";
+import SignInPage from "./pages/SignIn";
 import OnboardingLayout from "./components/OnboardingLayout";
 import OnboardingBasic from "./pages/onboarding/OnboardingBasic";
 import OnboardingAbout from "./pages/onboarding/OnboardingAbout";
@@ -32,41 +33,6 @@ const hasCognito =
   !!import.meta.env.VITE_COGNITO_USER_POOL_ID &&
   !!import.meta.env.VITE_COGNITO_CLIENT_ID;
 const isDevMode = !hasCognito;
-
-function SignUpRedirect() {
-  return <Navigate to="/welcome" replace />;
-}
-
-const authenticatorFormFields = {
-  signIn: {
-    username: {
-      label: "Email",
-      placeholder: "Enter your email",
-    },
-  },
-  signUp: {
-    name: {
-      label: "Name",
-      placeholder: "Enter your name",
-      order: 1,
-    },
-    username: {
-      label: "Email",
-      placeholder: "Enter your email",
-      order: 2,
-    },
-    password: {
-      label: "Password",
-      placeholder: "Enter your password",
-      order: 3,
-    },
-    confirm_password: {
-      label: "Confirm Password",
-      placeholder: "Confirm your password",
-      order: 4,
-    },
-  },
-};
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -80,6 +46,7 @@ function AppContent() {
   return (
     <Routes>
       <Route path="/" element={<Layout />}>
+        {/* Public routes */}
         <Route index element={<Home />} />
         <Route path="coaches" element={<ForCoaches />} />
         <Route path="pricing" element={<Navigate to="/coaches#pricing" replace />} />
@@ -90,255 +57,36 @@ function AppContent() {
           <Route path="book" element={<CoachBook />} />
           <Route path="booking/success" element={<CoachBookingSuccess />} />
         </Route>
-        <Route
-          path="book/:coachId/:slotId"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <CompleteReservedBooking />
-              </DevLoginGate>
-            ) : (
-              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
-                <CompleteReservedBooking />
-              </Authenticator>
-            )
-          }
-        />
-        <Route
-          path="bookings"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <Bookings />
-              </DevLoginGate>
-            ) : (
-              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
-                <Bookings />
-              </Authenticator>
-            )
-          }
-        />
-        <Route
-          path="bookings/:id"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <BookingDetail />
-              </DevLoginGate>
-            ) : (
-              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
-                <BookingDetail />
-              </Authenticator>
-            )
-          }
-        />
-        <Route
-          path="sign-in"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <Navigate to="/welcome" replace />
-              </DevLoginGate>
-            ) : (
-              <Authenticator
-                formFields={authenticatorFormFields}
-                signUpAttributes={["name"]}
-                initialState="signIn"
-              >
-                <Navigate to="/welcome" replace />
-              </Authenticator>
-            )
-          }
-        />
-        <Route
-          path="sign-up"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <SignUpRedirect />
-              </DevLoginGate>
-            ) : (
-              <Authenticator
-                formFields={authenticatorFormFields}
-                signUpAttributes={["name"]}
-                initialState="signUp"
-              >
-                <SignUpRedirect />
-              </Authenticator>
-            )
-          }
-        />
-        <Route
-          path="dashboard"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <CoachDashboard />
-              </DevLoginGate>
-            ) : (
-              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
-                <CoachDashboard />
-              </Authenticator>
-            )
-          }
-        />
-        <Route
-          path="dashboard/profile"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <CoachDashboard />
-              </DevLoginGate>
-            ) : (
-              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
-                <CoachDashboard />
-              </Authenticator>
-            )
-          }
-        />
-        <Route
-          path="dashboard/athletes"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <CoachDashboard />
-              </DevLoginGate>
-            ) : (
-              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
-                <CoachDashboard />
-              </Authenticator>
-            )
-          }
-        />
-        <Route
-          path="dashboard/agent-test"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <CoachDashboard />
-              </DevLoginGate>
-            ) : (
-              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
-                <CoachDashboard />
-              </Authenticator>
-            )
-          }
-        />
-        <Route
-          path="athlete/onboarding"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <AthleteOnboarding />
-              </DevLoginGate>
-            ) : (
-              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
-                <AthleteOnboarding />
-              </Authenticator>
-            )
-          }
-        />
-        <Route
-          path="athlete/profile"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <AthleteProfilePage />
-              </DevLoginGate>
-            ) : (
-              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
-                <AthleteProfilePage />
-              </Authenticator>
-            )
-          }
-        />
-        <Route
-          path="coach/onboarding"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <OnboardingLayout />
-              </DevLoginGate>
-            ) : (
-              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
-                <OnboardingLayout />
-              </Authenticator>
-            )
-          }
-        >
+
+        {/* Auth pages (custom, not protected) */}
+        <Route path="sign-in" element={<SignInPage />} />
+        <Route path="sign-up" element={<SignUpPage />} />
+
+        {/* Protected routes */}
+        <Route path="book/:coachId/:slotId" element={<ProtectedRoute><CompleteReservedBooking /></ProtectedRoute>} />
+        <Route path="bookings" element={<ProtectedRoute><Bookings /></ProtectedRoute>} />
+        <Route path="bookings/:id" element={<ProtectedRoute><BookingDetail /></ProtectedRoute>} />
+        <Route path="dashboard" element={<ProtectedRoute><CoachDashboard /></ProtectedRoute>} />
+        <Route path="dashboard/profile" element={<ProtectedRoute><CoachDashboard /></ProtectedRoute>} />
+        <Route path="dashboard/athletes" element={<ProtectedRoute><CoachDashboard /></ProtectedRoute>} />
+        <Route path="dashboard/agent-test" element={<ProtectedRoute><CoachDashboard /></ProtectedRoute>} />
+        <Route path="dashboard/availability" element={<ProtectedRoute><CoachDashboard /></ProtectedRoute>} />
+        <Route path="athlete/onboarding" element={<ProtectedRoute><AthleteOnboarding /></ProtectedRoute>} />
+        <Route path="athlete/profile" element={<ProtectedRoute><AthleteProfilePage /></ProtectedRoute>} />
+        <Route path="coach/onboarding" element={<ProtectedRoute><OnboardingLayout /></ProtectedRoute>}>
           <Route index element={<Navigate to="/coach/onboarding/basic" replace />} />
           <Route path="basic" element={<OnboardingBasic />} />
           <Route path="about" element={<OnboardingAbout />} />
           <Route path="assistant" element={<OnboardingAssistant />} />
         </Route>
-        <Route
-          path="coach/onboarding/bio"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <CoachOnboardingBio />
-              </DevLoginGate>
-            ) : (
-              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
-                <CoachOnboardingBio />
-              </Authenticator>
-            )
-          }
-        />
-        <Route
-          path="coach/setup/get-paid"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <OnboardingGetPaid />
-              </DevLoginGate>
-            ) : (
-              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
-                <OnboardingGetPaid />
-              </Authenticator>
-            )
-          }
-        />
-        <Route path="coach/setup/plan" element={
-          isDevMode ? (
-            <DevLoginGate><Outlet /></DevLoginGate>
-          ) : (
-            <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
-              <Outlet />
-            </Authenticator>
-          )
-        }>
+        <Route path="coach/onboarding/bio" element={<ProtectedRoute><CoachOnboardingBio /></ProtectedRoute>} />
+        <Route path="coach/setup/get-paid" element={<ProtectedRoute><OnboardingGetPaid /></ProtectedRoute>} />
+        <Route path="coach/setup/plan" element={<ProtectedRoute><Outlet /></ProtectedRoute>}>
           <Route index element={<OnboardingPlan />} />
           <Route path="success" element={<OnboardingPlanSuccess />} />
         </Route>
-        <Route
-          path="dashboard/availability"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <CoachDashboard />
-              </DevLoginGate>
-            ) : (
-              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
-                <CoachDashboard />
-              </Authenticator>
-            )
-          }
-        />
-        <Route
-          path="welcome"
-          element={
-            isDevMode ? (
-              <DevLoginGate>
-                <Welcome />
-              </DevLoginGate>
-            ) : (
-              <Authenticator formFields={authenticatorFormFields} signUpAttributes={["name"]}>
-                <Welcome />
-              </Authenticator>
-            )
-          }
-        />
+        <Route path="welcome" element={<ProtectedRoute><Welcome /></ProtectedRoute>} />
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

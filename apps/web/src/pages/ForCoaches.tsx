@@ -13,6 +13,9 @@ import {
 import { PRICING_PLANS, PRICING_FOOTNOTES, type PricingPlan } from "@/data/pricing";
 import { Button } from "@/components/ui";
 import { SectionHeader } from "@/components/ui";
+import { useAuthenticator } from "@aws-amplify/ui-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 function formatAdditionalMessages(plan: PricingPlan): string {
   return `$${plan.overagePerSms.toFixed(3)} each`;
@@ -72,6 +75,13 @@ const WHY_DIFFERENT = [
 ];
 
 export default function ForCoaches() {
+  const { isDevMode, devUser } = useAuth();
+  const { authStatus } = useAuthenticator((ctx) => [ctx.authStatus]);
+  const isAuthenticated = isDevMode ? !!devUser : authStatus === "authenticated";
+  const { data: currentUser } = useCurrentUser(isAuthenticated);
+  const isCoach = !!currentUser?.coachProfile || currentUser?.signupRole === "coach";
+  const coachCtaTo = isCoach ? "/dashboard" : "/sign-up";
+
   return (
     <div className="min-h-screen bg-white">
       {/* ── Hero ── */}
@@ -99,9 +109,9 @@ export default function ForCoaches() {
             Text "Book Maceo for 4p on Tuesday" — your assistant handles the rest.
           </p>
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
-            <Link to="/sign-up">
+            <Link to={coachCtaTo}>
               <Button size="xl" className="w-full sm:w-auto shadow-lg shadow-brand-500/30">
-                Get started as a Coach
+                {isCoach ? "Go to Dashboard" : "Get started as a Coach"}
                 <ArrowRight className="w-5 h-5" />
               </Button>
             </Link>
@@ -167,9 +177,9 @@ export default function ForCoaches() {
                   </li>
                 ))}
               </ul>
-              <Link to="/sign-up" className="inline-block mt-10">
+              <Link to={coachCtaTo} className="inline-block mt-10">
                 <Button variant="dark" size="lg">
-                  Sign up and create account
+                  {isCoach ? "Go to Dashboard" : "Sign up and create account"}
                   <ArrowRight className="w-5 h-5" />
                 </Button>
               </Link>
@@ -250,7 +260,7 @@ export default function ForCoaches() {
                     {formatAdditionalMessages(plan)}
                   </p>
                 </div>
-                <Link to="/sign-up" className="mt-7 block">
+                <Link to={coachCtaTo} className="mt-7 block">
                   <Button
                     variant={plan.recommended ? "primary" : "dark"}
                     size="lg"
@@ -281,9 +291,9 @@ export default function ForCoaches() {
           <p className="mt-4 text-lg text-slate-400">
             Join hundreds of coaches already using ApexSports.
           </p>
-          <Link to="/sign-up" className="inline-block mt-8">
+          <Link to={coachCtaTo} className="inline-block mt-8">
             <Button size="xl" className="shadow-lg shadow-brand-500/30">
-              Get started free
+              {isCoach ? "Go to Dashboard" : "Get started free"}
               <ArrowRight className="w-5 h-5" />
             </Button>
           </Link>

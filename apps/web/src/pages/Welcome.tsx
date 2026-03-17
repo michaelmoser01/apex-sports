@@ -52,6 +52,11 @@ export default function Welcome() {
     );
   }
 
+  // Coach check first — prevents coaches with dual profiles from hitting athlete flow
+  if (currentUser?.signupRole === "coach" || currentUser?.coachProfile) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   const isAlreadyAthlete =
     currentUser?.signupRole === "athlete" || !!currentUser?.athleteProfile;
   const athleteProfileComplete = hasCompletedAthleteOnboarding(currentUser?.athleteProfile ?? null);
@@ -67,10 +72,6 @@ export default function Welcome() {
       return <Navigate to="/find" replace />;
     }
     return <Navigate to="/athlete/onboarding" replace />;
-  }
-
-  if (currentUser?.signupRole === "coach" || currentUser?.coachProfile) {
-    return <Navigate to="/dashboard" replace />;
   }
 
   if (fromInvite) {
@@ -145,7 +146,7 @@ export default function Welcome() {
           </button>
         </div>
         <p className="text-slate-400 text-sm mt-8">
-          You can always add a coach profile later or book sessions as an athlete.
+          This choice determines your account type and cannot be changed later.
         </p>
         {setRoleMutation.isError && (
           <p className="text-danger-600 text-sm mt-4">{setRoleMutation.error?.message}</p>

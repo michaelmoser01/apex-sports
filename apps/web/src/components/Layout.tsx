@@ -3,10 +3,9 @@ import { createPortal } from "react-dom";
 import { Outlet, Link, useLocation, Navigate } from "react-router-dom";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { signOut } from "aws-amplify/auth";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { api } from "@/lib/api";
 import { getStoredInviteSlug } from "@/pages/Join";
 import { Menu, X, ChevronRight } from "lucide-react";
 
@@ -233,7 +232,7 @@ function AppShell({
               </>
             ) : (
               <Link
-                to="/welcome"
+                to="/sign-in"
                 className="rounded-xl bg-brand-500 text-white px-5 py-2.5 text-sm font-semibold hover:bg-brand-600 hover:shadow-glow-brand transition-all"
               >
                 Sign in
@@ -355,7 +354,7 @@ function AppShell({
                 ) : (
                   <div className="px-4 pt-2">
                     <Link
-                      to="/welcome"
+                      to="/sign-in"
                       className="block py-3 px-4 rounded-xl bg-brand-500 text-white font-semibold text-center text-sm hover:bg-brand-600 transition-colors"
                       onClick={() => setMenuOpen(false)}
                     >
@@ -443,104 +442,43 @@ function AppShell({
   );
 }
 
-function DevLayout() {
-  const { devUser, setDevUser } = useAuth();
-  const queryClient = useQueryClient();
-  const location = useLocation();
-  const { data: currentUser, isLoading: currentUserLoading } = useCurrentUser(!!devUser);
-
-  const handleDevSignOut = () => {
-    queryClient.clear();
-    setDevUser(null);
-  };
-
-  const onAthleteOnboardingWithInvite =
-    location.pathname === "/athlete/onboarding" && !!getStoredInviteSlug();
-  const redirectToWelcome =
-    devUser &&
-    !currentUserLoading &&
-    location.pathname !== "/welcome" &&
-    !onAthleteOnboardingWithInvite &&
-    (!currentUser || !currentUser.signupRole);
-  const showCoachDashboard = !!currentUser?.coachProfile;
-  const showAthleteProfile = !!currentUser?.athleteProfile;
-  const signedIn = !!devUser;
-  const showFindCoaches = !signedIn || (showAthleteProfile && !showCoachDashboard);
-  const showForCoaches = !signedIn;
-  const profileTo = showCoachDashboard ? "/dashboard/profile" : showAthleteProfile ? "/athlete/profile" : null;
-
-  if (redirectToWelcome) {
-    return <Navigate to="/welcome" replace />;
-  }
-
-  const navConfig: NavConfig = {
-    signedIn,
-    showFindCoaches,
-    showForCoaches,
-    showCoachDashboard,
-    profileTo,
-    currentUser,
-    onSignOut: handleDevSignOut,
-  };
-
-  return (
-    <AppShell config={navConfig}>
-      {redirectToWelcome ? <Navigate to="/welcome" replace /> : <Outlet />}
-    </AppShell>
-  );
-}
-
-function CognitoLayout() {
+export default function Layout() {
+  const { isDevMode, devUser, setDevUser } = useAuth();
   const { authStatus } = useAuthenticator((context) => [context.authStatus]);
-  const location = useLocation();
-  const isAuthenticated = authStatus === "authenticated";
-  const { data: currentUser, isLoading: currentUserLoading } = useCurrentUser(isAuthenticated);
   const queryClient = useQueryClient();
-  const setCoachRoleAttempted = useRef(false);
+  const location = useLocation();
 
-  const setCoachRoleMutation = useMutation({
-    mutationFn: () =>
-      api("/auth/me", {
-        method: "PATCH",
-        body: JSON.stringify({ signupRole: "coach" }),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
-    },
-  });
-
-  const isOnOnboarding = location.pathname.startsWith("/coach/onboarding");
-  const shouldSetCoachAndStay =
-    isAuthenticated &&
-    !currentUserLoading &&
-    (!currentUser || !currentUser.signupRole) &&
-    isOnOnboarding;
-  useEffect(() => {
-    if (!shouldSetCoachAndStay || setCoachRoleAttempted.current) return;
-    setCoachRoleAttempted.current = true;
-    setCoachRoleMutation.mutate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldSetCoachAndStay]);
+  const isAuthenticated = isDevMode ? !!devUser : authStatus === "authenticated";
+  const { data: currentUser, isLoading: currentUserLoading } = useCurrentUser(isAuthenticated);
 
   const handleSignOut = async () => {
     try {
-      await signOut();
+      if (isDevMode) {
+        setDevUser(null);
+      } else {
+        await signOut();
+      }
     } finally {
       queryClient.clear();
     }
   };
 
+  const authPages = ["/sign-in", "/sign-up"];
+  const isOnAuthPage = authPages.includes(location.pathname);
   const onAthleteOnboardingWithInvite =
     location.pathname === "/athlete/onboarding" && !!getStoredInviteSlug();
+
   const redirectToWelcome =
     isAuthenticated &&
     !currentUserLoading &&
+    !isOnAuthPage &&
     location.pathname !== "/welcome" &&
     !onAthleteOnboardingWithInvite &&
     (!currentUser || !currentUser.signupRole);
+
   const showCoachDashboard = !!currentUser?.coachProfile;
   const showAthleteProfile = !!currentUser?.athleteProfile;
-  const signedIn = authStatus === "authenticated";
+  const signedIn = isAuthenticated;
   const showFindCoaches = !signedIn || (showAthleteProfile && !showCoachDashboard);
   const showForCoaches = !signedIn;
   const profileTo = showCoachDashboard ? "/dashboard/profile" : showAthleteProfile ? "/athlete/profile" : null;
@@ -561,16 +499,7 @@ function CognitoLayout() {
 
   return (
     <AppShell config={navConfig}>
-      {redirectToWelcome && !isOnOnboarding && location.pathname !== "/sign-up" ? (
-        <Navigate to="/welcome" replace />
-      ) : (
-        <Outlet />
-      )}
+      <Outlet />
     </AppShell>
   );
-}
-
-export default function Layout() {
-  const { isDevMode } = useAuth();
-  return isDevMode ? <DevLayout /> : <CognitoLayout />;
 }

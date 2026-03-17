@@ -41,6 +41,13 @@ export default function AthleteOnboarding() {
       </div>
     );
   }
+
+  // Coach accounts cannot do athlete onboarding — redirect to dashboard
+  const isCoach = currentUser?.signupRole === "coach" || !!currentUser?.coachProfile;
+  if (!currentUserLoading && isCoach && !inviteSlug) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   if (
     inviteSlug &&
     inviteCoachId &&
