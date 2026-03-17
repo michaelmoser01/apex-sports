@@ -250,7 +250,7 @@ export async function getCoachAvailabilitySummary(coachId: string): Promise<stri
 
 /**
  * List athletes connected to this coach (for the agent to resolve names like "Maceo").
- * Returns displayName and athleteId (userId) so the model can pass athleteId to book_slot.
+ * Returns displayName and athleteId (AthleteProfile.id) so the model can pass athleteId to book_slot.
  */
 export async function getConnectedAthletesForCoach(
   coachId: string,
@@ -265,7 +265,7 @@ export async function getConnectedAthletesForCoach(
         ? { athlete: { displayName: { contains: filter, mode: "insensitive" as const } } }
         : {}),
     },
-    include: { athlete: { select: { displayName: true, userId: true } } },
+    include: { athlete: { select: { id: true, displayName: true } } },
     orderBy: { createdAt: "desc" },
   });
 
@@ -273,20 +273,20 @@ export async function getConnectedAthletesForCoach(
     if (filter) {
       const all = await prisma.coachAthlete.findMany({
         where: { coachProfileId: coachId, status: "active" },
-        include: { athlete: { select: { displayName: true, userId: true } } },
+        include: { athlete: { select: { id: true, displayName: true } } },
         orderBy: { createdAt: "desc" },
       });
       if (all.length === 0) {
         return "No connected athletes yet. Athletes appear here after they sign up via your invite link.";
       }
-      const lines = all.map((ca) => `${ca.athlete.displayName} | athleteId: ${ca.athlete.userId}`);
+      const lines = all.map((ca) => `${ca.athlete.displayName} | athleteId: ${ca.athlete.id}`);
       return `No connected athlete found matching "${filter}". Your connected athletes:\n${lines.join("\n")}\nUse the exact display name or the athleteId from the list above when booking.`;
     }
     return "No connected athletes yet. Athletes appear here after they sign up via your invite link.";
   }
 
   const lines = list.map(
-    (ca) => `${ca.athlete.displayName} | athleteId: ${ca.athlete.userId}`
+    (ca) => `${ca.athlete.displayName} | athleteId: ${ca.athlete.id}`
   );
   return lines.join("\n");
 }
@@ -297,12 +297,12 @@ export async function getConnectedAthletesForCoach(
  */
 export async function createBookingForAthlete(
   coachId: string,
-  athleteId: string,
+  athleteProfileId: string,
   startTimeIso: string,
   message?: string
 ): Promise<string> {
   const link = await prisma.coachAthlete.findFirst({
-    where: { coachProfileId: coachId, athlete: { userId: athleteId }, status: "active" },
+    where: { coachProfileId: coachId, athleteProfileId, status: "active" },
   });
   if (!link) {
     return "This athlete is not linked to this coach. Only connected athletes can book.";
@@ -334,7 +334,7 @@ export async function createBookingForAthlete(
 
   const slotId = slot.id;
   const existing = await prisma.booking.findFirst({
-    where: { slotId, athleteId, status: { not: "cancelled" } },
+    where: { slotId, athleteProfileId, status: { not: "cancelled" } },
   });
   if (existing) return "This athlete already has a pending or confirmed request for this slot.";
 
@@ -343,23 +343,21 @@ export async function createBookingForAthlete(
   });
   if (confirmed) return "This slot is already booked by someone else.";
 
-  const athlete = await prisma.user.findUnique({
-    where: { id: athleteId },
-    select: { name: true, email: true },
+  const athleteProfile = await prisma.athleteProfile.findUnique({
+    where: { id: athleteProfileId },
+    include: { user: { select: { name: true, email: true } } },
   });
-  if (!athlete?.email) return "Athlete email not found; cannot send booking link.";
+  if (!athleteProfile?.user.email) return "Athlete email not found; cannot send booking link.";
 
   const slotStart = slot.startTime.toISOString();
   const slotEnd = slot.endTime.toISOString();
   const coachName = slot.coach.displayName;
 
-  // Coach-initiated booking: never create a Booking here. Always send invite email with link
-  // so the athlete completes the booking (and payment if required) on the site.
   const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
   const bookingUrl = appUrl ? `${appUrl}/book/${coachId}/${slotId}` : "";
   sendCoachInviteToBookSlot({
-    athleteEmail: athlete.email,
-    athleteName: athlete.name ?? null,
+    athleteEmail: athleteProfile.user.email,
+    athleteName: athleteProfile.user.name ?? null,
     coachDisplayName: coachName,
     slotStart,
     slotEnd,

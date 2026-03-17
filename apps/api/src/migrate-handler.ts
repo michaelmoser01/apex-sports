@@ -76,6 +76,12 @@ async function getAppliedMigrations(client: pg.Client): Promise<Set<string>> {
   return new Set(res.rows.map((r: { migration_name: string }) => r.migration_name));
 }
 
+async function markFailedMigrationsRolledBack(client: pg.Client): Promise<void> {
+  await client.query(
+    "UPDATE _prisma_migrations SET rolled_back_at = now() WHERE finished_at IS NULL AND logs IS NOT NULL AND rolled_back_at IS NULL"
+  );
+}
+
 function checksum(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
@@ -85,6 +91,7 @@ async function runMigrations(databaseUrl: string, migrationsDir: string): Promis
   await client.connect();
   try {
     await ensureMigrationsTable(client);
+    await markFailedMigrationsRolledBack(client);
     const applied = await getAppliedMigrations(client);
     const dirs = listMigrationDirs(migrationsDir);
     for (const name of dirs) {

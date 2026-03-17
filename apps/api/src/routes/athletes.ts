@@ -13,14 +13,14 @@ router.get("/me", authMiddleware(), async (req, res) => {
   const dbUser = await prisma.user.findUnique({
     where: { id: user.id },
     include: {
-      athleteProfile: true,
+      athleteProfiles: true,
       coachProfile: { select: { id: true } },
     },
   });
 
   if (!dbUser) return res.status(404).json({ error: "User not found" });
 
-  let profile = dbUser.athleteProfile;
+  let profile = dbUser.athleteProfiles[0] ?? null;
   if (!profile) {
     if (dbUser.signupRole === "coach" || dbUser.coachProfile) {
       return res.status(404).json({ error: "No athlete profile. You signed up as a coach." });
@@ -69,40 +69,36 @@ router.put("/me", authMiddleware(), async (req, res) => {
     return res.status(403).json({ error: "Coach accounts cannot create or update athlete profiles." });
   }
 
-  const existing = await prisma.athleteProfile.findUnique({
+  const existing = await prisma.athleteProfile.findFirst({
     where: { userId: user.id },
   });
 
-  const profile = await prisma.athleteProfile.upsert({
-    where: { userId: user.id },
-    create: {
-      userId: user.id,
-      displayName: data.displayName ?? existing?.displayName ?? dbUser.name ?? "",
-      serviceCity:
-        data.serviceCity !== undefined
-          ? data.serviceCity
-          : existing?.serviceCity ?? null,
-      birthYear:
-        data.birthYear !== undefined
-          ? data.birthYear ?? null
-          : existing?.birthYear ?? null,
-      sports:
-        data.sports && data.sports.length > 0
-          ? data.sports
-          : existing?.sports ?? [],
-      level:
-        data.level !== undefined ? data.level ?? null : existing?.level ?? null,
-      phone: data.phone ?? existing?.phone ?? null,
-    },
-    update: {
-      ...(data.displayName !== undefined && { displayName: data.displayName }),
-      ...(data.serviceCity !== undefined && { serviceCity: data.serviceCity }),
-      ...(data.birthYear !== undefined && { birthYear: data.birthYear ?? null }),
-      ...(data.sports !== undefined && { sports: data.sports }),
-      ...(data.level !== undefined && { level: data.level ?? null }),
-      ...(data.phone !== undefined && { phone: data.phone ?? null }),
-    },
-  });
+  let profile;
+  if (existing) {
+    profile = await prisma.athleteProfile.update({
+      where: { id: existing.id },
+      data: {
+        ...(data.displayName !== undefined && { displayName: data.displayName }),
+        ...(data.serviceCity !== undefined && { serviceCity: data.serviceCity }),
+        ...(data.birthYear !== undefined && { birthYear: data.birthYear ?? null }),
+        ...(data.sports !== undefined && { sports: data.sports }),
+        ...(data.level !== undefined && { level: data.level ?? null }),
+        ...(data.phone !== undefined && { phone: data.phone ?? null }),
+      },
+    });
+  } else {
+    profile = await prisma.athleteProfile.create({
+      data: {
+        userId: user.id,
+        displayName: data.displayName ?? dbUser.name ?? "",
+        serviceCity: data.serviceCity !== undefined ? data.serviceCity : null,
+        birthYear: data.birthYear !== undefined ? data.birthYear ?? null : null,
+        sports: data.sports && data.sports.length > 0 ? data.sports : [],
+        level: data.level !== undefined ? data.level ?? null : null,
+        phone: data.phone ?? null,
+      },
+    });
+  }
 
   res.json({
     id: profile.id,

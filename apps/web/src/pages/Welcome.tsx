@@ -69,7 +69,7 @@ export default function Welcome() {
       return <Navigate to="/athlete/onboarding" replace />;
     }
     if (athleteProfileComplete) {
-      return <Navigate to="/find" replace />;
+      return <Navigate to="/athlete" replace />;
     }
     return <Navigate to="/athlete/onboarding" replace />;
   }

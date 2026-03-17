@@ -24,6 +24,8 @@ import {
   ArrowRight,
   DollarSign,
   ChevronRight,
+  MapPin,
+  Check,
 } from "lucide-react";
 
 interface CoachPhoto {
@@ -270,6 +272,7 @@ interface BookingsData {
     completedAt: string | null;
     review: { rating: number; comment: string; createdAt: string } | null;
     paymentStatus: string | null;
+    amountCents: number | null;
   }[];
 }
 
@@ -497,6 +500,7 @@ export default function CoachDashboard() {
   });
   const [editingInviteSlug, setEditingInviteSlug] = useState(false);
   const [inviteSlugInput, setInviteSlugInput] = useState("");
+  const [inviteCopied, setInviteCopied] = useState(false);
   const updateInviteMutation = useMutation({
     mutationFn: (slug: string) =>
       api<{ slug: string; url: string }>("/coaches/me/invites", {
@@ -526,12 +530,18 @@ export default function CoachDashboard() {
     enabled: !!profile && !("error" in profile) && (view === "overview" || view === "athletes" || view === "agentTest"),
   });
 
+  const [pendingBookingId, setPendingBookingId] = useState<string | null>(null);
   const bookingUpdateMutation = useMutation({
-    mutationFn: async ({ bookingId, status }: { bookingId: string; status: "confirmed" | "declined" }) => {
+    mutationFn: async ({ bookingId, status }: { bookingId: string; status: "confirmed" | "cancelled" }) => {
+      setPendingBookingId(bookingId);
       await api(`/bookings/${bookingId}`, { method: "PATCH", body: JSON.stringify({ status }) });
     },
     onSuccess: () => {
+      setPendingBookingId(null);
       queryClient.invalidateQueries({ queryKey: ["bookings"] });
+    },
+    onError: () => {
+      setPendingBookingId(null);
     },
   });
 
@@ -617,9 +627,10 @@ export default function CoachDashboard() {
       .sort((a, b) => (b.review!.createdAt > a.review!.createdAt ? 1 : -1))
       .slice(0, 3);
     const unpaidSessions = asCoach.filter(
-      (b) => (b.status === "confirmed" || b.status === "completed") &&
+      (b) => b.status === "completed" &&
              (b.paymentStatus === "deferred" || b.paymentStatus === "payment_link_sent")
     );
+    const unpaidTotal = unpaidSessions.reduce((sum, b) => sum + (b.amountCents ?? 0), 0);
     const athletes = athletesData ?? [];
     const recentAthletes = athletes.slice(0, 6);
     const bookingsLoading = !bookingsData && !!profile;
@@ -634,18 +645,55 @@ export default function CoachDashboard() {
         {/* Hero welcome banner */}
         <section className="relative rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 p-6 sm:p-8 mb-6 sm:mb-8 overflow-hidden">
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_80%_20%,rgba(236,116,26,0.12),transparent_60%)]" />
-          <div className="relative flex items-center gap-4 sm:gap-5">
-            <Avatar
-              src={coachPhotoUrl}
-              displayName={coach.displayName}
-              size="xl"
-              className="shrink-0 w-14 h-14 sm:w-16 sm:h-16 ring-2 ring-white/20"
-            />
-            <div className="min-w-0">
-              <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-white tracking-tight truncate">
-                Hi, {coach.displayName.split(/\s+/)[0] || "Coach"}
-              </h1>
-              <p className="text-slate-400 text-sm sm:text-base mt-0.5">Here&apos;s what&apos;s happening.</p>
+          <div className="relative flex items-center justify-between gap-4 sm:gap-5">
+            <div className="flex items-center gap-4 sm:gap-5 min-w-0">
+              <Avatar
+                src={coachPhotoUrl}
+                displayName={coach.displayName}
+                size="xl"
+                className="shrink-0 w-14 h-14 sm:w-16 sm:h-16 ring-2 ring-white/20"
+              />
+              <div className="min-w-0">
+                <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-white tracking-tight truncate">
+                  Hi, {coach.displayName.split(/\s+/)[0] || "Coach"}
+                </h1>
+                <p className="text-slate-400 text-sm sm:text-base mt-0.5">Here&apos;s what&apos;s happening.</p>
+              </div>
+            </div>
+            <div className="shrink-0 flex flex-col items-end gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (inviteData?.url) {
+                    navigator.clipboard.writeText(inviteData.url);
+                    setInviteCopied(true);
+                    setTimeout(() => setInviteCopied(false), 2500);
+                  }
+                }}
+                disabled={!inviteData?.url}
+                className={`px-4 py-2 rounded-xl font-medium text-sm transition touch-manipulation inline-flex items-center gap-1.5 border ${
+                  inviteCopied
+                    ? "bg-white/25 text-white border-white/40"
+                    : "bg-white/15 text-white hover:bg-white/25 border-white/20"
+                }`}
+              >
+                {inviteCopied ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Users className="w-4 h-4" />
+                    Invite athlete
+                  </>
+                )}
+              </button>
+              {inviteCopied && inviteData?.url && (
+                <p className="text-white/90 text-xs" title={inviteData.url}>
+                  Copied to clipboard: {inviteData.url.replace(/^https?:\/\/[^/]+/, "")}
+                </p>
+              )}
             </div>
           </div>
         </section>
@@ -761,19 +809,19 @@ export default function CoachDashboard() {
                         <div className="flex gap-2 shrink-0">
                           <button
                             type="button"
-                            onClick={() => bookingUpdateMutation.mutate({ bookingId: b.id, status: "declined" })}
-                            disabled={bookingUpdateMutation.isPending}
+                            onClick={() => bookingUpdateMutation.mutate({ bookingId: b.id, status: "cancelled" })}
+                            disabled={pendingBookingId === b.id}
                             className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 touch-manipulation disabled:opacity-50"
                           >
-                            Decline
+                            {pendingBookingId === b.id ? "…" : "Decline"}
                           </button>
                           <button
                             type="button"
                             onClick={() => bookingUpdateMutation.mutate({ bookingId: b.id, status: "confirmed" })}
-                            disabled={bookingUpdateMutation.isPending}
+                            disabled={pendingBookingId === b.id}
                             className="px-3 py-2 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 touch-manipulation disabled:opacity-50"
                           >
-                            Accept
+                            {pendingBookingId === b.id ? "…" : "Accept"}
                           </button>
                         </div>
                       </div>
@@ -835,7 +883,7 @@ export default function CoachDashboard() {
                         </p>
                       </div>
                     </div>
-                    <Link to="/bookings" className="shrink-0 text-brand-600 font-medium text-sm hover:underline touch-manipulation">
+                    <Link to={`/bookings/${b.id}`} className="shrink-0 text-brand-600 font-medium text-sm hover:underline touch-manipulation">
                       View
                     </Link>
                   </li>
@@ -864,7 +912,7 @@ export default function CoachDashboard() {
                 {recentAthletes.map((a) => (
                   <Link
                     key={a.athleteProfileId}
-                    to="/dashboard/athletes"
+                    to={`/dashboard/athletes/${a.athleteProfileId}`}
                     className="flex flex-col items-center gap-1.5 p-2 rounded-lg hover:bg-slate-50 touch-manipulation"
                   >
                     <Avatar
@@ -930,13 +978,15 @@ export default function CoachDashboard() {
 
           {/* Unpaid sessions */}
           {unpaidSessions.length > 0 && (
-            <section className="p-4 sm:p-6 bg-white rounded-2xl border border-slate-200 shadow-sm min-h-0 lg:col-span-2 border-l-4 border-l-amber-500">
+            <section className="p-4 sm:p-6 bg-amber-50 rounded-2xl border-2 border-amber-300 shadow-sm min-h-0 lg:col-span-2">
               <div className="flex justify-between items-center mb-3 sm:mb-4">
                 <div className="flex items-center gap-2">
-                  <DollarSign className="w-5 h-5 text-amber-500" />
-                  <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                    Unpaid sessions
-                    <span className="ml-2 text-sm font-normal text-slate-500">({unpaidSessions.length})</span>
+                  <DollarSign className="w-5 h-5 text-amber-600" />
+                  <h2 className="text-base sm:text-lg font-bold text-amber-900">
+                    Payment due
+                    <span className="ml-2 text-sm font-semibold text-amber-700">
+                      ${(unpaidTotal / 100).toFixed(2)} ({unpaidSessions.length})
+                    </span>
                   </h2>
                 </div>
                 <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm touch-manipulation inline-flex items-center gap-1">
@@ -947,12 +997,19 @@ export default function CoachDashboard() {
                 {unpaidSessions.map((b) => (
                   <div
                     key={`unpaid-${b.id}`}
-                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 rounded-lg bg-slate-50 border border-slate-100"
+                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 rounded-lg bg-white border border-amber-200"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium text-slate-900 text-sm truncate">
-                        {b.athlete.name ?? b.athlete.email}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-slate-900 text-sm truncate">
+                          {b.athlete.name ?? b.athlete.email}
+                        </p>
+                        {b.amountCents != null && (
+                          <span className="text-sm font-semibold text-amber-700">
+                            ${(b.amountCents / 100).toFixed(2)}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-slate-500 text-xs">
                         {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                       </p>
@@ -961,7 +1018,7 @@ export default function CoachDashboard() {
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                         b.paymentStatus === "payment_link_sent"
                           ? "bg-amber-100 text-amber-700"
-                          : "bg-slate-200 text-slate-600"
+                          : "bg-red-100 text-red-700"
                       }`}>
                         {b.paymentStatus === "payment_link_sent" ? "Link sent" : "Not sent"}
                       </span>
@@ -970,14 +1027,14 @@ export default function CoachDashboard() {
                           type="button"
                           onClick={() => paymentRequestMutation.mutate(b.id)}
                           disabled={paymentRequestMutation.isPending}
-                          className="px-3 py-2 text-sm font-medium text-white bg-success-600 rounded-lg hover:bg-success-700 touch-manipulation disabled:opacity-50"
+                          className="px-3 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 touch-manipulation disabled:opacity-50"
                         >
-                          {b.paymentStatus === "payment_link_sent" ? "Resend" : "Send payment link"}
+                          {b.paymentStatus === "payment_link_sent" ? "Resend link" : "Send payment link"}
                         </button>
                       ) : (
                         <Link
                           to="/coach/setup/get-paid"
-                          className="px-3 py-2 text-sm font-medium text-success-800 bg-success-100 rounded-lg hover:bg-success-200 touch-manipulation"
+                          className="px-3 py-2 text-sm font-medium text-amber-800 bg-amber-100 rounded-lg hover:bg-amber-200 touch-manipulation"
                         >
                           Set up payments
                         </Link>
@@ -1023,136 +1080,172 @@ export default function CoachDashboard() {
 
   if (view === "athletes") {
     const athletes = athletesData ?? [];
+    const coachBookings = bookingsData?.asCoach ?? [];
+
+    const athleteStats = new Map<string, { sessionCount: number; lastSession: string | null; nextSession: string | null }>();
+    for (const b of coachBookings) {
+      const apId = b.athlete.id;
+      const existing = athleteStats.get(apId) ?? { sessionCount: 0, lastSession: null, nextSession: null };
+      existing.sessionCount++;
+      const endTime = b.slot.endTime;
+      if (new Date(endTime) < new Date()) {
+        if (!existing.lastSession || endTime > existing.lastSession) existing.lastSession = endTime;
+      } else {
+        if (!existing.nextSession || b.slot.startTime < existing.nextSession) existing.nextSession = b.slot.startTime;
+      }
+      athleteStats.set(apId, existing);
+    }
+
+    const sortedAthletes = [...athletes].sort((a, b) => {
+      const aStats = athleteStats.get(a.athleteProfileId);
+      const bStats = athleteStats.get(b.athleteProfileId);
+      const aDate = aStats?.lastSession ?? aStats?.nextSession ?? a.createdAt;
+      const bDate = bStats?.lastSession ?? bStats?.nextSession ?? b.createdAt;
+      return new Date(bDate).getTime() - new Date(aDate).getTime();
+    });
+
     return (
-      <div className="max-w-4xl mx-auto px-4 py-12">
-        <h1 className="text-2xl font-bold text-slate-900 mb-6">Athletes</h1>
-        <section id="invite-athletes" className="mb-8 p-6 bg-white rounded-xl border border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">
-            Invite athletes
-          </h2>
-          <p className="text-slate-600 text-sm mb-4">
-            Share your link so new athletes can sign up and be associated with you. They&apos;ll see this link when they text your number too.
-          </p>
+      <div className="max-w-4xl mx-auto px-4 py-8 sm:py-12">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold text-slate-900">Athletes</h1>
+          <span className="text-sm text-slate-500">{athletes.length} connected</span>
+        </div>
+
+        {/* Invite link - compact */}
+        <section id="invite-athletes" className="mb-6 p-4 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-slate-900 text-sm">Invite athletes</p>
+            <p className="text-slate-500 text-xs mt-0.5">Share your link so athletes can sign up and connect with you.</p>
+          </div>
           {inviteData?.url ? (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={inviteData.url}
-                  className="flex-1 min-w-[200px] px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 text-sm"
-                />
+            <div className="flex items-center gap-2 shrink-0">
+              <input
+                type="text"
+                readOnly
+                value={inviteData.url}
+                className="w-48 sm:w-64 px-3 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-600 text-xs"
+              />
+              <button
+                type="button"
+                onClick={() => navigator.clipboard.writeText(inviteData.url)}
+                className="px-3 py-1.5 rounded-lg bg-brand-500 text-white font-medium text-sm hover:bg-brand-600"
+              >
+                Copy
+              </button>
+              {!editingInviteSlug ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(inviteData.url);
-                  }}
-                  className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-50"
+                  onClick={() => { setInviteSlugInput(inviteData.slug); setEditingInviteSlug(true); }}
+                  className="text-slate-400 hover:text-slate-600 text-xs underline"
                 >
-                  Copy link
+                  Edit
                 </button>
-              </div>
-              {!editingInviteSlug ? (
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setInviteSlugInput(inviteData.slug);
-                      setEditingInviteSlug(true);
-                    }}
-                    className="text-brand-600 hover:underline font-medium text-sm"
-                  >
-                    Edit link name
-                  </button>
-                  <a
-                    href={`/join/${inviteData.slug}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-slate-600 hover:text-slate-900 font-medium text-sm"
-                  >
-                    Preview join page →
-                  </a>
-                </div>
               ) : (
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1">
                   <input
                     type="text"
                     value={inviteSlugInput}
                     onChange={(e) => setInviteSlugInput(e.target.value)}
                     placeholder="my-name"
-                    className="px-3 py-2 border border-slate-300 rounded-lg text-sm w-48"
+                    className="px-2 py-1 border border-slate-300 rounded text-xs w-28"
                   />
                   <button
                     type="button"
                     onClick={() => updateInviteMutation.mutate(inviteSlugInput)}
                     disabled={updateInviteMutation.isPending || !inviteSlugInput.trim() || inviteSlugInput.trim().length < 2}
-                    className="px-4 py-2 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 disabled:opacity-50"
+                    className="px-2 py-1 rounded bg-brand-500 text-white text-xs font-medium hover:bg-brand-600 disabled:opacity-50"
                   >
-                    {updateInviteMutation.isPending ? "Saving…" : "Save"}
+                    Save
                   </button>
                   <button
                     type="button"
                     onClick={() => { setEditingInviteSlug(false); setInviteSlugInput(""); }}
-                    className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                    className="text-slate-400 hover:text-slate-600 text-xs"
                   >
                     Cancel
                   </button>
                 </div>
               )}
-              {updateInviteMutation.isError && (
-                <p className="text-danger-600 text-sm" role="alert">
-                  {updateInviteMutation.error?.message ?? "Failed to update link name."}
-                </p>
-              )}
             </div>
           ) : (
-            <p className="text-slate-500 text-sm">Loading your invite link…</p>
+            <p className="text-slate-400 text-xs">Loading…</p>
+          )}
+          {updateInviteMutation.isError && (
+            <p className="text-danger-600 text-xs">{updateInviteMutation.error?.message ?? "Failed"}</p>
           )}
         </section>
-        <p className="text-slate-600 text-sm mb-6">
-          Here are the athletes who have signed up via your invite link or booked a session in the past.
-        </p>
+
         {athletesLoading ? (
-          <div className="p-6 bg-white rounded-xl border border-slate-200">
-            <p className="text-slate-500">Loading athletes…</p>
+          <div className="flex items-center justify-center py-16">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-500 border-t-transparent" />
           </div>
         ) : athletesError ? (
-          <div className="p-6 bg-white rounded-xl border border-slate-200">
-            <p className="text-slate-700 mb-2">Couldn&apos;t load your connected athletes.</p>
-            <p className="text-slate-500 text-sm mb-4">This can happen if you&apos;re not signed in as the same coach, or there was a network error. Try again.</p>
-            <button
-              type="button"
-              onClick={() => refetchAthletes()}
-              className="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600"
-            >
+          <div className="p-6 bg-white rounded-xl border border-slate-200 text-center">
+            <p className="text-slate-700 mb-2">Couldn&apos;t load your athletes.</p>
+            <button type="button" onClick={() => refetchAthletes()} className="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600">
               Retry
             </button>
           </div>
         ) : athletes.length === 0 ? (
-          <div className="p-6 bg-white rounded-xl border border-slate-200">
-            <p className="text-slate-500">No connected athletes yet. Share your invite link so athletes can sign up and appear here.</p>
-            <a href="#invite-athletes" className="inline-block mt-4 text-brand-600 font-medium hover:underline">
-              Get your invite link ↑
-            </a>
+          <div className="p-8 bg-white rounded-xl border border-slate-200 text-center">
+            <Users className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+            <p className="text-slate-600 font-medium">No connected athletes yet</p>
+            <p className="text-slate-400 text-sm mt-1">Share your invite link so athletes can sign up and appear here.</p>
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <ul className="divide-y divide-slate-200">
-              {athletes.map((a) => (
-                <li key={a.athleteProfileId} className="flex justify-between items-center px-6 py-4">
-                  <div>
-                    <p className="font-medium text-slate-900">{a.athlete.displayName}</p>
-                    {a.athlete.sports?.length ? (
-                      <p className="text-slate-500 text-sm">{a.athlete.sports.join(", ")}</p>
-                    ) : null}
-                    <p className="text-slate-400 text-xs mt-0.5">Connected {new Date(a.createdAt).toLocaleDateString()}</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {sortedAthletes.map((a) => {
+              const stats = athleteStats.get(a.athleteProfileId);
+              return (
+                <Link
+                  key={a.athleteProfileId}
+                  to={`/dashboard/athletes/${a.athleteProfileId}`}
+                  className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-slate-200 hover:border-brand-300 hover:shadow-md transition-all"
+                >
+                  <Avatar
+                    src={null}
+                    displayName={a.athlete.displayName}
+                    size="md"
+                    className="shrink-0 ring-2 ring-slate-100 group-hover:ring-brand-200 transition-all"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-slate-900 truncate group-hover:text-brand-600 transition-colors">{a.athlete.displayName}</p>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                      {a.athlete.sports?.length ? (
+                        <span className="text-xs text-slate-500">{a.athlete.sports.join(", ")}</span>
+                      ) : null}
+                      {a.athlete.serviceCity && (
+                        <span className="text-xs text-slate-400 flex items-center gap-0.5">
+                          <MapPin className="w-3 h-3" /> {a.athlete.serviceCity}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 mt-1.5">
+                      {stats && stats.sessionCount > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+                          <Calendar className="w-3 h-3" />
+                          {stats.sessionCount} session{stats.sessionCount !== 1 ? "s" : ""}
+                        </span>
+                      ) : null}
+                      {stats?.lastSession ? (
+                        <span className="text-xs text-slate-400">
+                          Last: {new Date(stats.lastSession).toLocaleDateString([], { month: "short", day: "numeric" })}
+                        </span>
+                      ) : stats?.nextSession ? (
+                        <span className="text-xs text-brand-600 font-medium">
+                          Next: {new Date(stats.nextSession).toLocaleDateString([], { month: "short", day: "numeric" })}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400">
+                          Connected {new Date(a.createdAt).toLocaleDateString([], { month: "short", day: "numeric" })}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <Link to="/bookings" className="text-brand-600 font-medium hover:underline text-sm">
-                    View bookings
-                  </Link>
-                </li>
-              ))}
-            </ul>
+                  <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-brand-400 shrink-0 transition-colors" />
+                </Link>
+              );
+            })}
           </div>
         )}
       </div>

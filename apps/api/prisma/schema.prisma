@@ -18,9 +18,7 @@ model User {
   createdAt        DateTime @default(now()) @map("created_at")
 
   coachProfile      CoachProfile?
-  athleteProfile    AthleteProfile?
-  bookingsAsAthlete Booking[]      @relation("AthleteBookings")
-  reviews           Review[]
+  athleteProfiles   AthleteProfile[]
 }
 
 model CoachProfile {
@@ -76,7 +74,7 @@ model CoachLocation {
 
 model AthleteProfile {
   id          String   @id @default(uuid())
-  userId      String   @unique @map("user_id")
+  userId      String   @map("user_id")
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   displayName String   @map("display_name")
   serviceCity String?  @map("service_city")
@@ -87,6 +85,8 @@ model AthleteProfile {
   createdAt   DateTime @default(now()) @map("created_at")
 
   coachAssociations CoachAthlete[] @relation("AthleteCoaches")
+  bookings          Booking[]      @relation("AthleteBookings")
+  reviews           Review[]
 
   @@map("athlete_profiles")
 }
@@ -137,8 +137,8 @@ model AvailabilitySlot {
 
 model Booking {
   id                    String   @id @default(uuid())
-  athleteId             String   @map("athlete_id")
-  athlete               User     @relation("AthleteBookings", fields: [athleteId], references: [id], onDelete: Cascade)
+  athleteProfileId      String   @map("athlete_profile_id")
+  athleteProfile        AthleteProfile @relation("AthleteBookings", fields: [athleteProfileId], references: [id], onDelete: Cascade)
   coachId               String   @map("coach_id")
   coach                 CoachProfile @relation("CoachBookings", fields: [coachId], references: [id], onDelete: Cascade)
   slotId                String   @map("slot_id")
@@ -159,16 +159,16 @@ model Booking {
 }
 
 model Review {
-  id        String   @id @default(uuid())
-  bookingId String   @unique @map("booking_id")
-  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  coachId   String   @map("coach_id")
-  coach     CoachProfile @relation(fields: [coachId], references: [id], onDelete: Cascade)
-  athleteId String   @map("athlete_id")
-  athlete   User     @relation(fields: [athleteId], references: [id], onDelete: Cascade)
-  rating    Int
-  comment   String   @default("")
-  createdAt DateTime @default(now()) @map("created_at")
+  id               String   @id @default(uuid())
+  bookingId        String   @unique @map("booking_id")
+  booking          Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  coachId          String   @map("coach_id")
+  coach            CoachProfile @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  athleteProfileId String   @map("athlete_profile_id")
+  athleteProfile   AthleteProfile @relation(fields: [athleteProfileId], references: [id], onDelete: Cascade)
+  rating           Int
+  comment          String   @default("")
+  createdAt        DateTime @default(now()) @map("created_at")
 
   @@map("reviews")
 }

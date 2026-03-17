@@ -1,2 +1,2 @@
 -- AlterTable
-ALTER TABLE "bookings" ADD COLUMN "message" TEXT;
+ALTER TABLE "bookings" ADD COLUMN IF NOT EXISTS "message" TEXT;

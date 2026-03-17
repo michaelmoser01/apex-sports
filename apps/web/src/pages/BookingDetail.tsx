@@ -212,7 +212,7 @@ export default function BookingDetail() {
           {/* Timeline steps */}
           <div className="flex items-center gap-2 mb-5 text-xs font-medium">
             <span className="flex items-center gap-1 text-brand-600">
-              <Clock className="w-3.5 h-3.5" /> Booked
+              <Clock className="w-3.5 h-3.5" /> Requested
             </span>
             <span className="flex-1 h-px bg-slate-200" />
             <span className={`flex items-center gap-1 ${booking.status !== "pending" ? "text-brand-600" : "text-slate-400"}`}>
@@ -226,10 +226,21 @@ export default function BookingDetail() {
 
           {/* Session details */}
           <div className="space-y-3">
+            {booking.message && (
+              <div className="pb-3 border-b border-slate-100">
+                <p className="text-slate-600 text-sm whitespace-pre-wrap">{booking.message}</p>
+              </div>
+            )}
             <div className="flex items-start gap-3 text-slate-600">
               <Calendar className="w-5 h-5 shrink-0 mt-0.5 text-slate-400" />
               <span>{slotTime}</span>
             </div>
+            {booking.amountCents != null && (
+              <div className="flex items-center gap-3 text-slate-700">
+                <DollarSign className="w-5 h-5 shrink-0 text-slate-400" />
+                <span className="font-semibold">${(booking.amountCents / 100).toFixed(2)}</span>
+              </div>
+            )}
             {booking.slot.location && (
               <div className="flex items-start gap-3 text-slate-600">
                 <MapPin className="w-5 h-5 shrink-0 mt-0.5 text-slate-400" />
@@ -260,19 +271,7 @@ export default function BookingDetail() {
                 </div>
               </div>
             )}
-            {booking.amountCents != null && (
-              <div className="flex items-center gap-3 text-slate-700">
-                <DollarSign className="w-5 h-5 shrink-0 text-slate-400" />
-                <span className="font-semibold">${(booking.amountCents / 100).toFixed(2)}</span>
-              </div>
-            )}
           </div>
-
-          {booking.message && (
-            <div className="mt-4 pt-4 border-t border-slate-100">
-              <p className="text-slate-600 text-sm whitespace-pre-wrap">{booking.message}</p>
-            </div>
-          )}
         </div>
 
         {/* Athlete: Pay (deferred) or Payment confirmed - only when session complete and payment link sent */}

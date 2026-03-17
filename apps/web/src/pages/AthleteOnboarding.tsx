@@ -115,7 +115,7 @@ export default function AthleteOnboarding() {
       queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
       const coachId = getStoredInviteCoachId();
       clearStoredInviteSlug();
-      navigate(coachId ? `/coaches/${coachId}` : "/find", { replace: true });
+      navigate(coachId ? `/coaches/${coachId}` : "/athlete", { replace: true });
     },
   });
 

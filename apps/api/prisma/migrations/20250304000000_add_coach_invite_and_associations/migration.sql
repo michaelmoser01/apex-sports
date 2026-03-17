@@ -1,5 +1,5 @@
 -- CreateTable
-CREATE TABLE "coach_invites" (
+CREATE TABLE IF NOT EXISTS "coach_invites" (
     "id" TEXT NOT NULL,
     "coach_profile_id" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
@@ -9,7 +9,7 @@ CREATE TABLE "coach_invites" (
 );
 
 -- CreateTable
-CREATE TABLE "coach_athletes" (
+CREATE TABLE IF NOT EXISTS "coach_athletes" (
     "id" TEXT NOT NULL,
     "coach_profile_id" TEXT NOT NULL,
     "athlete_profile_id" TEXT NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE "coach_athletes" (
 );
 
 -- CreateTable
-CREATE TABLE "coach_athlete_phone_opt_ins" (
+CREATE TABLE IF NOT EXISTS "coach_athlete_phone_opt_ins" (
     "id" TEXT NOT NULL,
     "coach_profile_id" TEXT NOT NULL,
     "phone_e164" TEXT NOT NULL,
@@ -31,13 +31,25 @@ CREATE TABLE "coach_athlete_phone_opt_ins" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "coach_invites_coach_profile_id_key" ON "coach_invites"("coach_profile_id");
-CREATE UNIQUE INDEX "coach_invites_slug_key" ON "coach_invites"("slug");
-CREATE UNIQUE INDEX "coach_athletes_coach_profile_id_athlete_profile_id_key" ON "coach_athletes"("coach_profile_id", "athlete_profile_id");
-CREATE UNIQUE INDEX "coach_athlete_phone_opt_ins_coach_profile_id_phone_e164_key" ON "coach_athlete_phone_opt_ins"("coach_profile_id", "phone_e164");
+CREATE UNIQUE INDEX IF NOT EXISTS "coach_invites_coach_profile_id_key" ON "coach_invites"("coach_profile_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "coach_invites_slug_key" ON "coach_invites"("slug");
+CREATE UNIQUE INDEX IF NOT EXISTS "coach_athletes_coach_profile_id_athlete_profile_id_key" ON "coach_athletes"("coach_profile_id", "athlete_profile_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "coach_athlete_phone_opt_ins_coach_profile_id_phone_e164_key" ON "coach_athlete_phone_opt_ins"("coach_profile_id", "phone_e164");
 
 -- AddForeignKey
+DO $$ BEGIN
 ALTER TABLE "coach_invites" ADD CONSTRAINT "coach_invites_coach_profile_id_fkey" FOREIGN KEY ("coach_profile_id") REFERENCES "coach_profiles"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
 ALTER TABLE "coach_athletes" ADD CONSTRAINT "coach_athletes_coach_profile_id_fkey" FOREIGN KEY ("coach_profile_id") REFERENCES "coach_profiles"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
 ALTER TABLE "coach_athletes" ADD CONSTRAINT "coach_athletes_athlete_profile_id_fkey" FOREIGN KEY ("athlete_profile_id") REFERENCES "athlete_profiles"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
 ALTER TABLE "coach_athlete_phone_opt_ins" ADD CONSTRAINT "coach_athlete_phone_opt_ins_coach_profile_id_fkey" FOREIGN KEY ("coach_profile_id") REFERENCES "coach_profiles"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

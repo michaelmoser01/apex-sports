@@ -50,7 +50,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
     where: { id: user.id },
     include: {
       coachProfile: { include: { invite: { select: { slug: true } } } },
-      athleteProfile: true,
+      athleteProfiles: true,
     },
   });
 
@@ -66,7 +66,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
     signupRole = "coach";
   }
   // Backfill signupRole for existing athletes who have a profile but no role set
-  if (signupRole === null && dbUser.athleteProfile) {
+  if (signupRole === null && dbUser.athleteProfiles.length > 0) {
     await prisma.user.update({
       where: { id: dbUser.id },
       data: { signupRole: "athlete" },
@@ -75,7 +75,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
   }
 
   // Backfill AthleteProfile for existing athletes (created before we added the profile model)
-  let athleteProfile = dbUser.athleteProfile ?? null;
+  let athleteProfile = dbUser.athleteProfiles[0] ?? null;
   if (signupRole === "athlete" && !athleteProfile) {
     athleteProfile = await prisma.athleteProfile.create({
       data: {
@@ -144,7 +144,7 @@ router.patch("/me", authMiddleware(), async (req, res) => {
 
   let athleteProfileId: string | null = null;
   if (signupRole === "athlete") {
-    const existingAthleteProfile = await prisma.athleteProfile.findUnique({
+    const existingAthleteProfile = await prisma.athleteProfile.findFirst({
       where: { userId: user.id },
     });
     if (!existingAthleteProfile) {
@@ -225,12 +225,12 @@ router.post("/me/connect-invite", authMiddleware(), async (req, res) => {
     where: { id: user.id },
     select: {
       name: true,
-      athleteProfile: { select: { id: true, displayName: true } },
+      athleteProfiles: { select: { id: true, displayName: true }, take: 1 },
       signupRole: true,
     },
   });
   if (!dbUser) return res.status(404).json({ error: "User not found" });
-  const athleteProfile = dbUser.athleteProfile;
+  const athleteProfile = dbUser.athleteProfiles[0];
   if (!athleteProfile)
     return res.status(400).json({ error: "Athlete profile required to connect via invite" });
 

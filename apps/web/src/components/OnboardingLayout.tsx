@@ -1,12 +1,23 @@
 import { useEffect } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
 import OnboardingStepTracker from "./OnboardingStepTracker";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 export default function OnboardingLayout() {
   const { pathname } = useLocation();
+  const { data: currentUser, isLoading } = useCurrentUser(true);
+
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [pathname]);
+
+  if (!isLoading && currentUser) {
+    const isCoach = currentUser.signupRole === "coach" || !!currentUser.coachProfile;
+    if (!isCoach) {
+      const dest = currentUser.athleteProfile ? "/athlete" : "/welcome";
+      return <Navigate to={dest} replace />;
+    }
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">

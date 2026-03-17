@@ -1,5 +1,5 @@
 -- CreateTable
-CREATE TABLE "User" (
+CREATE TABLE IF NOT EXISTS "User" (
     "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "cognito_sub" TEXT,
@@ -10,7 +10,7 @@ CREATE TABLE "User" (
 );
 
 -- CreateTable
-CREATE TABLE "coach_profiles" (
+CREATE TABLE IF NOT EXISTS "coach_profiles" (
     "id" TEXT NOT NULL,
     "user_id" TEXT NOT NULL,
     "display_name" TEXT NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE "coach_profiles" (
 );
 
 -- CreateTable
-CREATE TABLE "availability_slots" (
+CREATE TABLE IF NOT EXISTS "availability_slots" (
     "id" TEXT NOT NULL,
     "coach_id" TEXT NOT NULL,
     "start_time" TIMESTAMP(3) NOT NULL,
@@ -39,7 +39,7 @@ CREATE TABLE "availability_slots" (
 );
 
 -- CreateTable
-CREATE TABLE "bookings" (
+CREATE TABLE IF NOT EXISTS "bookings" (
     "id" TEXT NOT NULL,
     "athlete_id" TEXT NOT NULL,
     "coach_id" TEXT NOT NULL,
@@ -52,7 +52,7 @@ CREATE TABLE "bookings" (
 );
 
 -- CreateTable
-CREATE TABLE "reviews" (
+CREATE TABLE IF NOT EXISTS "reviews" (
     "id" TEXT NOT NULL,
     "booking_id" TEXT NOT NULL,
     "coach_id" TEXT NOT NULL,
@@ -65,37 +65,61 @@ CREATE TABLE "reviews" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "User_cognito_sub_key" ON "User"("cognito_sub");
+CREATE UNIQUE INDEX IF NOT EXISTS "User_cognito_sub_key" ON "User"("cognito_sub");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "coach_profiles_user_id_key" ON "coach_profiles"("user_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "coach_profiles_user_id_key" ON "coach_profiles"("user_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "reviews_booking_id_key" ON "reviews"("booking_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "reviews_booking_id_key" ON "reviews"("booking_id");
 
 -- AddForeignKey
+DO $$ BEGIN
 ALTER TABLE "coach_profiles" ADD CONSTRAINT "coach_profiles_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
+DO $$ BEGIN
 ALTER TABLE "availability_slots" ADD CONSTRAINT "availability_slots_coach_id_fkey" FOREIGN KEY ("coach_id") REFERENCES "coach_profiles"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
+DO $$ BEGIN
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_athlete_id_fkey" FOREIGN KEY ("athlete_id") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
+DO $$ BEGIN
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_coach_id_fkey" FOREIGN KEY ("coach_id") REFERENCES "coach_profiles"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
+DO $$ BEGIN
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_slot_id_fkey" FOREIGN KEY ("slot_id") REFERENCES "availability_slots"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
+DO $$ BEGIN
 ALTER TABLE "reviews" ADD CONSTRAINT "reviews_booking_id_fkey" FOREIGN KEY ("booking_id") REFERENCES "bookings"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
+DO $$ BEGIN
 ALTER TABLE "reviews" ADD CONSTRAINT "reviews_coach_id_fkey" FOREIGN KEY ("coach_id") REFERENCES "coach_profiles"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
+DO $$ BEGIN
 ALTER TABLE "reviews" ADD CONSTRAINT "reviews_athlete_id_fkey" FOREIGN KEY ("athlete_id") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

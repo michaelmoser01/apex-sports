@@ -18,6 +18,11 @@ import { sendPaymentLinkToAthlete } from "../notifications.js";
 const router = Router();
 const auth = authMiddleware();
 
+async function getAthleteProfileId(userId: string): Promise<string | null> {
+  const profile = await prisma.athleteProfile.findFirst({ where: { userId }, select: { id: true } });
+  return profile?.id ?? null;
+}
+
 function computeAmountCents(slot: { startTime: Date; endTime: Date }, hourlyRateDollars: number): number {
   const durationMs = slot.endTime.getTime() - slot.startTime.getTime();
   const hours = durationMs / (60 * 60 * 1000);
@@ -29,24 +34,28 @@ router.get("/", auth, async (req, res) => {
   const user = (req as { user?: { id: string } }).user;
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
-  const asAthlete = await prisma.booking.findMany({
-    where: { athleteId: user.id },
-    include: {
-      coach: true,
-      slot: { include: { location: true } },
-      review: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const athleteProfileId = await getAthleteProfileId(user.id);
 
-  const profile = await prisma.coachProfile.findUnique({
+  const asAthlete = athleteProfileId
+    ? await prisma.booking.findMany({
+        where: { athleteProfileId },
+        include: {
+          coach: true,
+          slot: { include: { location: true } },
+          review: true,
+        },
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
+
+  const coachProfile = await prisma.coachProfile.findUnique({
     where: { userId: user.id },
   });
-  const asCoach = profile
+  const asCoach = coachProfile
     ? await prisma.booking.findMany({
-        where: { coachId: profile.id },
+        where: { coachId: coachProfile.id },
         include: {
-          athlete: true,
+          athleteProfile: { include: { user: { select: { name: true, email: true } } } },
           slot: { include: { location: true } },
           review: true,
         },
@@ -75,6 +84,8 @@ router.get("/", auth, async (req, res) => {
       amountCents: b.amountCents ?? null,
       paymentStatus: b.paymentStatus ?? null,
       createdAt: b.createdAt.toISOString(),
+      completedAt: b.completedAt?.toISOString() ?? null,
+      coachRecap: b.coachRecap ?? null,
       review: b.review
         ? { rating: b.review.rating, comment: b.review.comment }
         : null,
@@ -82,9 +93,9 @@ router.get("/", auth, async (req, res) => {
     asCoach: asCoach.map((b) => ({
       id: b.id,
       athlete: {
-        id: b.athlete.id,
-        name: b.athlete.name,
-        email: b.athlete.email,
+        id: b.athleteProfile.id,
+        name: b.athleteProfile.user.name,
+        email: b.athleteProfile.user.email,
       },
       slot: {
         id: b.slot.id,
@@ -130,9 +141,9 @@ router.get("/verify-checkout-payment", auth, async (req, res) => {
 
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
-      select: { athleteId: true, stripePaymentIntentId: true, paymentStatus: true },
+      select: { athleteProfileId: true, athleteProfile: { select: { userId: true } }, stripePaymentIntentId: true, paymentStatus: true },
     });
-    if (!booking || booking.athleteId !== user.id) {
+    if (!booking || booking.athleteProfile.userId !== user.id) {
       return res.status(403).json({ error: "Not your booking" });
     }
     if (booking.stripePaymentIntentId !== sessionId) {
@@ -164,17 +175,17 @@ router.get("/:id", auth, async (req, res) => {
     include: {
       coach: true,
       slot: { include: { location: true } },
-      athlete: true,
+      athleteProfile: { include: { user: { select: { id: true, name: true, email: true } } } },
       review: true,
     },
   });
   if (!booking) return res.status(404).json({ error: "Booking not found" });
 
-  const profile = await prisma.coachProfile.findUnique({
+  const coachProfile = await prisma.coachProfile.findUnique({
     where: { userId: user.id },
   });
-  const isAthlete = booking.athleteId === user.id;
-  const isCoach = profile?.id === booking.coachId;
+  const isAthlete = booking.athleteProfile.userId === user.id;
+  const isCoach = coachProfile?.id === booking.coachId;
   if (!isAthlete && !isCoach) return res.status(403).json({ error: "Not your booking" });
 
   res.json({
@@ -203,9 +214,9 @@ router.get("/:id", auth, async (req, res) => {
     },
     athlete: isCoach
       ? {
-          id: booking.athlete.id,
-          name: booking.athlete.name,
-          email: booking.athlete.email,
+          id: booking.athleteProfile.id,
+          name: booking.athleteProfile.user.name,
+          email: booking.athleteProfile.user.email,
         }
       : undefined,
     message: booking.message ?? null,
@@ -237,7 +248,7 @@ router.post("/:id/recap-draft", auth, async (req, res) => {
 
   const booking = await prisma.booking.findUnique({
     where: { id: req.params.id },
-    include: { coach: true, slot: true, athlete: { select: { name: true } } },
+    include: { coach: true, slot: true, athleteProfile: { include: { user: { select: { name: true } } } } },
   });
   if (!booking) return res.status(404).json({ error: "Booking not found" });
 
@@ -255,7 +266,7 @@ router.post("/:id/recap-draft", auth, async (req, res) => {
     const result = await invokeRecapDraft({
       rawText: rawText.trim(),
       coachName: booking.coach.displayName,
-      athleteName: booking.athlete.name ?? "the athlete",
+      athleteName: booking.athleteProfile.user.name ?? "the athlete",
       sport: booking.coach.sports?.[0],
       sessionTime: slotStr,
     });
@@ -316,7 +327,12 @@ router.post("/:id/pay-now", auth, async (req, res) => {
     include: { coach: true },
   });
   if (!booking) return res.status(404).json({ error: "Booking not found" });
-  if (booking.athleteId !== user.id) return res.status(403).json({ error: "Not your booking" });
+
+  const payNowAthleteProfile = await prisma.athleteProfile.findUnique({
+    where: { id: booking.athleteProfileId },
+    select: { userId: true },
+  });
+  if (!payNowAthleteProfile || payNowAthleteProfile.userId !== user.id) return res.status(403).json({ error: "Not your booking" });
   if (booking.paymentStatus === "succeeded") {
     return res.json({ paymentStatus: "succeeded" });
   }
@@ -328,7 +344,7 @@ router.post("/:id/pay-now", auth, async (req, res) => {
   }
 
   const athleteUser = await prisma.user.findUnique({
-    where: { id: booking.athleteId },
+    where: { id: user.id },
     select: { stripeCustomerId: true, email: true },
   });
   if (!athleteUser) return res.status(400).json({ error: "Athlete not found" });
@@ -389,10 +405,10 @@ router.post("/:id/pay-now/finalize", auth, async (req, res) => {
 
   const booking = await prisma.booking.findUnique({
     where: { id: req.params.id },
-    select: { athleteId: true, stripePaymentIntentId: true, paymentStatus: true },
+    select: { athleteProfileId: true, athleteProfile: { select: { userId: true } }, stripePaymentIntentId: true, paymentStatus: true },
   });
   if (!booking) return res.status(404).json({ error: "Booking not found" });
-  if (booking.athleteId !== user.id) return res.status(403).json({ error: "Not your booking" });
+  if (booking.athleteProfile.userId !== user.id) return res.status(403).json({ error: "Not your booking" });
   if (booking.paymentStatus === "succeeded") {
     return res.json({ paymentStatus: "succeeded" });
   }
@@ -443,8 +459,11 @@ router.post("/", auth, async (req, res) => {
       return res.status(503).json({ error: "Coach account is not set up correctly. Please try again later." });
     }
 
+    const createAthleteProfileId = await getAthleteProfileId(user.id);
+    if (!createAthleteProfileId) return res.status(400).json({ error: "No athlete profile found. Complete your athlete profile first." });
+
     const myExisting = await prisma.booking.findFirst({
-      where: { slotId, athleteId: user.id, status: { not: "cancelled" } },
+      where: { slotId, athleteProfileId: createAthleteProfileId, status: { not: "cancelled" } },
     });
     if (myExisting)
       return res.status(409).json({ error: "You already have a pending request for this slot", code: "PENDING_REQUEST" });
@@ -483,7 +502,7 @@ router.post("/", auth, async (req, res) => {
 
     const booking = await prisma.booking.create({
       data: {
-        athleteId: user.id,
+        athleteProfileId: createAthleteProfileId,
         coachId,
         slotId,
         message: message?.trim() || null,
@@ -494,7 +513,7 @@ router.post("/", auth, async (req, res) => {
       include: {
         coach: { include: { user: { select: { email: true } } } },
         slot: true,
-        athlete: { select: { email: true, name: true } },
+        athleteProfile: { include: { user: { select: { email: true, name: true } } } },
       },
     });
 
@@ -548,7 +567,7 @@ router.post("/", auth, async (req, res) => {
       sendBookingRequestedToCoach({
         coachEmail: booking.coach.user.email,
         coachPhone: booking.coach.phone ?? null,
-        athleteName: booking.athlete?.name ?? null,
+        athleteName: booking.athleteProfile?.user.name ?? null,
         slotStart: booking.slot.startTime.toISOString(),
         slotEnd: booking.slot.endTime.toISOString(),
         message: booking.message,
@@ -558,10 +577,10 @@ router.post("/", auth, async (req, res) => {
       console.error("[bookings] create booking: skipping coach notification (no coach.user)", { bookingId: booking.id });
     }
 
-    if (booking.athlete) {
+    if (booking.athleteProfile?.user) {
       sendBookingRequestSubmittedToAthlete({
-        athleteEmail: booking.athlete.email,
-        athleteName: booking.athlete.name ?? null,
+        athleteEmail: booking.athleteProfile.user.email,
+        athleteName: booking.athleteProfile.user.name ?? null,
         coachDisplayName: booking.coach.displayName,
         slotStart: booking.slot.startTime.toISOString(),
         slotEnd: booking.slot.endTime.toISOString(),
@@ -618,16 +637,16 @@ router.patch("/:id", auth, async (req, res) => {
 
   const booking = await prisma.booking.findUnique({
     where: { id: req.params.id },
-    include: { coach: true, slot: true },
+    include: { coach: true, slot: true, athleteProfile: { select: { userId: true } } },
   });
   if (!booking) return res.status(404).json({ error: "Booking not found" });
 
-  const profile = await prisma.coachProfile.findUnique({
+  const patchCoachProfile = await prisma.coachProfile.findUnique({
     where: { userId: user.id },
   });
 
-  const isCoach = profile?.id === booking.coachId;
-  const isAthlete = user.id === booking.athleteId;
+  const isCoach = patchCoachProfile?.id === booking.coachId;
+  const isAthlete = user.id === booking.athleteProfile.userId;
 
   if (status === "confirmed") {
     if (!isCoach)
@@ -711,7 +730,7 @@ router.patch("/:id", auth, async (req, res) => {
     include: {
       coach: true,
       slot: true,
-      athlete: { select: { email: true, name: true } },
+      athleteProfile: { include: { user: { select: { email: true, name: true } } } },
     },
   });
 
@@ -725,8 +744,8 @@ router.patch("/:id", auth, async (req, res) => {
 
   if ((status === "confirmed" || status === "cancelled" || status === "completed") && !isDeferredCompleted) {
     sendBookingStatusToAthlete({
-      athleteEmail: updated.athlete.email,
-      athleteName: updated.athlete.name ?? undefined,
+      athleteEmail: updated.athleteProfile.user.email,
+      athleteName: updated.athleteProfile.user.name ?? undefined,
       coachDisplayName: updated.coach.displayName,
       newStatus: status,
       slotStart: updated.slot.startTime.toISOString(),
@@ -743,10 +762,10 @@ router.patch("/:id", auth, async (req, res) => {
         data: { paymentStatus: "payment_link_sent" },
       });
       updated.paymentStatus = "payment_link_sent";
-      if (updated.athlete.email) {
+      if (updated.athleteProfile.user.email) {
         sendPaymentLinkToAthlete({
-          athleteEmail: updated.athlete.email,
-          athleteName: updated.athlete.name ?? undefined,
+          athleteEmail: updated.athleteProfile.user.email,
+          athleteName: updated.athleteProfile.user.name ?? undefined,
           coachDisplayName: updated.coach.displayName,
           amountCents: booking.amountCents!,
           currency: booking.currency ?? "usd",
@@ -790,13 +809,13 @@ router.post("/:id/payment-request", auth, async (req, res) => {
     include: {
       coach: true,
       slot: true,
-      athlete: { select: { email: true, name: true } },
+      athleteProfile: { include: { user: { select: { email: true, name: true } } } },
     },
   });
   if (!booking) return res.status(404).json({ error: "Booking not found" });
 
-  const isCoach = booking.coach.userId === user.id;
-  if (!isCoach) return res.status(403).json({ error: "Only the coach can request payment" });
+  const isPayReqCoach = booking.coach.userId === user.id;
+  if (!isPayReqCoach) return res.status(403).json({ error: "Only the coach can request payment" });
 
   if (!["confirmed", "completed"].includes(booking.status)) {
     return res.status(400).json({ error: "Booking must be confirmed or completed to request payment" });
@@ -819,10 +838,10 @@ router.post("/:id/payment-request", auth, async (req, res) => {
     data: { paymentStatus: "payment_link_sent" },
   });
 
-  if (booking.athlete.email) {
+  if (booking.athleteProfile.user.email) {
     sendPaymentLinkToAthlete({
-      athleteEmail: booking.athlete.email,
-      athleteName: booking.athlete.name ?? undefined,
+      athleteEmail: booking.athleteProfile.user.email,
+      athleteName: booking.athleteProfile.user.name ?? undefined,
       coachDisplayName: booking.coach.displayName,
       amountCents: booking.amountCents,
       currency: booking.currency ?? "usd",
@@ -848,9 +867,10 @@ router.post("/:id/review", auth, async (req, res) => {
 
   const booking = await prisma.booking.findUnique({
     where: { id: req.params.id },
+    include: { athleteProfile: { select: { id: true, userId: true } } },
   });
   if (!booking) return res.status(404).json({ error: "Booking not found" });
-  if (booking.athleteId !== user.id)
+  if (booking.athleteProfile.userId !== user.id)
     return res.status(403).json({ error: "Only the athlete can review" });
   if (booking.status !== "completed")
     return res.status(400).json({ error: "Can only review completed bookings" });
@@ -865,7 +885,7 @@ router.post("/:id/review", auth, async (req, res) => {
     data: {
       bookingId: booking.id,
       coachId: booking.coachId,
-      athleteId: user.id,
+      athleteProfileId: booking.athleteProfile.id,
       rating,
       comment: comment ?? "",
     },

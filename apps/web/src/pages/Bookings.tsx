@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useLocation, Navigate, Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { ChevronDown, Calendar, Star, ChevronRight, Clock, CheckCircle, XCircle } from "lucide-react";
+import { ChevronDown, Calendar, Star, ChevronRight, Clock, CheckCircle, XCircle, DollarSign } from "lucide-react";
 
 interface BookingsData {
   asAthlete: {
@@ -240,9 +240,31 @@ export default function Bookings() {
           {connectStatusSyncing ? (
             <p className="text-slate-500 text-sm">Checking payment setup…</p>
           ) : coachProfile.stripeOnboardingComplete ? (
-            <p className="text-slate-600 text-sm flex items-center gap-2">
-              <span className="text-success-600 font-medium">Payments set up</span>
-            </p>
+            <div className="space-y-2">
+              <p className="text-slate-600 text-sm flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-success-600" />
+                <span className="text-success-700 font-medium">Payments active</span>
+              </p>
+              <p className="text-slate-500 text-xs">
+                A 10% platform fee (includes credit card processing) is applied to each payment.
+              </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const data = await api<{ url: string }>("/coaches/me/stripe-dashboard");
+                    if (data.url) {
+                      window.open(data.url, "_blank");
+                    }
+                  } catch {
+                    window.open("https://connect.stripe.com/express_login", "_blank");
+                  }
+                }}
+                className="text-brand-600 hover:text-brand-700 text-sm font-medium hover:underline"
+              >
+                Open Stripe dashboard &rarr;
+              </button>
+            </div>
           ) : (
             <>
               <p className="text-slate-600 text-sm mb-3">
@@ -581,19 +603,30 @@ export default function Bookings() {
           )}
 
           {coachUnpaid.length > 0 && (
-            <div className="mt-8">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">
-                Unpaid sessions
-                <span className="ml-2 text-sm font-normal text-slate-500">({coachUnpaid.length})</span>
-              </h2>
-              <div className="space-y-4">
+            <div className="mt-8 p-5 sm:p-6 bg-amber-50 rounded-2xl border-2 border-amber-300">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-amber-900 flex items-center gap-2">
+                  <DollarSign className="w-5 h-5 text-amber-600" />
+                  Payment due
+                  <span className="text-base font-semibold text-amber-700">
+                    ${(coachUnpaid.reduce((s, b) => s + (b.amountCents ?? 0), 0) / 100).toFixed(2)}
+                  </span>
+                </h2>
+                <span className="text-sm text-amber-700 font-medium">{coachUnpaid.length} session{coachUnpaid.length !== 1 ? "s" : ""}</span>
+              </div>
+              <div className="space-y-3">
                 {coachUnpaid.map((b) => (
                   <div
                     key={`unpaid-${b.id}`}
-                    className="p-5 sm:p-4 bg-amber-50/50 rounded-2xl border-2 border-amber-200 border-l-4 border-l-amber-500 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-sm hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200"
+                    className="p-4 bg-white rounded-xl border border-amber-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
                   >
                     <div className="min-w-0 flex-1">
-                      <Link to={`/bookings/${b.id}`} className="font-medium text-slate-900 hover:text-brand-600 transition-colors">{b.athlete.name ?? b.athlete.email}</Link>
+                      <div className="flex items-center gap-2">
+                        <Link to={`/bookings/${b.id}`} className="font-medium text-slate-900 hover:text-brand-600 transition-colors">{b.athlete.name ?? b.athlete.email}</Link>
+                        {b.amountCents != null && (
+                          <span className="text-sm font-semibold text-amber-700">${(b.amountCents / 100).toFixed(2)}</span>
+                        )}
+                      </div>
                       <p className="text-slate-500 text-sm">
                         {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                       </p>
@@ -611,7 +644,7 @@ export default function Bookings() {
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                         b.paymentStatus === "payment_link_sent"
                           ? "bg-amber-100 text-amber-700"
-                          : "bg-slate-200 text-slate-600"
+                          : "bg-red-100 text-red-700"
                       }`}>
                         {b.paymentStatus === "payment_link_sent" ? "Link sent" : "Not sent"}
                       </span>
@@ -620,14 +653,14 @@ export default function Bookings() {
                           type="button"
                           onClick={() => paymentRequestMutation.mutate(b.id)}
                           disabled={paymentRequestMutation.isPending}
-                          className="px-3 py-2 text-sm font-medium text-white bg-success-600 rounded-lg hover:bg-success-700 touch-manipulation disabled:opacity-50"
+                          className="px-3 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 touch-manipulation disabled:opacity-50"
                         >
-                          {b.paymentStatus === "payment_link_sent" ? "Resend" : "Send payment link"}
+                          {b.paymentStatus === "payment_link_sent" ? "Resend link" : "Send payment link"}
                         </button>
                       ) : (
                         <a
                           href="/coach/setup/get-paid"
-                          className="px-3 py-2 text-sm font-medium text-success-800 bg-success-100 rounded-lg hover:bg-success-200 touch-manipulation"
+                          className="px-3 py-2 text-sm font-medium text-amber-800 bg-amber-100 rounded-lg hover:bg-amber-200 touch-manipulation"
                         >
                           Set up payments
                         </a>

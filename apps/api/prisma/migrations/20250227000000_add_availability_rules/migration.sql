@@ -1,5 +1,5 @@
 -- CreateTable
-CREATE TABLE "availability_rules" (
+CREATE TABLE IF NOT EXISTS "availability_rules" (
     "id" TEXT NOT NULL,
     "coach_id" TEXT NOT NULL,
     "first_start_time" TIMESTAMP(3) NOT NULL,
@@ -11,10 +11,16 @@ CREATE TABLE "availability_rules" (
 );
 
 -- AlterTable
-ALTER TABLE "availability_slots" ADD COLUMN "rule_id" TEXT;
+ALTER TABLE "availability_slots" ADD COLUMN IF NOT EXISTS "rule_id" TEXT;
 
 -- AddForeignKey
+DO $$ BEGIN
 ALTER TABLE "availability_rules" ADD CONSTRAINT "availability_rules_coach_id_fkey" FOREIGN KEY ("coach_id") REFERENCES "coach_profiles"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
+DO $$ BEGIN
 ALTER TABLE "availability_slots" ADD CONSTRAINT "availability_slots_rule_id_fkey" FOREIGN KEY ("rule_id") REFERENCES "availability_rules"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

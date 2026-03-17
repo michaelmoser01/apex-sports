@@ -28,6 +28,7 @@ interface NavConfig {
   showFindCoaches: boolean;
   showForCoaches: boolean;
   showCoachDashboard: boolean;
+  showAthleteHome: boolean;
   profileTo: string | null;
   currentUser: ReturnType<typeof useCurrentUser>["data"];
   onSignOut: () => void;
@@ -197,6 +198,11 @@ function AppShell({
             )}
             {config.signedIn ? (
               <>
+                {config.showAthleteHome && (
+                  <NavLink to="/athlete" active={pathname === "/athlete"}>
+                    Home
+                  </NavLink>
+                )}
                 {config.showCoachDashboard && (
                   <>
                     <NavLink to="/dashboard" active={pathname === "/dashboard"}>
@@ -316,6 +322,15 @@ function AppShell({
                 {config.signedIn ? (
                   <div className="px-4">
                     <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 px-1 mb-1">Account</p>
+                    {config.showAthleteHome && (
+                      <Link
+                        to="/athlete"
+                        className="flex items-center justify-between py-2.5 px-3 -mx-1 text-slate-700 font-medium rounded-lg hover:bg-slate-50 transition-colors text-sm"
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        Home <ChevronRight className="w-4 h-4 text-slate-400" />
+                      </Link>
+                    )}
                     {config.showCoachDashboard && (
                       <>
                         <Link
@@ -478,6 +493,7 @@ export default function Layout() {
 
   const showCoachDashboard = !!currentUser?.coachProfile;
   const showAthleteProfile = !!currentUser?.athleteProfile;
+  const showAthleteHome = showAthleteProfile && !showCoachDashboard;
   const signedIn = isAuthenticated;
   const showFindCoaches = !signedIn || (showAthleteProfile && !showCoachDashboard);
   const showForCoaches = !signedIn;
@@ -492,6 +508,7 @@ export default function Layout() {
     showFindCoaches,
     showForCoaches,
     showCoachDashboard,
+    showAthleteHome,
     profileTo,
     currentUser,
     onSignOut: handleSignOut,

@@ -16,8 +16,10 @@ import BookingDetail from "./pages/BookingDetail";
 import CompleteReservedBooking from "./pages/CompleteReservedBooking";
 import CoachDashboard from "./pages/CoachDashboard";
 import AthleteProfilePage from "./pages/AthleteProfile";
+import AthleteDashboard from "./pages/AthleteDashboard";
 import AthleteOnboarding from "./pages/AthleteOnboarding";
 import CoachOnboardingBio from "./pages/CoachOnboardingBio";
+import CoachAthleteDetail from "./pages/CoachAthleteDetail";
 import Welcome from "./pages/Welcome";
 import Join from "./pages/Join";
 import SignUpPage from "./pages/SignUp";
@@ -69,8 +71,10 @@ function AppContent() {
         <Route path="dashboard" element={<ProtectedRoute><CoachDashboard /></ProtectedRoute>} />
         <Route path="dashboard/profile" element={<ProtectedRoute><CoachDashboard /></ProtectedRoute>} />
         <Route path="dashboard/athletes" element={<ProtectedRoute><CoachDashboard /></ProtectedRoute>} />
+        <Route path="dashboard/athletes/:athleteProfileId" element={<ProtectedRoute><CoachAthleteDetail /></ProtectedRoute>} />
         <Route path="dashboard/agent-test" element={<ProtectedRoute><CoachDashboard /></ProtectedRoute>} />
         <Route path="dashboard/availability" element={<ProtectedRoute><CoachDashboard /></ProtectedRoute>} />
+        <Route path="athlete" element={<ProtectedRoute><AthleteDashboard /></ProtectedRoute>} />
         <Route path="athlete/onboarding" element={<ProtectedRoute><AthleteOnboarding /></ProtectedRoute>} />
         <Route path="athlete/profile" element={<ProtectedRoute><AthleteProfilePage /></ProtectedRoute>} />
         <Route path="coach/onboarding" element={<ProtectedRoute><OnboardingLayout /></ProtectedRoute>}>

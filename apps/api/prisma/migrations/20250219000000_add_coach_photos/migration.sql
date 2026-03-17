@@ -1,5 +1,5 @@
 -- CreateTable
-CREATE TABLE "coach_photos" (
+CREATE TABLE IF NOT EXISTS "coach_photos" (
     "id" TEXT NOT NULL,
     "coach_profile_id" TEXT NOT NULL,
     "url" TEXT NOT NULL,
@@ -9,4 +9,7 @@ CREATE TABLE "coach_photos" (
 );
 
 -- AddForeignKey
+DO $$ BEGIN
 ALTER TABLE "coach_photos" ADD CONSTRAINT "coach_photos_coach_profile_id_fkey" FOREIGN KEY ("coach_profile_id") REFERENCES "coach_profiles"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

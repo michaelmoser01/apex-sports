@@ -201,6 +201,32 @@ router.get("/me/connect-status", authMiddleware(), async (req, res) => {
   });
 });
 
+// Generate a Stripe Express dashboard login link for the connected account
+router.get("/me/stripe-dashboard", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const profile = await prisma.coachProfile.findUnique({
+    where: { userId: user.id },
+    select: { stripeConnectAccountId: true, stripeOnboardingComplete: true },
+  });
+  if (!profile?.stripeConnectAccountId || !profile.stripeOnboardingComplete) {
+    return res.status(400).json({ error: "Stripe Connect not set up" });
+  }
+  if (!isStripeEnabled() || !stripe) {
+    return res.status(501).json({ error: "Stripe not configured" });
+  }
+
+  try {
+    const loginLink = await stripe.accounts.createLoginLink(profile.stripeConnectAccountId);
+    res.json({ url: loginLink.url });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[coaches] stripe-dashboard error:", message, err);
+    res.status(502).json({ error: "Could not generate Stripe dashboard link", detail: message });
+  }
+});
+
 // Setup assistant (mocked: provisions a fake number; real Twilio later)
 router.post("/me/assistant", authMiddleware(), async (req, res) => {
   const user = (req as { user?: { id: string } }).user;
@@ -256,10 +282,16 @@ router.post("/me/agent/chat", authMiddleware(), async (req, res) => {
   const role = body.role === "athlete" || body.role === "coach" ? (body.role as AgentChatRole) : null;
   const message = typeof body.message === "string" ? body.message.trim() : "";
   const threadId = typeof body.threadId === "string" ? body.threadId.trim() || undefined : undefined;
-  const athleteId = typeof body.athleteId === "string" ? body.athleteId.trim() || undefined : undefined;
+  const athleteUserId = typeof body.athleteId === "string" ? body.athleteId.trim() || undefined : undefined;
 
   if (!role) return res.status(400).json({ error: "role must be 'athlete' or 'coach'" });
   if (!message) return res.status(400).json({ error: "message is required" });
+
+  let athleteProfileId: string | undefined;
+  if (role === "athlete" && athleteUserId) {
+    const ap = await prisma.athleteProfile.findFirst({ where: { userId: athleteUserId }, select: { id: true } });
+    athleteProfileId = ap?.id;
+  }
 
   try {
     const result = await invokeCoachAgent({
@@ -267,7 +299,7 @@ router.post("/me/agent/chat", authMiddleware(), async (req, res) => {
       message,
       coachId: profile.id,
       threadId,
-      athleteId: role === "athlete" ? athleteId : undefined,
+      athleteId: role === "athlete" ? athleteProfileId : undefined,
       coachDisplayName: profile.displayName ?? undefined,
     });
     res.json({
@@ -522,9 +554,9 @@ router.put("/me", authMiddleware(), async (req, res) => {
 
   const dbUserCheck = await prisma.user.findUnique({
     where: { id: user.id },
-    select: { signupRole: true, athleteProfile: { select: { id: true } } },
+    select: { signupRole: true, athleteProfiles: { select: { id: true }, take: 1 } },
   });
-  if (dbUserCheck?.signupRole === "athlete" || dbUserCheck?.athleteProfile) {
+  if (dbUserCheck?.signupRole === "athlete" || (dbUserCheck?.athleteProfiles?.length ?? 0) > 0) {
     return res.status(403).json({
       error: "You signed up as an athlete. Use a different account to create a coach profile.",
     });
@@ -731,10 +763,10 @@ router.post("/me", authMiddleware(), async (req, res) => {
 
     const dbUser = await prisma.user.findUnique({
       where: { id: user.id },
-      select: { signupRole: true, athleteProfile: { select: { id: true } } },
+      select: { signupRole: true, athleteProfiles: { select: { id: true }, take: 1 } },
     });
     if (!dbUser) return res.status(404).json({ error: "User not found" });
-    if (dbUser.signupRole === "athlete" || dbUser.athleteProfile) {
+    if (dbUser.signupRole === "athlete" || (dbUser.athleteProfiles?.length ?? 0) > 0) {
       return res.status(403).json({
         error: "You signed up as an athlete. Use a different account to create a coach profile.",
       });
@@ -970,6 +1002,92 @@ router.get("/me/athletes", authMiddleware(), async (req, res) => {
       },
     }))
   );
+});
+
+// Single athlete detail with booking history (for coach view)
+router.get("/me/athletes/:athleteProfileId", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const profile = await prisma.coachProfile.findUnique({
+    where: { userId: user.id },
+  });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  const { athleteProfileId } = req.params;
+
+  const athleteProfile = await prisma.athleteProfile.findUnique({
+    where: { id: athleteProfileId },
+  });
+  if (!athleteProfile) return res.status(404).json({ error: "Athlete not found" });
+
+  const connection = await prisma.coachAthlete.findUnique({
+    where: {
+      coachProfileId_athleteProfileId: {
+        coachProfileId: profile.id,
+        athleteProfileId,
+      },
+    },
+  });
+
+  const bookings = await prisma.booking.findMany({
+    where: { coachId: profile.id, athleteProfileId },
+    include: {
+      slot: { include: { location: true } },
+      review: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!connection && bookings.length === 0) {
+    return res.status(404).json({ error: "No relationship with this athlete" });
+  }
+
+  const completedBookings = bookings.filter((b) => b.status === "completed");
+  const totalRevenue = completedBookings.reduce(
+    (sum, b) => sum + (b.paymentStatus === "succeeded" ? (b.amountCents ?? 0) : 0),
+    0
+  );
+
+  res.json({
+    athlete: {
+      id: athleteProfile.id,
+      displayName: athleteProfile.displayName,
+      sports: athleteProfile.sports,
+      serviceCity: athleteProfile.serviceCity,
+      level: athleteProfile.level,
+      birthYear: athleteProfile.birthYear,
+      phone: athleteProfile.phone,
+    },
+    connection: connection
+      ? { status: connection.status, createdAt: connection.createdAt.toISOString() }
+      : null,
+    bookings: bookings.map((b) => ({
+      id: b.id,
+      slot: {
+        startTime: b.slot.startTime.toISOString(),
+        endTime: b.slot.endTime.toISOString(),
+        location: b.slot.location
+          ? { name: b.slot.location.name, address: b.slot.location.address, notes: b.slot.location.notes ?? null }
+          : null,
+      },
+      message: b.message ?? null,
+      status: b.status,
+      amountCents: b.amountCents ?? null,
+      paymentStatus: b.paymentStatus ?? null,
+      createdAt: b.createdAt.toISOString(),
+      completedAt: b.completedAt?.toISOString() ?? null,
+      coachRecap: b.coachRecap ?? null,
+      review: b.review
+        ? { rating: b.review.rating, comment: b.review.comment, createdAt: b.review.createdAt.toISOString() }
+        : null,
+    })),
+    stats: {
+      totalSessions: bookings.length,
+      completedSessions: completedBookings.length,
+      totalRevenue,
+    },
+  });
 });
 
 // Coach locations CRUD
@@ -1293,7 +1411,7 @@ router.delete("/me/availability/rules/:id", authMiddleware(), async (req, res) =
           bookings: {
             where: { status: { not: "cancelled" } },
             include: {
-              athlete: { select: { email: true, name: true } },
+              athleteProfile: { include: { user: { select: { email: true, name: true } } } },
               coach: { select: { displayName: true } },
               slot: true,
             },
@@ -1312,8 +1430,8 @@ router.delete("/me/availability/rules/:id", authMiddleware(), async (req, res) =
       data: { status: "cancelled" },
     });
     sendBookingStatusToAthlete({
-      athleteEmail: b.athlete.email,
-      athleteName: b.athlete.name ?? undefined,
+      athleteEmail: b.athleteProfile.user.email,
+      athleteName: b.athleteProfile.user.name ?? undefined,
       coachDisplayName: b.coach.displayName,
       newStatus: "cancelled",
       slotStart: b.slot.startTime.toISOString(),
@@ -1345,7 +1463,7 @@ router.delete("/me/availability/:id", authMiddleware(), async (req, res) => {
       bookings: {
         where: { status: { not: "cancelled" } },
         include: {
-          athlete: { select: { email: true, name: true } },
+          athleteProfile: { include: { user: { select: { email: true, name: true } } } },
           coach: { select: { displayName: true } },
           slot: true,
         },
@@ -1361,8 +1479,8 @@ router.delete("/me/availability/:id", authMiddleware(), async (req, res) => {
       data: { status: "cancelled" },
     });
     sendBookingStatusToAthlete({
-      athleteEmail: b.athlete.email,
-      athleteName: b.athlete.name ?? undefined,
+      athleteEmail: b.athleteProfile.user.email,
+      athleteName: b.athleteProfile.user.name ?? undefined,
       coachDisplayName: b.coach.displayName,
       newStatus: "cancelled",
       slotStart: b.slot.startTime.toISOString(),
@@ -1459,10 +1577,10 @@ router.post("/:coachId/contact", authMiddleware(), async (req, res) => {
 
   const dbUser = await prisma.user.findUnique({
     where: { id: user.id },
-    include: { athleteProfile: true },
+    include: { athleteProfiles: { take: 1 } },
   });
   if (!dbUser) return res.status(404).json({ error: "User not found" });
-  const athleteProfile = dbUser.athleteProfile;
+  const athleteProfile = dbUser.athleteProfiles[0];
   if (!athleteProfile) return res.status(403).json({ error: "Athlete profile required to message a coach" });
 
   const coachIdParam = req.params.coachId;
@@ -1522,7 +1640,7 @@ router.get("/:id", async (req, res) => {
         },
       },
       reviews: {
-        include: { athlete: { select: { name: true } } },
+        include: { athleteProfile: { include: { user: { select: { name: true } } } } },
         orderBy: { createdAt: "desc" },
         take: 10,
       },
@@ -1580,7 +1698,7 @@ router.get("/:id", async (req, res) => {
       id: r.id,
       rating: r.rating,
       comment: r.comment,
-      athleteName: r.athlete?.name ?? null,
+      athleteName: r.athleteProfile?.user?.name ?? null,
       createdAt: r.createdAt.toISOString(),
     })),
     reviewCount: coach._count.reviews,

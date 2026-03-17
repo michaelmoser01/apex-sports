@@ -222,7 +222,7 @@ export default function SignInPage() {
       return <Navigate to={currentUser.coachProfile ? "/dashboard" : "/coach/onboarding/basic"} replace />;
     }
     if (currentUser.signupRole === "athlete" || currentUser.athleteProfile) {
-      return <Navigate to={currentUser.athleteProfile ? "/find" : "/athlete/onboarding"} replace />;
+      return <Navigate to={currentUser.athleteProfile ? "/athlete" : "/athlete/onboarding"} replace />;
     }
     return <Navigate to="/welcome" replace />;
   }
