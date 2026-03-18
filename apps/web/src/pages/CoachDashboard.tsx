@@ -12,7 +12,7 @@ import {
   EventDetailModal,
   type CalendarEvent,
 } from "@/components/AvailabilityCalendar";
-import { CoachLocations } from "@/components/CoachLocations";
+import { CoachLocationsCompact } from "@/components/CoachLocations";
 import { Avatar } from "@/components/Avatar";
 import {
   AlertTriangle,
@@ -31,6 +31,7 @@ import {
   Medal,
   GraduationCap,
   Pencil,
+  Plus,
 } from "lucide-react";
 
 interface CoachPhoto {
@@ -594,6 +595,28 @@ export default function CoachDashboard() {
     onError: (err: Error) => {
       setAddOneOffError(err.message ?? "Failed to add recurring availability");
     },
+  });
+
+  const addBatchMutation = useMutation({
+    mutationFn: (slots: { startTime: string; durationMinutes: number; locationId?: string }[]) =>
+      api("/coaches/me/availability/batch", { method: "POST", body: JSON.stringify({ slots }) }),
+    onSuccess: () => {
+      setAddOneOffModalStart(null);
+      setAddOneOffError(null);
+      queryClient.invalidateQueries({ queryKey: ["availability"] });
+    },
+    onError: (err: Error) => { setAddOneOffError(err.message ?? "Failed to add slots"); },
+  });
+
+  const addBatchRuleMutation = useMutation({
+    mutationFn: (rules: { firstStartTime: string; durationMinutes: number; endDate: string; locationId?: string }[]) =>
+      api("/coaches/me/availability/rules/batch", { method: "POST", body: JSON.stringify({ rules }) }),
+    onSuccess: () => {
+      setAddOneOffModalStart(null);
+      setAddOneOffError(null);
+      queryClient.invalidateQueries({ queryKey: ["availability"] });
+    },
+    onError: (err: Error) => { setAddOneOffError(err.message ?? "Failed to add recurring slots"); },
   });
 
   const deleteSlotMutation = useMutation({
@@ -1597,13 +1620,117 @@ export default function CoachDashboard() {
 
     return (
       <>
-      <div className="max-w-4xl mx-auto px-4 py-12">
-        <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mb-6 sm:mb-8">
+      <div className="max-w-6xl mx-auto px-4 py-8 sm:py-12 lg:px-8">
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mb-4 sm:mb-6">
           Availability
         </h1>
-        <section className="mb-6 sm:mb-8">
-          <CoachLocations />
-        </section>
+
+        <div className="lg:flex lg:gap-6">
+        {/* Sidebar -- add button, locations, summary */}
+        <aside className="mb-4 lg:mb-0 lg:w-64 xl:w-72 lg:shrink-0 lg:sticky lg:top-24 lg:self-start space-y-4">
+          <div>
+            <button
+              type="button"
+              onClick={() => {
+                setAddOneOffError(null);
+                setAddOneOffModalStart(new Date());
+              }}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 text-white font-medium text-sm hover:bg-brand-700 transition-colors shadow-sm"
+            >
+              <Plus className="h-4 w-4" />
+              Add availability
+            </button>
+            <p className="text-xs text-slate-400 text-center mt-1.5">or click any date on the calendar</p>
+          </div>
+
+          <CoachLocationsCompact />
+
+          {/* Availability summary */}
+          {(rules.length > 0 || oneOffSlots.length > 0) && (
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="px-4 py-3">
+                <p className="text-sm font-semibold text-slate-800">Summary</p>
+              </div>
+              <div className="border-t border-slate-100 px-4 py-3 space-y-4 text-xs">
+                {rules.length > 0 && (
+                  <div>
+                    <p className="font-medium text-slate-500 uppercase tracking-wide mb-1.5">Recurring</p>
+                    <ul className="space-y-1.5">
+                      {rules.map((rule) => {
+                        const first = new Date(rule.firstStartTime);
+                        const end = new Date(first.getTime() + rule.durationMinutes * 60 * 1000);
+                        const day = format(first, "EEE");
+                        const timeRange = `${format(first, "h:mm a")} – ${format(end, "h:mm a")}`;
+                        const endDateFormatted = format(new Date(rule.endDate + "T12:00:00"), "MMM d, yyyy");
+                        return (
+                          <li key={rule.id} className="flex items-start justify-between gap-1">
+                            <span className="text-slate-700 leading-snug">
+                              <strong>{day}s</strong> {timeRange}
+                              <span className="block text-slate-400">until {endDateFormatted} · {rule.slotCount} slots</span>
+                            </span>
+                            <button
+                              onClick={() => setRemoveTarget({ type: "rule", id: rule.id, bookingCount: rule.bookingCount ?? 0 })}
+                              disabled={deleteRuleMutation.isPending}
+                              className="text-danger-600 hover:underline shrink-0"
+                            >
+                              ×
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+                {oneOffSlots.length > 0 && (() => {
+                  const now = new Date();
+                  const upcoming = oneOffSlots
+                    .filter((s) => !isBefore(new Date(s.startTime), now))
+                    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+                    .slice(0, 10);
+                  const pastCount = oneOffSlots.length - oneOffSlots.filter((s) => !isBefore(new Date(s.startTime), now)).length;
+                  return (
+                    <div>
+                      <p className="font-medium text-slate-500 uppercase tracking-wide mb-1.5">
+                        One-time
+                        {pastCount > 0 && (
+                          <span className="font-normal normal-case ml-1">({pastCount} past hidden)</span>
+                        )}
+                      </p>
+                      {upcoming.length === 0 ? (
+                        <p className="text-slate-400">No upcoming one-time slots.</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {upcoming.map((slot) => {
+                            const start = new Date(slot.startTime);
+                            const endTime = new Date(slot.endTime);
+                            return (
+                              <li key={slot.id} className="flex items-start justify-between gap-1">
+                                <span className="text-slate-700 leading-snug">
+                                  {format(start, "EEE, MMM d")}
+                                  <span className="block text-slate-400">{format(start, "h:mm a")} – {format(endTime, "h:mm a")}</span>
+                                </span>
+                                <button
+                                  onClick={() => setRemoveTarget({ type: "slot", id: slot.id })}
+                                  disabled={deleteSlotMutation.isPending}
+                                  className="text-danger-600 hover:underline shrink-0"
+                                >
+                                  ×
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+        </aside>
+
+        {/* Main -- calendar + summary */}
+        <div className="flex-1 min-w-0">
         <section className="px-4 py-4 sm:p-6 bg-white rounded-xl border border-slate-200">
           {availabilityLoading ? (
             <p className="text-slate-500">Loading...</p>
@@ -1647,94 +1774,11 @@ export default function CoachDashboard() {
                     ...(locationId && { locationId }),
                   });
                 }}
-                isAddSubmitting={addSlotMutation.isPending || addRuleMutation.isPending}
+                onAddBatch={(slots) => addBatchMutation.mutate(slots)}
+                onAddBatchRecurring={(rules) => addBatchRuleMutation.mutate(rules)}
+                isAddSubmitting={addSlotMutation.isPending || addRuleMutation.isPending || addBatchMutation.isPending || addBatchRuleMutation.isPending}
                 addError={addOneOffError}
               />
-              {(rules.length > 0 || oneOffSlots.length > 0) && (
-                <div className="mt-6 pt-6 border-t border-slate-200">
-                  <h3 className="text-sm font-semibold text-slate-800 mb-3">Summary</h3>
-                  {rules.length > 0 && (
-                    <div className="mb-4">
-                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5">Recurring</p>
-                      <ul className="space-y-2">
-                        {rules.map((rule) => {
-                          const first = new Date(rule.firstStartTime);
-                          const end = new Date(first.getTime() + rule.durationMinutes * 60 * 1000);
-                          const day = format(first, "EEEE");
-                          const timeRange = `${format(first, "h:mm a")} – ${format(end, "h:mm a")}`;
-                          const endDateFormatted = format(new Date(rule.endDate + "T12:00:00"), "MMM d, yyyy");
-                          return (
-                            <li key={rule.id} className="flex justify-between items-center py-1.5 text-sm">
-                              <span className="text-slate-700">
-                                <strong>{day}s</strong> {timeRange} until {endDateFormatted}
-                                <span className="text-slate-500 font-normal ml-1">({rule.slotCount} slots)</span>
-                              </span>
-                              <button
-                                onClick={() => setRemoveTarget({ type: "rule", id: rule.id, bookingCount: rule.bookingCount ?? 0 })}
-                                disabled={deleteRuleMutation.isPending}
-                                className="text-danger-600 hover:underline text-sm shrink-0 ml-2"
-                              >
-                                Remove
-                              </button>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  )}
-                  {oneOffSlots.length > 0 && (() => {
-                    const now = new Date();
-                    const upcoming = oneOffSlots
-                      .filter((s) => !isBefore(new Date(s.startTime), now))
-                      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
-                      .slice(0, 15);
-                    const pastCount = oneOffSlots.length - upcoming.length;
-                    return (
-                      <div>
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5">
-                          One-time slots
-                          {pastCount > 0 && (
-                            <span className="font-normal normal-case ml-1">
-                              ({pastCount} past hidden)
-                            </span>
-                          )}
-                        </p>
-                        {upcoming.length === 0 ? (
-                          <p className="text-slate-500 text-sm py-1">No upcoming one-time slots. Past slots still show on the calendar; remove from there if needed.</p>
-                        ) : (
-                          <>
-                            <ul className="space-y-2">
-                              {upcoming.map((slot) => {
-                                const start = new Date(slot.startTime);
-                                const end = new Date(slot.endTime);
-                                const dateStr = format(start, "EEE, MMM d, yyyy");
-                                const timeStr = `${format(start, "h:mm a")} – ${format(end, "h:mm a")}`;
-                                return (
-                                  <li key={slot.id} className="flex justify-between items-center py-1.5 text-sm">
-                                    <span className="text-slate-700">
-                                      {dateStr} at {timeStr}
-                                    </span>
-                                    <button
-                                      onClick={() => setRemoveTarget({ type: "slot", id: slot.id })}
-                                      disabled={deleteSlotMutation.isPending}
-                                      className="text-danger-600 hover:underline text-sm shrink-0 ml-2"
-                                    >
-                                      Remove
-                                    </button>
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                            {oneOffSlots.length > 15 && upcoming.length === 15 && (
-                              <p className="text-slate-500 text-xs mt-1">Showing next 15. Rest appear on the calendar.</p>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
               {removeTarget && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="remove-availability-title">
                   <div className="bg-white rounded-xl shadow-lg p-6 max-w-md mx-4">
@@ -1796,6 +1840,8 @@ export default function CoachDashboard() {
           </Link>{" "}
           page.
         </p>
+        </div>{/* end main column */}
+        </div>{/* end lg:flex */}
       </div>
       {showVerifyModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" aria-modal="true" role="dialog">

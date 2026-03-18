@@ -1341,6 +1341,7 @@ router.get("/me/availability", authMiddleware(), async (req, res) => {
       where: { coachId: profile.id },
       include: {
         _count: { select: { slots: true } },
+        location: { select: { id: true, name: true } },
         slots: {
           include: {
             bookings: {
@@ -1355,6 +1356,7 @@ router.get("/me/availability", authMiddleware(), async (req, res) => {
     prisma.availabilitySlot.findMany({
       where: { coachId: profile.id, ruleId: null },
       include: {
+        location: { select: { id: true, name: true } },
         bookings: {
           where: { status: { not: "cancelled" } },
           select: { id: true, status: true },
@@ -1386,6 +1388,7 @@ router.get("/me/availability", authMiddleware(), async (req, res) => {
       slotCount: r._count.slots,
       bookingCount: r.slots.reduce((sum, s) => sum + s.bookings.length, 0),
       locationId: r.locationId ?? undefined,
+      location: r.location ? { id: r.location.id, name: r.location.name } : null,
       slots: r.slots.map((s) => ({
         id: s.id,
         startTime: s.startTime.toISOString(),
@@ -1397,6 +1400,7 @@ router.get("/me/availability", authMiddleware(), async (req, res) => {
       endTime: s.endTime.toISOString(),
       status: s.status,
       locationId: s.locationId ?? undefined,
+      location: s.location ? { id: s.location.id, name: s.location.name } : null,
     })),
     bookedSlotIds,
   });
@@ -1519,6 +1523,110 @@ router.post("/me/availability/rules", authMiddleware(), async (req, res) => {
     endDate: rule.endDate.toISOString().slice(0, 10),
     slotCount,
   });
+});
+
+// Batch create one-off slots in a single transaction.
+router.post("/me/availability/batch", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  const body = req.body as { slots?: { startTime: string; durationMinutes: number; locationId?: string }[] };
+  if (!Array.isArray(body.slots) || body.slots.length === 0) {
+    return res.status(400).json({ error: "slots array is required" });
+  }
+  if (body.slots.length > 50) {
+    return res.status(400).json({ error: "Maximum 50 slots per batch" });
+  }
+
+  const locationId = body.slots[0]?.locationId ?? null;
+  if (locationId) {
+    const loc = await prisma.coachLocation.findFirst({ where: { id: locationId, coachId: profile.id } });
+    if (!loc) return res.status(400).json({ error: "Location not found or not yours." });
+  }
+
+  const data = body.slots.map((s) => {
+    const start = new Date(s.startTime);
+    const end = new Date(start.getTime() + s.durationMinutes * 60 * 1000);
+    return {
+      coachId: profile.id,
+      locationId: s.locationId ?? null,
+      startTime: start,
+      endTime: end,
+      recurrence: "none" as const,
+    };
+  });
+
+  const result = await prisma.availabilitySlot.createMany({ data });
+  return res.status(201).json({ created: result.count });
+});
+
+// Batch create recurring rules and their slots in a single transaction.
+router.post("/me/availability/rules/batch", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  const body = req.body as { rules?: { firstStartTime: string; durationMinutes: number; endDate: string; locationId?: string }[] };
+  if (!Array.isArray(body.rules) || body.rules.length === 0) {
+    return res.status(400).json({ error: "rules array is required" });
+  }
+  if (body.rules.length > 50) {
+    return res.status(400).json({ error: "Maximum 50 rules per batch" });
+  }
+
+  const locationId = body.rules[0]?.locationId ?? null;
+  if (locationId) {
+    const loc = await prisma.coachLocation.findFirst({ where: { id: locationId, coachId: profile.id } });
+    if (!loc) return res.status(400).json({ error: "Location not found or not yours." });
+  }
+
+  let totalSlots = 0;
+  await prisma.$transaction(async (tx) => {
+    for (const r of body.rules!) {
+      const firstStart = new Date(r.firstStartTime);
+      const endDateObj = new Date(r.endDate + "T23:59:59.999Z");
+      const durationMs = r.durationMinutes * 60 * 1000;
+      const maxEnd = new Date(firstStart.getTime() + MAX_RULE_SPAN_MS);
+      const cap = endDateObj > maxEnd ? maxEnd : endDateObj;
+
+      const rule = await tx.availabilityRule.create({
+        data: {
+          coachId: profile.id,
+          locationId: r.locationId ?? null,
+          firstStartTime: firstStart,
+          durationMinutes: r.durationMinutes,
+          recurrence: "weekly",
+          endDate: cap,
+        },
+      });
+
+      const slotTimes: { start: Date; end: Date }[] = [];
+      let t = firstStart.getTime();
+      while (t <= cap.getTime()) {
+        slotTimes.push({ start: new Date(t), end: new Date(t + durationMs) });
+        t += ONE_WEEK_MS;
+      }
+
+      await tx.availabilitySlot.createMany({
+        data: slotTimes.map(({ start, end }) => ({
+          coachId: profile.id,
+          ruleId: rule.id,
+          locationId: r.locationId ?? null,
+          startTime: start,
+          endTime: end,
+          recurrence: "weekly",
+        })),
+      });
+      totalSlots += slotTimes.length;
+    }
+  });
+
+  return res.status(201).json({ created: totalSlots });
 });
 
 // Delete a rule and all its slots. Cancels non-cancelled bookings and emails athletes, then deletes rule.

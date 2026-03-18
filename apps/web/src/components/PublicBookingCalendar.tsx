@@ -42,6 +42,7 @@ export interface BookingSlot {
   id: string;
   startTime: string;
   endTime: string;
+  location?: { id: string; name: string; address?: string } | null;
 }
 
 interface BookingEvent {
@@ -49,6 +50,7 @@ interface BookingEvent {
   title: string;
   start: Date;
   end: Date;
+  locationName?: string;
 }
 
 function slotsToEvents(
@@ -69,6 +71,7 @@ function slotsToEvents(
         title: eventTitle(start, end),
         start,
         end,
+        locationName: s.location?.name,
       };
     });
 }
@@ -347,16 +350,19 @@ export function PublicBookingCalendar({
                                 isBooked ? "bg-slate-400" : isRequested ? "bg-amber-500" : "bg-brand-500"
                               }`}
                             />
-                            <span className="font-medium text-slate-800">
-                              {ev.title}
-                            </span>
+                            <div className="min-w-0 flex-1">
+                              <span className="font-medium text-slate-800">{ev.title}</span>
+                              {ev.locationName && (
+                                <span className="block text-xs text-slate-500 truncate">📍 {ev.locationName}</span>
+                              )}
+                            </div>
                             {isBooked && (
-                              <span className="ml-auto text-xs font-medium text-slate-600 bg-slate-200 px-2 py-0.5 rounded">
+                              <span className="ml-auto text-xs font-medium text-slate-600 bg-slate-200 px-2 py-0.5 rounded shrink-0">
                                 Booked
                               </span>
                             )}
                             {isRequested && !isBooked && (
-                              <span className="ml-auto text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+                              <span className="ml-auto text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded shrink-0">
                                 Requested
                               </span>
                             )}
@@ -441,16 +447,19 @@ export function PublicBookingCalendar({
                           }`}
                         >
                           <span className={`shrink-0 w-2 h-10 rounded-sm ${isBooked ? "bg-slate-400" : isRequested ? "bg-amber-500" : "bg-brand-500"}`} />
-                          <span className="font-medium text-slate-800">
-                            {ev.title}
-                          </span>
+                          <div className="min-w-0 flex-1">
+                            <span className="font-medium text-slate-800">{ev.title}</span>
+                            {ev.locationName && (
+                              <span className="block text-xs text-slate-500 truncate">📍 {ev.locationName}</span>
+                            )}
+                          </div>
                           {isBooked && (
-                            <span className="ml-auto text-xs font-medium text-slate-600 bg-slate-200 px-2 py-0.5 rounded">
+                            <span className="ml-auto text-xs font-medium text-slate-600 bg-slate-200 px-2 py-0.5 rounded shrink-0">
                               Booked
                             </span>
                           )}
                           {isRequested && !isBooked && (
-                            <span className="ml-auto text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+                            <span className="ml-auto text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded shrink-0">
                               Requested
                             </span>
                           )}

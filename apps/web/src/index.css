@@ -333,3 +333,8 @@ body {
     border-bottom: 2px solid rgb(203 213 225);
   }
 }
+
+/* Google Places autocomplete dropdown must sit above portaled modals */
+.pac-container {
+  z-index: 99999 !important;
+}
