@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo } from "react";
 import { startOfMonth, endOfMonth, format, isBefore } from "date-fns";
 import { api } from "@/lib/api";
 import { ALLOWED_SPORTS } from "@apex-sports/shared";
-import { searchServiceCities } from "@apex-sports/shared";
+import ServiceAreaPicker, { type ServiceAreaItem } from "@/components/ServiceAreaPicker";
 import ReactMarkdown from "react-markdown";
 import {
   AvailabilityCalendar,
@@ -39,6 +39,7 @@ interface CoachProfile {
   displayName: string;
   sports: string[];
   serviceCities: string[];
+  serviceAreas?: ServiceAreaItem[];
   bio: string;
   hourlyRate: string | null;
   verified: boolean;
@@ -88,31 +89,11 @@ function EditProfileFormInline({
 }) {
   const [displayName, setDisplayName] = useState(coach.displayName);
   const [sports, setSports] = useState<string[]>(coach.sports ?? []);
-  const [serviceCities, setServiceCities] = useState<string[]>(coach.serviceCities ?? []);
+  const [serviceAreas, setServiceAreas] = useState<ServiceAreaItem[]>(coach.serviceAreas ?? []);
   const [bio, setBio] = useState(coach.bio ?? "");
   const [hourlyRate, setHourlyRate] = useState(coach.hourlyRate ?? "");
   const [phone, setPhone] = useState(coach.phone ?? "");
-  const [cityInput, setCityInput] = useState("");
-  const [citySuggestions, setCitySuggestions] = useState<string[]>([]);
-  const [showCitySuggestions, setShowCitySuggestions] = useState(false);
-
-  const updateCitySuggestions = (q: string) => {
-    setCitySuggestions(searchServiceCities(q, 10));
-    setShowCitySuggestions(true);
-  };
-
-  const addCity = (city: string) => {
-    if (city && !serviceCities.includes(city)) {
-      setServiceCities((prev) => [...prev, city]);
-      setCityInput("");
-      setCitySuggestions([]);
-      setShowCitySuggestions(false);
-    }
-  };
-
-  const removeCity = (city: string) => {
-    setServiceCities((prev) => prev.filter((c) => c !== city));
-  };
+  const [savingAreas, setSavingAreas] = useState(false);
 
   const toggleSport = (sport: string) => {
     setSports((prev) =>
@@ -120,13 +101,41 @@ function EditProfileFormInline({
     );
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (sports.length === 0 || serviceCities.length === 0) return;
+    if (sports.length === 0 || serviceAreas.length === 0) return;
+    setSavingAreas(true);
+    try {
+      // Sync service areas: delete removed, add new, update changed
+      const existingIds = new Set((coach.serviceAreas ?? []).map((a) => a.id).filter(Boolean));
+      const currentIds = new Set(serviceAreas.map((a) => a.id).filter(Boolean));
+      // Delete removed
+      for (const oldId of existingIds) {
+        if (oldId && !currentIds.has(oldId)) {
+          await api(`/coaches/me/service-areas/${oldId}`, { method: "DELETE" });
+        }
+      }
+      // Add new or update existing
+      for (const area of serviceAreas) {
+        if (area.id && existingIds.has(area.id)) {
+          await api(`/coaches/me/service-areas/${area.id}`, {
+            method: "PUT",
+            body: JSON.stringify({ label: area.label, latitude: area.latitude, longitude: area.longitude, radiusMiles: area.radiusMiles }),
+          });
+        } else {
+          await api("/coaches/me/service-areas", {
+            method: "POST",
+            body: JSON.stringify({ label: area.label, latitude: area.latitude, longitude: area.longitude, radiusMiles: area.radiusMiles }),
+          });
+        }
+      }
+    } catch { /* service areas save failed, continue with profile save */ }
+    setSavingAreas(false);
+
     updateProfileMutation.mutate({
       displayName,
       sports,
-      serviceCities,
+      serviceCities: serviceAreas.map((a) => a.label),
       bio: bio || undefined,
       hourlyRate: hourlyRate ? parseFloat(hourlyRate) : undefined,
       phone: phone.trim() || undefined,
@@ -160,58 +169,12 @@ function EditProfileFormInline({
           ))}
         </div>
       </div>
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Service areas (cities)</label>
-        <div className="flex flex-wrap gap-2 mb-2">
-          {serviceCities.map((city) => (
-            <span
-              key={city}
-              className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 rounded text-sm"
-            >
-              {city}
-              <button
-                type="button"
-                onClick={() => removeCity(city)}
-                className="text-slate-500 hover:text-slate-700"
-                aria-label={`Remove ${city}`}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-        <div className="relative">
-          <input
-            type="text"
-            value={cityInput}
-            onChange={(e) => {
-              setCityInput(e.target.value);
-              updateCitySuggestions(e.target.value);
-            }}
-            onFocus={() => cityInput && updateCitySuggestions(cityInput)}
-            onBlur={() => setTimeout(() => setShowCitySuggestions(false), 150)}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-            placeholder="Type to search cities..."
-          />
-          {showCitySuggestions && citySuggestions.length > 0 && (
-            <ul className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto">
-              {citySuggestions
-                .filter((c) => !serviceCities.includes(c))
-                .map((city) => (
-                  <li key={city}>
-                    <button
-                      type="button"
-                      className="w-full text-left px-3 py-2 hover:bg-slate-50"
-                      onMouseDown={() => addCity(city)}
-                    >
-                      {city}
-                    </button>
-                  </li>
-                ))}
-            </ul>
-          )}
-        </div>
-      </div>
+      <ServiceAreaPicker
+        areas={serviceAreas}
+        onChange={setServiceAreas}
+        label="Service areas"
+        helperText="Search for a city and set your travel radius."
+      />
       <div>
         <label className="block text-sm font-medium text-slate-700 mb-1">About Me</label>
         <textarea
@@ -245,10 +208,10 @@ function EditProfileFormInline({
       <div className="flex gap-2">
         <button
           type="submit"
-          disabled={updateProfileMutation.isPending || sports.length === 0 || serviceCities.length === 0}
+          disabled={updateProfileMutation.isPending || savingAreas || sports.length === 0 || serviceAreas.length === 0}
           className="bg-brand-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50"
         >
-          {updateProfileMutation.isPending ? "Saving..." : "Save"}
+          {updateProfileMutation.isPending || savingAreas ? "Saving..." : "Save"}
         </button>
         <button
           type="button"
@@ -1688,7 +1651,7 @@ export default function CoachDashboard() {
               <span className="font-medium">Sports:</span> {coach.sports?.length ? coach.sports.join(", ") : "—"}
             </p>
             <p>
-              <span className="font-medium">Service areas:</span> {coach.serviceCities?.length ? coach.serviceCities.join(", ") : "—"}
+              <span className="font-medium">Service areas:</span> {coach.serviceAreas?.length ? coach.serviceAreas.map((a) => `${a.label} (${a.radiusMiles} mi)`).join(", ") : coach.serviceCities?.length ? coach.serviceCities.join(", ") : "—"}
             </p>
             {coach.hourlyRate && (
               <p>

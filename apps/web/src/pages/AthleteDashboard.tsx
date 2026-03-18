@@ -125,6 +125,7 @@ function ProfileCard({
     displayName: string;
     sports: string[];
     serviceCity: string | null;
+    avatarUrl?: string | null;
     level: string | null;
     birthYear: number | null;
   };
@@ -133,9 +134,18 @@ function ProfileCard({
     <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-6 shadow-sm">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-center gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
-            <User className="h-7 w-7" />
-          </div>
+          {profile.avatarUrl ? (
+            <img
+              src={profile.avatarUrl}
+              alt=""
+              className="h-14 w-14 shrink-0 rounded-full object-cover border-2 border-slate-200"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+          ) : (
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
+              <User className="h-7 w-7" />
+            </div>
+          )}
           <div className="min-w-0">
             <h2 className="text-xl font-semibold text-gray-900 truncate">
               {profile.displayName || "Athlete"}

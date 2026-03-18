@@ -45,6 +45,7 @@ model CoachProfile {
 
   photos             CoachPhoto[]
   locations          CoachLocation[]
+  serviceAreas       ServiceArea[]     @relation("CoachServiceAreas")
   availabilityRules  AvailabilityRule[]
   availabilitySlots AvailabilitySlot[]
   bookings          Booking[]         @relation("CoachBookings")
@@ -78,12 +79,14 @@ model AthleteProfile {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   displayName String   @map("display_name")
   serviceCity String?  @map("service_city")
+  avatarUrl   String?  @map("avatar_url")
   birthYear   Int?     @map("birth_year")
   sports      String[] @default([])
   level       String?
   phone       String?  @map("phone")
   createdAt   DateTime @default(now()) @map("created_at")
 
+  serviceAreas      ServiceArea[]  @relation("AthleteServiceAreas")
   coachAssociations CoachAthlete[] @relation("AthleteCoaches")
   bookings          Booking[]      @relation("AthleteBookings")
   reviews           Review[]
@@ -206,4 +209,18 @@ model CoachAthletePhoneOptIn {
 
   @@unique([coachProfileId, phoneE164])
   @@map("coach_athlete_phone_opt_ins")
+}
+
+model ServiceArea {
+  id               String          @id @default(uuid())
+  label            String
+  latitude         Decimal         @db.Decimal(10, 7)
+  longitude        Decimal         @db.Decimal(10, 7)
+  radiusMiles      Int             @default(15) @map("radius_miles")
+  coachProfileId   String?         @map("coach_profile_id")
+  coachProfile     CoachProfile?   @relation("CoachServiceAreas", fields: [coachProfileId], references: [id], onDelete: Cascade)
+  athleteProfileId String?         @map("athlete_profile_id")
+  athleteProfile   AthleteProfile? @relation("AthleteServiceAreas", fields: [athleteProfileId], references: [id], onDelete: Cascade)
+
+  @@map("service_areas")
 }

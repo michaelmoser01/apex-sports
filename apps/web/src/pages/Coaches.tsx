@@ -3,7 +3,16 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { ALLOWED_SPORTS } from "@apex-sports/shared";
-import { searchServiceCities } from "@apex-sports/shared";
+import { loadGoogleMaps } from "@/lib/googleMaps";
+import { MapPin } from "lucide-react";
+
+interface ServiceArea {
+  id: string;
+  label: string;
+  latitude: number;
+  longitude: number;
+  radiusMiles: number;
+}
 
 interface CoachPhoto {
   id: string;
@@ -16,6 +25,7 @@ interface Coach {
   displayName: string;
   sports: string[];
   serviceCities: string[];
+  serviceAreas?: ServiceArea[];
   bio: string;
   hourlyRate: string | null;
   verified: boolean;
@@ -23,6 +33,7 @@ interface Coach {
   photos?: CoachPhoto[];
   reviewCount: number;
   averageRating: number | null;
+  distanceMiles?: number;
 }
 
 interface CoachesListResponse {
@@ -35,49 +46,74 @@ interface CoachesListResponse {
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 12;
 const SEARCH_DEBOUNCE_MS = 400;
+const RADIUS_OPTIONS = [10, 25, 50, 100];
 
 export default function Coaches() {
   const [searchParams, setSearchParams] = useSearchParams();
   const sport = searchParams.get("sport") ?? "";
-  const city = searchParams.get("city") ?? "";
   const q = searchParams.get("q") ?? "";
+  const lat = searchParams.get("lat") ?? "";
+  const lng = searchParams.get("lng") ?? "";
+  const radius = searchParams.get("radius") ?? "25";
   const page = Math.max(1, parseInt(searchParams.get("page") ?? String(DEFAULT_PAGE), 10) || DEFAULT_PAGE);
 
   const [searchInput, setSearchInput] = useState(q);
-  const [cityInput, setCityInput] = useState(city);
-  const [citySuggestions, setCitySuggestions] = useState<string[]>([]);
-  const [showCitySuggestions, setShowCitySuggestions] = useState(false);
+  const [locationLabel, setLocationLabel] = useState("");
+  const [selectedRadius, setSelectedRadius] = useState(Number(radius) || 25);
+  const locationInputRef = useRef<HTMLInputElement>(null);
+  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const [googleReady, setGoogleReady] = useState(false);
   const lastSyncedQ = useRef(q);
+
+  useEffect(() => {
+    loadGoogleMaps().then((g) => {
+      if (g) setGoogleReady(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!googleReady || !window.google || !locationInputRef.current || autocompleteRef.current) return;
+    const ac = new window.google.maps.places.Autocomplete(locationInputRef.current, {
+      types: ["(cities)"],
+      fields: ["formatted_address", "geometry", "name"],
+    });
+    ac.addListener("place_changed", () => {
+      const place = ac.getPlace();
+      if (!place.geometry?.location) return;
+      const label = place.formatted_address ?? place.name ?? "";
+      setLocationLabel(label);
+      updateParams({
+        lat: String(place.geometry.location.lat()),
+        lng: String(place.geometry.location.lng()),
+        radius: String(selectedRadius),
+        page: 1,
+      });
+    });
+    autocompleteRef.current = ac;
+  }, [googleReady]);
 
   useEffect(() => {
     setSearchInput(q);
     lastSyncedQ.current = q;
   }, [q]);
 
-  useEffect(() => {
-    setCityInput(city);
-  }, [city]);
-
   const updateParams = useCallback(
-    (updates: { sport?: string; city?: string; q?: string; page?: number }) => {
+    (updates: { sport?: string; lat?: string; lng?: string; radius?: string; q?: string; page?: number }) => {
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
-        if (updates.sport !== undefined) {
-          if (updates.sport) next.set("sport", updates.sport);
-          else next.delete("sport");
+        for (const [key, val] of Object.entries(updates)) {
+          if (val !== undefined && val !== "" && val !== "0") {
+            if (key === "page" && Number(val) <= 1) {
+              next.delete("page");
+            } else {
+              next.set(key, String(val));
+            }
+          } else {
+            next.delete(key);
+          }
         }
-        if (updates.city !== undefined) {
-          if (updates.city) next.set("city", updates.city);
-          else next.delete("city");
-        }
-        if (updates.q !== undefined) {
-          if (updates.q) next.set("q", updates.q);
-          else next.delete("q");
-        }
-        if (updates.page !== undefined) {
-          if (updates.page > 1) next.set("page", String(updates.page));
-          else next.delete("page");
-        }
+        // Clean up legacy city param
+        next.delete("city");
         return next;
       });
     },
@@ -96,13 +132,17 @@ export default function Coaches() {
 
   const params = new URLSearchParams();
   if (sport) params.set("sport", sport);
-  if (city) params.set("city", city);
+  if (lat && lng) {
+    params.set("lat", lat);
+    params.set("lng", lng);
+    params.set("radius", radius);
+  }
   if (q) params.set("q", q);
   params.set("page", String(page));
   params.set("limit", String(DEFAULT_LIMIT));
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ["coaches", sport, city, q, page],
+    queryKey: ["coaches", sport, lat, lng, radius, q, page],
     queryFn: () => api<CoachesListResponse>(`/coaches?${params.toString()}`),
   });
 
@@ -110,27 +150,20 @@ export default function Coaches() {
   const total = data?.total ?? 0;
   const limit = data?.limit ?? DEFAULT_LIMIT;
   const currentPage = data?.page ?? page;
-  const hasFilters = !!(sport || city || q);
+  const hasFilters = !!(sport || lat || q);
   const start = total === 0 ? 0 : (currentPage - 1) * limit + 1;
   const end = Math.min(currentPage * limit, total);
   const totalPages = Math.ceil(total / limit);
 
   const handleSportChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value;
-    updateParams({ sport: value || undefined, page: 1 });
+    updateParams({ sport: e.target.value || undefined, page: 1 });
   };
 
-  const handleCitySelect = (selectedCity: string) => {
-    updateParams({ city: selectedCity, page: 1 });
-    setCityInput(selectedCity);
-    setCitySuggestions([]);
-    setShowCitySuggestions(false);
-  };
-
-  const handleCityInputChange = (value: string) => {
-    setCityInput(value);
-    setCitySuggestions(searchServiceCities(value, 10));
-    setShowCitySuggestions(true);
+  const handleRadiusChange = (newRadius: number) => {
+    setSelectedRadius(newRadius);
+    if (lat && lng) {
+      updateParams({ radius: String(newRadius), page: 1 });
+    }
   };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -140,8 +173,21 @@ export default function Coaches() {
 
   const clearFilters = () => {
     setSearchInput("");
-    setCityInput("");
+    setLocationLabel("");
+    if (locationInputRef.current) locationInputRef.current.value = "";
     setSearchParams(new URLSearchParams());
+  };
+
+  const clearLocation = () => {
+    setLocationLabel("");
+    if (locationInputRef.current) locationInputRef.current.value = "";
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("lat");
+      next.delete("lng");
+      next.delete("radius");
+      return next;
+    });
   };
 
   return (
@@ -182,35 +228,48 @@ export default function Coaches() {
                 ))}
               </select>
             </div>
-            <div className="w-48 relative">
-              <label htmlFor="coach-city" className="block text-sm font-medium text-slate-700 mb-1">
-                City
+          </div>
+          <div className="flex flex-wrap gap-4 items-end">
+            <div className="flex-1 min-w-[200px] relative">
+              <label htmlFor="coach-location" className="block text-sm font-medium text-slate-700 mb-1">
+                Location
               </label>
-              <input
-                id="coach-city"
-                type="text"
-                value={cityInput}
-                onChange={(e) => handleCityInputChange(e.target.value)}
-                onFocus={() => cityInput && handleCityInputChange(cityInput)}
-                onBlur={() => setTimeout(() => setShowCitySuggestions(false), 150)}
-                placeholder="e.g. Oakland, CA"
+              <div className="relative">
+                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                <input
+                  ref={locationInputRef}
+                  id="coach-location"
+                  type="text"
+                  defaultValue={locationLabel}
+                  placeholder="Search for a city..."
+                  className="w-full pl-9 pr-8 py-2 border border-slate-300 rounded-lg"
+                />
+                {lat && (
+                  <button
+                    type="button"
+                    onClick={clearLocation}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    aria-label="Clear location"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="w-36">
+              <label htmlFor="coach-radius" className="block text-sm font-medium text-slate-700 mb-1">
+                Distance
+              </label>
+              <select
+                id="coach-radius"
+                value={selectedRadius}
+                onChange={(e) => handleRadiusChange(Number(e.target.value))}
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-              />
-              {showCitySuggestions && citySuggestions.length > 0 && (
-                <ul className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto">
-                  {citySuggestions.map((c) => (
-                    <li key={c}>
-                      <button
-                        type="button"
-                        className="w-full text-left px-3 py-2 hover:bg-slate-50"
-                        onMouseDown={() => handleCitySelect(c)}
-                      >
-                        {c}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              >
+                {RADIUS_OPTIONS.map((r) => (
+                  <option key={r} value={r}>Within {r} mi</option>
+                ))}
+              </select>
             </div>
             <button
               type="submit"
@@ -258,6 +317,11 @@ export default function Coaches() {
             ) : (
               coaches.map((coach) => {
                 const profilePhoto = coach.avatarUrl ?? coach.photos?.[0]?.url;
+                const areaLabels = coach.serviceAreas?.length
+                  ? coach.serviceAreas.map((a) => a.label).join(", ")
+                  : coach.serviceCities?.length
+                    ? coach.serviceCities.join(", ")
+                    : null;
                 return (
                   <Link
                     key={coach.id}
@@ -288,21 +352,27 @@ export default function Coaches() {
                           <p className="text-brand-600 font-medium">
                             {coach.sports?.length ? coach.sports.join(", ") : "—"}
                           </p>
-                          {coach.serviceCities?.length ? (
-                            <p className="text-slate-500 text-sm mt-1">
-                              {coach.serviceCities.join(", ")}
+                          {areaLabels && (
+                            <p className="text-slate-500 text-sm mt-1 flex items-center gap-1">
+                              <MapPin className="w-3.5 h-3.5 shrink-0" />
+                              {areaLabels}
                             </p>
-                          ) : null}
+                          )}
                           {coach.bio && (
                             <p className="text-slate-600 mt-2 line-clamp-2">
                               {coach.bio.replace(/#{1,6}\s*/g, "").replace(/\*\*/g, "").trim()}
                             </p>
                           )}
                         </div>
-                        <div className="text-right">
+                        <div className="text-right shrink-0">
                           {coach.hourlyRate && (
                             <p className="font-semibold text-slate-900">
                               ${coach.hourlyRate}/hr
+                            </p>
+                          )}
+                          {coach.distanceMiles != null && (
+                            <p className="text-sm text-brand-600 font-medium">
+                              {coach.distanceMiles < 1 ? "< 1" : coach.distanceMiles} mi away
                             </p>
                           )}
                           {coach.reviewCount > 0 && (

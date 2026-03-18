@@ -3,7 +3,20 @@
  * and by the Lambda seed-handler (runs in VPC against Aurora).
  */
 import type { PrismaClient } from "@prisma/client";
-import { ALLOWED_SPORTS, BAY_AREA_CITIES } from "@apex-sports/shared";
+import { ALLOWED_SPORTS } from "@apex-sports/shared";
+
+const SEED_CITIES = [
+  { label: "San Francisco, CA", lat: 37.7749, lng: -122.4194 },
+  { label: "Oakland, CA", lat: 37.8044, lng: -122.2712 },
+  { label: "Berkeley, CA", lat: 37.8716, lng: -122.2727 },
+  { label: "San Jose, CA", lat: 37.3382, lng: -121.8863 },
+  { label: "Palo Alto, CA", lat: 37.4419, lng: -122.1430 },
+  { label: "Walnut Creek, CA", lat: 37.9101, lng: -122.0652 },
+  { label: "Fremont, CA", lat: 37.5485, lng: -121.9886 },
+  { label: "Sunnyvale, CA", lat: 37.3688, lng: -122.0363 },
+  { label: "Redwood City, CA", lat: 37.4852, lng: -122.2364 },
+  { label: "San Mateo, CA", lat: 37.5630, lng: -122.3255 },
+] as const;
 
 const FIRST_NAMES = [
   "Alex", "Jordan", "Morgan", "Casey", "Riley", "Jamie", "Taylor", "Quinn",
@@ -69,7 +82,8 @@ export async function runSeed(prisma: PrismaClient, count: number): Promise<Seed
     const displayName = `${firstName} ${lastName}`;
     const sports = pick(ALLOWED_SPORTS as unknown as readonly string[], 1 + Math.floor(Math.random() * 3));
     const numCities = 1 + Math.floor(Math.random() * 4);
-    const serviceCities = pick(BAY_AREA_CITIES, numCities);
+    const seedCities = pick(SEED_CITIES, numCities);
+    const serviceCities = seedCities.map((c) => c.label);
     const bio = pickOne(BIO_TEMPLATES);
     const hourlyRate = 50 + Math.floor(Math.random() * 71);
     const verified = Math.random() < 0.8;
@@ -100,6 +114,16 @@ export async function runSeed(prisma: PrismaClient, count: number): Promise<Seed
         verified,
       },
     });
+
+    // Seed service areas
+    const existingAreas = await prisma.serviceArea.count({ where: { coachProfileId: profile.id } });
+    if (existingAreas === 0) {
+      for (const city of seedCities) {
+        await prisma.serviceArea.create({
+          data: { coachProfileId: profile.id, label: city.label, latitude: city.lat, longitude: city.lng, radiusMiles: 15 },
+        });
+      }
+    }
 
     const existingPhotos = await prisma.coachPhoto.count({
       where: { coachProfileId: profile.id },

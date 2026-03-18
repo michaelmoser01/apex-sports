@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { isAllowedServiceCity } from "./cities.js";
 
 // Auth
 export const registerSchema = z.object({
@@ -25,7 +24,19 @@ export type AllowedSport = (typeof ALLOWED_SPORTS)[number];
 
 const sportEnum = z.enum(ALLOWED_SPORTS as unknown as [string, ...string[]]);
 
-// Coach profile: sports and serviceCities are arrays
+// Service area: location + radius
+export const serviceAreaSchema = z.object({
+  label: z.string().min(1, "Location label is required"),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  radiusMiles: z.number().int().min(1).max(100).default(15),
+});
+
+export const serviceAreaUpdateSchema = serviceAreaSchema.partial().extend({
+  radiusMiles: z.number().int().min(1).max(100).optional(),
+});
+
+// Coach profile: sports array, service areas handled separately
 export const coachProfileSchema = z.object({
   displayName: z.string().min(1, "Display name is required"),
   sports: z
@@ -33,10 +44,8 @@ export const coachProfileSchema = z.object({
     .min(1, "Select at least one sport"),
   serviceCities: z
     .array(z.string().min(1))
-    .min(1, "Select at least one service area city")
-    .refine((arr) => arr.every(isAllowedServiceCity), {
-      message: "Each city must be from the allowed list",
-    }),
+    .optional()
+    .default([]),
   bio: z.string().optional().default(""),
   hourlyRate: z.number().positive("Hourly rate must be positive"),
   phone: z.string().max(20).optional(),
@@ -44,16 +53,14 @@ export const coachProfileSchema = z.object({
 
 export const coachProfileUpdateSchema = coachProfileSchema.partial();
 
-// Athlete profile: single serviceCity, birthYear, sports, level, phone
+// Athlete profile: service area handled separately now
 const currentYear = new Date().getFullYear();
 export const athleteProfileSchema = z.object({
   displayName: z.string().min(1, "Display name is required"),
   serviceCity: z
     .string()
-    .min(1, "City is required")
-    .refine((city) => isAllowedServiceCity(city), {
-      message: "City must be from the allowed list",
-    }),
+    .optional()
+    .default(""),
   birthYear: z
     .number()
     .int()
@@ -154,3 +161,4 @@ export type BookingCreate = z.infer<typeof bookingCreateSchema>;
 export type BookingStatus = z.infer<typeof bookingStatusSchema>;
 export type BookingUpdate = z.infer<typeof bookingUpdateSchema>;
 export type Review = z.infer<typeof reviewSchema>;
+export type ServiceAreaInput = z.infer<typeof serviceAreaSchema>;

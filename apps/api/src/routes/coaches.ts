@@ -8,6 +8,8 @@ import {
   availabilityRuleCreateSchema,
   coachLocationCreateSchema,
   coachLocationUpdateSchema,
+  serviceAreaSchema,
+  serviceAreaUpdateSchema,
 } from "@apex-sports/shared";
 import { Prisma } from "@prisma/client";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
@@ -56,19 +58,20 @@ router.get("/me", authMiddleware(), async (req, res) => {
   const user = (req as { user?: { id: string } }).user;
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
-  let profile: (Awaited<ReturnType<typeof prisma.coachProfile.findUnique>> & { photos?: { id: string; url: string; sortOrder: number }[] }) | null;
+  let profile: (Awaited<ReturnType<typeof prisma.coachProfile.findUnique>> & { photos?: { id: string; url: string; sortOrder: number }[]; serviceAreas?: { id: string; label: string; latitude: Prisma.Decimal; longitude: Prisma.Decimal; radiusMiles: number }[] }) | null;
   try {
     profile = await prisma.coachProfile.findUnique({
       where: { userId: user.id },
       include: {
         photos: { orderBy: { sortOrder: "asc" } },
+        serviceAreas: { orderBy: { label: "asc" } },
       },
     });
   } catch {
     profile = await prisma.coachProfile.findUnique({
       where: { userId: user.id },
     });
-    profile = profile ? { ...profile, photos: [] } : null;
+    profile = profile ? { ...profile, photos: [], serviceAreas: [] } : null;
   }
 
   if (!profile)
@@ -78,11 +81,16 @@ router.get("/me", authMiddleware(), async (req, res) => {
     ? profile.photos.map((p) => ({ id: p.id, url: p.url, sortOrder: p.sortOrder }))
     : [];
 
+  const serviceAreas = "serviceAreas" in profile && Array.isArray(profile.serviceAreas)
+    ? profile.serviceAreas.map((a) => ({ id: a.id, label: a.label, latitude: Number(a.latitude), longitude: Number(a.longitude), radiusMiles: a.radiusMiles }))
+    : [];
+
   res.json({
     id: profile.id,
     displayName: profile.displayName,
     sports: profile.sports,
     serviceCities: profile.serviceCities,
+    serviceAreas,
     bio: profile.bio,
     hourlyRate: profile.hourlyRate?.toString(),
     verified: profile.verified,
@@ -1192,6 +1200,90 @@ router.delete("/me/locations/:id", authMiddleware(), async (req, res) => {
   return res.status(204).send();
 });
 
+// Service areas CRUD
+router.get("/me/service-areas", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id }, select: { id: true } });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+  const areas = await prisma.serviceArea.findMany({
+    where: { coachProfileId: profile.id },
+    orderBy: { label: "asc" },
+  });
+  res.json(areas.map((a) => ({
+    id: a.id,
+    label: a.label,
+    latitude: Number(a.latitude),
+    longitude: Number(a.longitude),
+    radiusMiles: a.radiusMiles,
+  })));
+});
+
+router.post("/me/service-areas", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id }, select: { id: true } });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+  const parsed = serviceAreaSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { label, latitude, longitude, radiusMiles } = parsed.data;
+  const area = await prisma.serviceArea.create({
+    data: {
+      label,
+      latitude: new Prisma.Decimal(latitude),
+      longitude: new Prisma.Decimal(longitude),
+      radiusMiles,
+      coachProfileId: profile.id,
+    },
+  });
+  res.status(201).json({
+    id: area.id,
+    label: area.label,
+    latitude: Number(area.latitude),
+    longitude: Number(area.longitude),
+    radiusMiles: area.radiusMiles,
+  });
+});
+
+router.put("/me/service-areas/:id", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id }, select: { id: true } });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+  const existing = await prisma.serviceArea.findFirst({ where: { id: req.params.id, coachProfileId: profile.id } });
+  if (!existing) return res.status(404).json({ error: "Service area not found" });
+  const parsed = serviceAreaUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { label, latitude, longitude, radiusMiles } = parsed.data;
+  const updated = await prisma.serviceArea.update({
+    where: { id: existing.id },
+    data: {
+      ...(label != null && { label }),
+      ...(latitude != null && { latitude: new Prisma.Decimal(latitude) }),
+      ...(longitude != null && { longitude: new Prisma.Decimal(longitude) }),
+      ...(radiusMiles != null && { radiusMiles }),
+    },
+  });
+  res.json({
+    id: updated.id,
+    label: updated.label,
+    latitude: Number(updated.latitude),
+    longitude: Number(updated.longitude),
+    radiusMiles: updated.radiusMiles,
+  });
+});
+
+router.delete("/me/service-areas/:id", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id }, select: { id: true } });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+  const existing = await prisma.serviceArea.findFirst({ where: { id: req.params.id, coachProfileId: profile.id } });
+  if (!existing) return res.status(404).json({ error: "Service area not found" });
+  await prisma.serviceArea.delete({ where: { id: existing.id } });
+  res.status(204).send();
+});
+
 // Availability: rules (recurring) + one-off slots
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const ONE_WEEK_MS = 7 * ONE_DAY_MS;
@@ -1495,16 +1587,112 @@ router.delete("/me/availability/:id", authMiddleware(), async (req, res) => {
   return res.status(204).send();
 });
 
+// Haversine distance in miles between two lat/lng points
+function haversineDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3959;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 // Public: list coaches (filtered, search, paginated)
+// Supports both legacy ?city= and new ?lat=&lng=&radius= params
 router.get("/", async (req, res) => {
   const sport = (req.query.sport as string | undefined)?.trim();
   const city = (req.query.city as string | undefined)?.trim();
   const q = (req.query.q as string | undefined)?.trim();
+  const searchLat = req.query.lat ? parseFloat(String(req.query.lat)) : null;
+  const searchLng = req.query.lng ? parseFloat(String(req.query.lng)) : null;
+  const searchRadius = req.query.radius ? parseInt(String(req.query.radius), 10) : 25;
   const pageRaw = req.query.page;
   const limitRaw = req.query.limit;
   const page = Math.max(1, parseInt(String(pageRaw), 10) || 1);
   const limit = Math.min(50, Math.max(1, parseInt(String(limitRaw), 10) || 12));
 
+  const useGeoSearch = searchLat != null && searchLng != null && Number.isFinite(searchLat) && Number.isFinite(searchLng);
+
+  if (useGeoSearch) {
+    // Distance-based search using service_areas
+    const sportCondition = sport ? `AND cp.sports @> ARRAY[$3]::text[]` : "";
+    const qCondition = q ? `AND (cp.display_name ILIKE $${sport ? 4 : 3} OR cp.bio ILIKE $${sport ? 4 : 3})` : "";
+
+    const params: (number | string)[] = [searchLat!, searchLng!];
+    if (sport) params.push(sport);
+    if (q) params.push(`%${q}%`);
+
+    const coachIdsResult = await prisma.$queryRawUnsafe<{ coach_profile_id: string; min_distance: number }[]>(`
+      SELECT sa.coach_profile_id, MIN(
+        3959 * acos(
+          LEAST(1.0, GREATEST(-1.0,
+            cos(radians($1)) * cos(radians(sa.latitude))
+            * cos(radians(sa.longitude) - radians($2))
+            + sin(radians($1)) * sin(radians(sa.latitude))
+          ))
+        )
+      ) AS min_distance
+      FROM service_areas sa
+      JOIN coach_profiles cp ON cp.id = sa.coach_profile_id
+      WHERE sa.coach_profile_id IS NOT NULL
+        AND cp.verified = true
+        ${sportCondition}
+        ${qCondition}
+      GROUP BY sa.coach_profile_id
+      HAVING MIN(
+        3959 * acos(
+          LEAST(1.0, GREATEST(-1.0,
+            cos(radians($1)) * cos(radians(sa.latitude))
+            * cos(radians(sa.longitude) - radians($2))
+            + sin(radians($1)) * sin(radians(sa.latitude))
+          ))
+        )
+      ) <= ${searchRadius}
+      ORDER BY min_distance ASC
+    `, ...params);
+
+    const totalGeo = coachIdsResult.length;
+    const pagedIds = coachIdsResult.slice((page - 1) * limit, page * limit);
+    const distanceMap = new Map(pagedIds.map((r) => [r.coach_profile_id, r.min_distance]));
+
+    const coaches = pagedIds.length > 0 ? await prisma.coachProfile.findMany({
+      where: { id: { in: pagedIds.map((r) => r.coach_profile_id) } },
+      include: {
+        photos: { orderBy: { sortOrder: "asc" } },
+        serviceAreas: true,
+        _count: { select: { reviews: true } },
+        reviews: { select: { rating: true } },
+      },
+    }) : [];
+
+    // Preserve distance-based ordering
+    const ordered = pagedIds.map((r) => coaches.find((c) => c.id === r.coach_profile_id)).filter(Boolean) as typeof coaches;
+
+    const withAvgRating = ordered.map((c) => {
+      const avg = c.reviews.length > 0 ? c.reviews.reduce((s, r) => s + r.rating, 0) / c.reviews.length : null;
+      return {
+        id: c.id,
+        displayName: c.displayName,
+        sports: c.sports,
+        serviceCities: c.serviceCities,
+        serviceAreas: c.serviceAreas.map((a) => ({ id: a.id, label: a.label, latitude: Number(a.latitude), longitude: Number(a.longitude), radiusMiles: a.radiusMiles })),
+        bio: c.bio,
+        hourlyRate: c.hourlyRate?.toString(),
+        verified: c.verified,
+        avatarUrl: c.avatarUrl,
+        photos: c.photos.map((p) => ({ id: p.id, url: p.url, sortOrder: p.sortOrder })),
+        reviewCount: c._count.reviews,
+        averageRating: avg ? Math.round(avg * 10) / 10 : null,
+        distanceMiles: Math.round((distanceMap.get(c.id) ?? 0) * 10) / 10,
+      };
+    });
+
+    return res.json({ coaches: withAvgRating, total: totalGeo, page, limit });
+  }
+
+  // Legacy city-based or unfiltered search
   const conditions: Prisma.CoachProfileWhereInput[] = [{ verified: true }];
   if (sport) conditions.push({ sports: { has: sport } });
   if (city) conditions.push({ serviceCities: { has: city } });
@@ -1529,6 +1717,7 @@ router.get("/", async (req, res) => {
       take: limit,
       include: {
         photos: { orderBy: { sortOrder: "asc" } },
+        serviceAreas: true,
         _count: { select: { reviews: true } },
         reviews: { select: { rating: true } },
       },
@@ -1546,6 +1735,7 @@ router.get("/", async (req, res) => {
       displayName: c.displayName,
       sports: c.sports,
       serviceCities: c.serviceCities,
+      serviceAreas: c.serviceAreas.map((a) => ({ id: a.id, label: a.label, latitude: Number(a.latitude), longitude: Number(a.longitude), radiusMiles: a.radiusMiles })),
       bio: c.bio,
       hourlyRate: c.hourlyRate?.toString(),
       verified: c.verified,

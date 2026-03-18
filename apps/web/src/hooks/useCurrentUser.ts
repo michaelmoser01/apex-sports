@@ -23,6 +23,7 @@ export interface CurrentUser {
     id: string;
     displayName: string;
     serviceCity: string | null;
+    avatarUrl: string | null;
     birthYear: number | null;
     sports: string[];
     level: string | null;

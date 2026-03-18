@@ -113,6 +113,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
           id: athleteProfile.id,
           displayName: athleteProfile.displayName,
           serviceCity: athleteProfile.serviceCity,
+          avatarUrl: athleteProfile.avatarUrl ?? null,
           birthYear: athleteProfile.birthYear,
           sports: athleteProfile.sports,
           level: athleteProfile.level,

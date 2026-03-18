@@ -3,9 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ALLOWED_SPORTS } from "@apex-sports/shared";
-import { searchServiceCities } from "@apex-sports/shared";
 import { ONBOARDING_BASE } from "@/config/onboarding";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import ServiceAreaPicker, { type ServiceAreaItem } from "@/components/ServiceAreaPicker";
 
 export default function OnboardingBasic() {
   const navigate = useNavigate();
@@ -22,11 +22,8 @@ export default function OnboardingBasic() {
 
   const [displayName, setDisplayName] = useState("");
   const [sports, setSports] = useState<string[]>([]);
-  const [serviceCities, setServiceCities] = useState<string[]>([]);
+  const [serviceAreas, setServiceAreas] = useState<ServiceAreaItem[]>([]);
   const [hourlyRate, setHourlyRate] = useState("");
-  const [cityInput, setCityInput] = useState("");
-  const [citySuggestions, setCitySuggestions] = useState<string[]>([]);
-  const [showCitySuggestions, setShowCitySuggestions] = useState(false);
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [newPhotoUrl, setNewPhotoUrl] = useState("");
@@ -40,19 +37,6 @@ export default function OnboardingBasic() {
     setDisplayName((currentUser.name ?? "").trim());
   }, [currentUser?.name]);
 
-  const updateCitySuggestions = (q: string) => {
-    setCitySuggestions(searchServiceCities(q, 10));
-    setShowCitySuggestions(true);
-  };
-  const addCity = (city: string) => {
-    if (city && !serviceCities.includes(city)) {
-      setServiceCities((prev) => [...prev, city]);
-      setCityInput("");
-      setCitySuggestions([]);
-      setShowCitySuggestions(false);
-    }
-  };
-  const removeCity = (city: string) => setServiceCities((prev) => prev.filter((c) => c !== city));
   const toggleSport = (sport: string) =>
     setSports((prev) => (prev.includes(sport) ? prev.filter((s) => s !== sport) : [...prev, sport]));
 
@@ -68,7 +52,7 @@ export default function OnboardingBasic() {
     e.preventDefault();
     setSubmitError(null);
     const trimmed = displayName.trim();
-    if (!trimmed || sports.length === 0 || serviceCities.length === 0 || !hourlyRate || parseFloat(hourlyRate) <= 0) return;
+    if (!trimmed || sports.length === 0 || serviceAreas.length === 0 || !hourlyRate || parseFloat(hourlyRate) <= 0) return;
     setSubmitting(true);
     try {
       await api("/coaches/me", {
@@ -76,11 +60,24 @@ export default function OnboardingBasic() {
         body: JSON.stringify({
           displayName: trimmed,
           sports,
-          serviceCities,
+          serviceCities: serviceAreas.map((a) => a.label),
           bio: "",
           hourlyRate: parseFloat(hourlyRate),
         }),
       });
+
+      // Save service areas
+      for (const area of serviceAreas) {
+        await api("/coaches/me/service-areas", {
+          method: "POST",
+          body: JSON.stringify({
+            label: area.label,
+            latitude: area.latitude,
+            longitude: area.longitude,
+            radiusMiles: area.radiusMiles,
+          }),
+        });
+      }
 
       const uploadedUrls: string[] = [];
       for (const file of pendingFiles) {
@@ -131,7 +128,7 @@ export default function OnboardingBasic() {
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
       <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 mb-1">Basic info</h1>
       <p className="text-slate-500 text-sm mb-6">
-        Sports, rate, and where you coach. We’ve pre-filled your name from sign-up—you can change it below. Optionally add a profile photo; the first one will be your main photo.
+        Sports, rate, and where you coach. We've pre-filled your name from sign-up—you can change it below. Optionally add a profile photo; the first one will be your main photo.
       </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -161,49 +158,12 @@ export default function OnboardingBasic() {
             ))}
           </div>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Service areas (cities, at least one)</label>
-          <div className="flex flex-wrap gap-2 mb-2">
-            {serviceCities.map((city) => (
-              <span
-                key={city}
-                className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 rounded text-sm text-slate-700"
-              >
-                {city}
-                <button type="button" onClick={() => removeCity(city)} className="text-slate-500 hover:text-slate-700" aria-label={`Remove ${city}`}>
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-          <div className="relative">
-            <input
-              type="text"
-              value={cityInput}
-              onChange={(e) => { setCityInput(e.target.value); updateCitySuggestions(e.target.value); }}
-              onFocus={() => cityInput && updateCitySuggestions(cityInput)}
-              onBlur={() => setTimeout(() => setShowCitySuggestions(false), 150)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-              placeholder="Type to search cities..."
-            />
-            {showCitySuggestions && citySuggestions.length > 0 && (
-              <ul className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto">
-                {citySuggestions.filter((c) => !serviceCities.includes(c)).map((city) => (
-                  <li key={city}>
-                    <button
-                      type="button"
-                      className="w-full text-left px-3 py-2 hover:bg-slate-50 text-slate-700"
-                      onMouseDown={() => addCity(city)}
-                    >
-                      {city}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <p className="text-slate-500 text-xs mt-1">Bay Area cities. Add all areas you serve.</p>
-        </div>
+        <ServiceAreaPicker
+          areas={serviceAreas}
+          onChange={setServiceAreas}
+          label="Service areas (at least one)"
+          helperText="Search for a city and set how far you're willing to travel from there."
+        />
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Hourly rate ($) <span className="text-danger-500">*</span></label>
           <input
@@ -297,7 +257,7 @@ export default function OnboardingBasic() {
         )}
         <button
           type="submit"
-          disabled={submitting || !displayName.trim() || sports.length === 0 || serviceCities.length === 0 || !hourlyRate || parseFloat(hourlyRate) <= 0}
+          disabled={submitting || !displayName.trim() || sports.length === 0 || serviceAreas.length === 0 || !hourlyRate || parseFloat(hourlyRate) <= 0}
           className="w-full py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 hover:shadow-glow-brand disabled:opacity-50 transition-all"
         >
           {submitting ? "Saving…" : "Continue"}
