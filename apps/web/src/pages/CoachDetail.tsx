@@ -223,6 +223,8 @@ export default function CoachDetail() {
     [slots]
   );
 
+  const locations = useMemo(() => Array.isArray(coach?.locations) ? coach.locations : [], [coach?.locations]);
+
   if (isLoading || (!coach && !isError)) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-12">
@@ -274,7 +276,6 @@ export default function CoachDetail() {
     return urls;
   })();
   const profileImageUrl = photoUrls[0] ?? null;
-  const locations = useMemo(() => Array.isArray(coach.locations) ? coach.locations : [], [coach.locations]);
 
   const messageCoachButton = (mobileOnly = false) =>
     id && currentUser?.coachProfile?.id !== id ? (
