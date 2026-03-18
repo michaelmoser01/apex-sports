@@ -11,6 +11,7 @@ import {
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { FavoriteButton } from "@/components/FavoriteButton";
 import { CoachDetailMap } from "@/components/CoachDetailMap";
 import { PublicBookingCalendar } from "@/components/PublicBookingCalendar";
 import ReactMarkdown from "react-markdown";
@@ -20,6 +21,11 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  MapPin,
+  Award,
+  GraduationCap,
+  Clock,
+  Medal,
 } from "lucide-react";
 
 interface CoachPhoto {
@@ -37,16 +43,33 @@ interface CoachLocation {
   longitude: number | null;
 }
 
+interface ServiceArea {
+  id: string;
+  label: string;
+  latitude: number;
+  longitude: number;
+  radiusMiles: number;
+}
+
+interface Credentials {
+  certifications: string[];
+  yearsExperience: number | null;
+  playingExperience: string;
+  education: string;
+}
+
 interface CoachDetail {
   id: string;
   displayName: string;
   email?: string;
   sports: string[];
   serviceCities: string[];
+  serviceAreas?: ServiceArea[];
   bio: string;
   hourlyRate: string | null;
   verified: boolean;
   avatarUrl: string | null;
+  credentials?: Credentials;
   photos?: CoachPhoto[];
   locations?: CoachLocation[];
   availabilitySlots: {
@@ -68,30 +91,7 @@ interface CoachDetail {
   averageRating: number | null;
 }
 
-/** Renders 5 stars with fill based on rating (0–5). Full stars orange, remainder partial, rest gray. */
-function StarRating({ rating, className }: { rating: number; className?: string }) {
-  const value = Math.min(5, Math.max(0, Number(rating)));
-  const pct = (value / 5) * 100;
-  return (
-    <span
-      className={`inline-flex relative text-lg ${className ?? ""}`}
-      style={{ width: "5em" }}
-      role="img"
-      aria-label={`${value.toFixed(1)} out of 5 stars`}
-    >
-      <span className="text-slate-300" aria-hidden>
-        ★★★★★
-      </span>
-      <span
-        className="absolute left-0 top-0 overflow-hidden text-amber-500"
-        style={{ width: `${pct}%` }}
-        aria-hidden
-      >
-        ★★★★★
-      </span>
-    </span>
-  );
-}
+import { StarRating } from "@/components/StarRating";
 
 export default function CoachDetail() {
   const { id } = useParams<{ id: string }>();
@@ -106,6 +106,13 @@ export default function CoachDetail() {
   const [contactMessage, setContactMessage] = useState("");
   const connectInviteAttempted = useRef(false);
   const { data: currentUser } = useCurrentUser(isAuthenticated);
+
+  const { data: favoriteData } = useQuery({
+    queryKey: ["favoriteIds"],
+    queryFn: () => api<{ ids: string[] }>("/athletes/me/favorites/ids"),
+    enabled: isAuthenticated && !!currentUser?.athleteProfile,
+    staleTime: 60 * 1000,
+  });
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -152,6 +159,8 @@ export default function CoachDetail() {
     queryFn: () => api<CoachDetail>(`/coaches/${id}`),
     enabled: !!id,
   });
+
+  const isFavorited = favoriteData?.ids?.includes(coach?.id ?? "") ?? false;
 
   const { data: myBookings } = useQuery({
     queryKey: ["bookings"],
@@ -265,7 +274,7 @@ export default function CoachDetail() {
     return urls;
   })();
   const profileImageUrl = photoUrls[0] ?? null;
-  const locations = Array.isArray(coach.locations) ? coach.locations : [];
+  const locations = useMemo(() => Array.isArray(coach.locations) ? coach.locations : [], [coach.locations]);
 
   const messageCoachButton = (mobileOnly = false) =>
     id && currentUser?.coachProfile?.id !== id ? (
@@ -359,18 +368,31 @@ export default function CoachDetail() {
                   </span>
                 )}
               </div>
-              <div className="hidden sm:block">{messageCoachButton()}</div>
+              <div className="hidden sm:flex sm:items-center sm:gap-2">
+                {messageCoachButton()}
+                {isAuthenticated && currentUser?.athleteProfile && coach?.id && (
+                  <FavoriteButton coachProfileId={coach.id} isFavorite={isFavorited} />
+                )}
+              </div>
             </div>
             {Array.isArray(coach.sports) && coach.sports.length > 0 && (
               <p className="text-brand-600 font-medium text-base sm:text-lg">
                 {coach.sports.join(" · ")}
               </p>
             )}
-            {/* Location, rate, reviews in a compact row/block */}
+            {/* Location, rate in a compact row */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-600 text-sm sm:text-base">
-              {coach.serviceCities?.length > 0 && (
-                <span>{coach.serviceCities.join(", ")}</span>
-              )}
+              {(coach.serviceAreas?.length ?? 0) > 0 ? (
+                <span className="flex items-center gap-1">
+                  <MapPin className="w-4 h-4 shrink-0 text-slate-400" />
+                  {coach.serviceAreas!.map((a) => a.label).join(", ")}
+                </span>
+              ) : coach.serviceCities?.length > 0 ? (
+                <span className="flex items-center gap-1">
+                  <MapPin className="w-4 h-4 shrink-0 text-slate-400" />
+                  {coach.serviceCities.join(", ")}
+                </span>
+              ) : null}
               {coach.hourlyRate != null && String(coach.hourlyRate).trim() !== "" && (
                 <span className="font-semibold text-slate-900">${String(coach.hourlyRate)}/hr</span>
               )}
@@ -391,8 +413,11 @@ export default function CoachDetail() {
         </header>
 
         {/* Mobile only: Message coach below details, above About */}
-        <div className="sm:hidden">
-          {messageCoachButton(true)}
+        <div className="sm:hidden flex items-center gap-2">
+          <div className="flex-1">{messageCoachButton(true)}</div>
+          {isAuthenticated && currentUser?.athleteProfile && coach?.id && (
+            <FavoriteButton coachProfileId={coach.id} isFavorite={isFavorited} />
+          )}
         </div>
 
         {/* Photo lightbox: large view with prev/next and close */}
@@ -597,6 +622,66 @@ export default function CoachDetail() {
           </section>
         )}
 
+        {/* Credentials */}
+        {coach.credentials && (
+          coach.credentials.yearsExperience ||
+          coach.credentials.certifications?.length ||
+          coach.credentials.playingExperience ||
+          coach.credentials.education
+        ) && (
+          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 sm:px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base sm:text-lg font-bold text-slate-900">Credentials & Experience</h2>
+            </div>
+            <div className="p-4 sm:p-6 space-y-4">
+              {coach.credentials.yearsExperience != null && coach.credentials.yearsExperience > 0 && (
+                <div className="flex items-start gap-3">
+                  <Clock className="w-5 h-5 text-brand-500 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-medium text-slate-900">{coach.credentials.yearsExperience} years of coaching experience</p>
+                  </div>
+                </div>
+              )}
+              {coach.credentials.certifications?.length > 0 && (
+                <div className="flex items-start gap-3">
+                  <Award className="w-5 h-5 text-brand-500 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-medium text-slate-900 mb-1.5">Certifications</p>
+                    <div className="flex flex-wrap gap-2">
+                      {coach.credentials.certifications.map((cert) => (
+                        <span
+                          key={cert}
+                          className="text-sm bg-brand-50 text-brand-700 px-3 py-1 rounded-full font-medium border border-brand-200"
+                        >
+                          {cert}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {coach.credentials.playingExperience && (
+                <div className="flex items-start gap-3">
+                  <Medal className="w-5 h-5 text-brand-500 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-medium text-slate-900 mb-0.5">Playing Experience</p>
+                    <p className="text-slate-600 text-sm">{coach.credentials.playingExperience}</p>
+                  </div>
+                </div>
+              )}
+              {coach.credentials.education && (
+                <div className="flex items-start gap-3">
+                  <GraduationCap className="w-5 h-5 text-brand-500 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-medium text-slate-900 mb-0.5">Education</p>
+                    <p className="text-slate-600 text-sm">{coach.credentials.education}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
         {/* Locations + map */}
         {locations.length > 0 && (
           <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -608,13 +693,6 @@ export default function CoachDetail() {
               <CoachDetailMap locations={locations} />
             </div>
           </section>
-        )}
-
-        {/* Debug email (non-production only) */}
-        {coach.email && (
-          <p className="text-slate-400 text-xs">
-            <span className="font-medium">Debug email:</span> {coach.email}
-          </p>
         )}
 
         {/* Request a booking */}

@@ -10,6 +10,8 @@ import {
   coachLocationUpdateSchema,
   serviceAreaSchema,
   serviceAreaUpdateSchema,
+  credentialsSchema,
+  type CoachCredentials,
 } from "@apex-sports/shared";
 import { Prisma } from "@prisma/client";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
@@ -51,6 +53,13 @@ async function ensureUniqueInviteSlug(prisma: typeof import("../db.js").prisma, 
     slug = `${baseSlug}-${n}`;
     n++;
   }
+}
+
+function parseCredentials(raw: unknown): CoachCredentials {
+  const fallback: CoachCredentials = { certifications: [], yearsExperience: null, playingExperience: "", education: "" };
+  if (!raw || typeof raw !== "object") return fallback;
+  const result = credentialsSchema.safeParse(raw);
+  return result.success ? result.data : fallback;
 }
 
 // Get own coach profile (resilient: if photos relation fails e.g. missing table, return profile with photos: [])
@@ -97,6 +106,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
     avatarUrl: profile.avatarUrl,
     phone: profile.phone ?? null,
     photos,
+    credentials: parseCredentials(profile.credentials),
     stripeConnectAccountId: profile.stripeConnectAccountId ?? null,
     stripeOnboardingComplete: profile.stripeOnboardingComplete ?? false,
     assistantDisplayName: profile.assistantDisplayName ?? null,
@@ -555,6 +565,25 @@ router.post("/me/verify", authMiddleware(), async (req, res) => {
   res.json({ verified: true });
 });
 
+// Update coach credentials (certifications, experience, education)
+router.put("/me/credentials", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  const parsed = credentialsSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  await prisma.coachProfile.update({
+    where: { id: profile.id },
+    data: { credentials: parsed.data as unknown as Prisma.InputJsonValue },
+  });
+
+  res.json(parsed.data);
+});
+
 // Create or update own coach profile
 router.put("/me", authMiddleware(), async (req, res) => {
   const user = (req as { user?: { id: string } }).user;
@@ -707,16 +736,24 @@ router.post("/me/bio-draft", authMiddleware(), async (req, res) => {
   };
   const profile = await prisma.coachProfile.findUnique({
     where: { userId: user.id },
-    select: { displayName: true, sports: true, serviceCities: true },
+    select: { displayName: true, sports: true, serviceCities: true, credentials: true },
   });
   if (!profile) {
     return res.status(404).json({ error: "Coach profile not found. Create your profile first." });
   }
 
+  const parsedCreds = parseCredentials(profile.credentials);
+  const hasCredentials =
+    (parsedCreds.certifications?.length ?? 0) > 0 ||
+    (parsedCreds.yearsExperience != null && parsedCreds.yearsExperience > 0) ||
+    !!parsedCreds.playingExperience?.trim() ||
+    !!parsedCreds.education?.trim();
+
   const coachContext = {
     displayName: profile.displayName,
     sports: profile.sports?.length ? profile.sports : undefined,
     serviceCities: profile.serviceCities?.length ? profile.serviceCities : undefined,
+    credentials: hasCredentials ? parsedCreds : undefined,
   };
 
   const mode = body.mode === "generate" || body.mode === "enhance" ? body.mode : undefined;
@@ -1599,8 +1636,11 @@ function haversineDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: 
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Public: list coaches (filtered, search, paginated)
+// Public: list coaches (filtered, search, paginated, sorted)
 // Supports both legacy ?city= and new ?lat=&lng=&radius= params
+const VALID_SORTS = ["best_match", "rating", "reviews", "price_asc", "price_desc", "distance"] as const;
+type SortOption = (typeof VALID_SORTS)[number];
+
 router.get("/", async (req, res) => {
   const sport = (req.query.sport as string | undefined)?.trim();
   const city = (req.query.city as string | undefined)?.trim();
@@ -1608,6 +1648,8 @@ router.get("/", async (req, res) => {
   const searchLat = req.query.lat ? parseFloat(String(req.query.lat)) : null;
   const searchLng = req.query.lng ? parseFloat(String(req.query.lng)) : null;
   const searchRadius = req.query.radius ? parseInt(String(req.query.radius), 10) : 25;
+  const sortRaw = (req.query.sort as string | undefined)?.trim() as SortOption | undefined;
+  const sort: SortOption = sortRaw && VALID_SORTS.includes(sortRaw) ? sortRaw : "best_match";
   const pageRaw = req.query.page;
   const limitRaw = req.query.limit;
   const page = Math.max(1, parseInt(String(pageRaw), 10) || 1);
@@ -1654,11 +1696,11 @@ router.get("/", async (req, res) => {
     `, ...params);
 
     const totalGeo = coachIdsResult.length;
-    const pagedIds = coachIdsResult.slice((page - 1) * limit, page * limit);
-    const distanceMap = new Map(pagedIds.map((r) => [r.coach_profile_id, r.min_distance]));
+    const distanceMap = new Map(coachIdsResult.map((r) => [r.coach_profile_id, r.min_distance]));
+    const allMatchingIds = coachIdsResult.map((r) => r.coach_profile_id);
 
-    const coaches = pagedIds.length > 0 ? await prisma.coachProfile.findMany({
-      where: { id: { in: pagedIds.map((r) => r.coach_profile_id) } },
+    const coaches = allMatchingIds.length > 0 ? await prisma.coachProfile.findMany({
+      where: { id: { in: allMatchingIds } },
       include: {
         photos: { orderBy: { sortOrder: "asc" } },
         serviceAreas: true,
@@ -1667,10 +1709,7 @@ router.get("/", async (req, res) => {
       },
     }) : [];
 
-    // Preserve distance-based ordering
-    const ordered = pagedIds.map((r) => coaches.find((c) => c.id === r.coach_profile_id)).filter(Boolean) as typeof coaches;
-
-    const withAvgRating = ordered.map((c) => {
+    const allWithRating = coaches.map((c) => {
       const avg = c.reviews.length > 0 ? c.reviews.reduce((s, r) => s + r.rating, 0) / c.reviews.length : null;
       return {
         id: c.id,
@@ -1683,13 +1722,27 @@ router.get("/", async (req, res) => {
         verified: c.verified,
         avatarUrl: c.avatarUrl,
         photos: c.photos.map((p) => ({ id: p.id, url: p.url, sortOrder: p.sortOrder })),
+        credentials: parseCredentials(c.credentials),
         reviewCount: c._count.reviews,
         averageRating: avg ? Math.round(avg * 10) / 10 : null,
         distanceMiles: Math.round((distanceMap.get(c.id) ?? 0) * 10) / 10,
       };
     });
 
-    return res.json({ coaches: withAvgRating, total: totalGeo, page, limit });
+    if (sort === "rating") {
+      allWithRating.sort((a, b) => (b.averageRating ?? 0) - (a.averageRating ?? 0));
+    } else if (sort === "reviews") {
+      allWithRating.sort((a, b) => b.reviewCount - a.reviewCount);
+    } else if (sort === "price_asc") {
+      allWithRating.sort((a, b) => parseFloat(a.hourlyRate ?? "999999") - parseFloat(b.hourlyRate ?? "999999"));
+    } else if (sort === "price_desc") {
+      allWithRating.sort((a, b) => parseFloat(b.hourlyRate ?? "0") - parseFloat(a.hourlyRate ?? "0"));
+    } else {
+      allWithRating.sort((a, b) => (a.distanceMiles ?? 0) - (b.distanceMiles ?? 0));
+    }
+
+    const paged = allWithRating.slice((page - 1) * limit, page * limit);
+    return res.json({ coaches: paged, total: totalGeo, page, limit });
   }
 
   // Legacy city-based or unfiltered search
@@ -1706,26 +1759,18 @@ router.get("/", async (req, res) => {
   }
   const where: Prisma.CoachProfileWhereInput = { AND: conditions };
 
-  const [coaches, total] = await Promise.all([
-    prisma.coachProfile.findMany({
-      where,
-      orderBy: [
-        { reviews: { _count: "desc" } },
-        { displayName: "asc" },
-      ],
-      skip: (page - 1) * limit,
-      take: limit,
-      include: {
-        photos: { orderBy: { sortOrder: "asc" } },
-        serviceAreas: true,
-        _count: { select: { reviews: true } },
-        reviews: { select: { rating: true } },
-      },
-    }),
-    prisma.coachProfile.count({ where }),
-  ]);
+  const coaches = await prisma.coachProfile.findMany({
+    where,
+    include: {
+      photos: { orderBy: { sortOrder: "asc" } },
+      serviceAreas: true,
+      _count: { select: { reviews: true } },
+      reviews: { select: { rating: true } },
+    },
+  });
+  const total = coaches.length;
 
-  const withAvgRating = coaches.map((c) => {
+  const allWithRating = coaches.map((c) => {
     const avg =
       c.reviews.length > 0
         ? c.reviews.reduce((s, r) => s + r.rating, 0) / c.reviews.length
@@ -1741,12 +1786,26 @@ router.get("/", async (req, res) => {
       verified: c.verified,
       avatarUrl: c.avatarUrl,
       photos: c.photos.map((p) => ({ id: p.id, url: p.url, sortOrder: p.sortOrder })),
+      credentials: parseCredentials(c.credentials),
       reviewCount: c._count.reviews,
       averageRating: avg ? Math.round(avg * 10) / 10 : null,
     };
   });
 
-  res.json({ coaches: withAvgRating, total, page, limit });
+  if (sort === "rating") {
+    allWithRating.sort((a, b) => (b.averageRating ?? 0) - (a.averageRating ?? 0));
+  } else if (sort === "reviews") {
+    allWithRating.sort((a, b) => b.reviewCount - a.reviewCount);
+  } else if (sort === "price_asc") {
+    allWithRating.sort((a, b) => parseFloat(a.hourlyRate ?? "999999") - parseFloat(b.hourlyRate ?? "999999"));
+  } else if (sort === "price_desc") {
+    allWithRating.sort((a, b) => parseFloat(b.hourlyRate ?? "0") - parseFloat(a.hourlyRate ?? "0"));
+  } else {
+    allWithRating.sort((a, b) => b.reviewCount - a.reviewCount || a.displayName.localeCompare(b.displayName));
+  }
+
+  const paged = allWithRating.slice((page - 1) * limit, page * limit);
+  res.json({ coaches: paged, total, page, limit });
 });
 
 // Resolve coach profile id from UUID or invite slug (used by public profile and contact)
@@ -1817,6 +1876,7 @@ router.get("/:id", async (req, res) => {
       user: { select: { email: true } },
       photos: { orderBy: { sortOrder: "asc" } },
       locations: { orderBy: { name: "asc" } },
+      serviceAreas: { orderBy: { label: "asc" } },
       // All future slots (available and booked) for public calendar
       availabilitySlots: {
         where: { startTime: { gte: new Date() } },
@@ -1854,10 +1914,12 @@ router.get("/:id", async (req, res) => {
       : {}),
     sports: coach.sports,
     serviceCities: coach.serviceCities,
+    serviceAreas: coach.serviceAreas.map((a) => ({ id: a.id, label: a.label, latitude: Number(a.latitude), longitude: Number(a.longitude), radiusMiles: a.radiusMiles })),
     bio: coach.bio,
     hourlyRate: coach.hourlyRate?.toString(),
     verified: coach.verified,
     avatarUrl: coach.avatarUrl,
+    credentials: parseCredentials(coach.credentials),
     photos: coach.photos.map((p) => ({ id: p.id, url: p.url, sortOrder: p.sortOrder })),
     locations: coach.locations.map((loc) => ({
       id: loc.id,

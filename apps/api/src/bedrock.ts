@@ -27,26 +27,45 @@ export function isBedrockConfigured(): boolean {
   return !!BEDROCK_MODEL_ID;
 }
 
-const SYSTEM_PROMPT_TEMPLATE = (coachContext: { displayName: string; sports?: string[]; serviceCities?: string[] }) => `You are helping a coach write their "About my coaching style and background" section for their profile on a sports coaching platform. Your job is to turn what they share into a **compelling, story-driven profile** that makes athletes and parents want to work with them.
+function formatCredentialsBlock(ctx: CoachBioContext): string {
+  const creds = ctx.credentials;
+  if (!creds) return "";
+  const lines: string[] = [];
+  if (creds.yearsExperience != null && creds.yearsExperience > 0)
+    lines.push(`- Years of coaching experience: ${creds.yearsExperience}.`);
+  if (creds.certifications?.length)
+    lines.push(`- Certifications: ${creds.certifications.join(", ")}.`);
+  if (creds.playingExperience?.trim())
+    lines.push(`- Playing experience: ${creds.playingExperience.trim()}.`);
+  if (creds.education?.trim())
+    lines.push(`- Education: ${creds.education.trim()}.`);
+  return lines.length ? lines.join("\n") : "";
+}
+
+const SYSTEM_PROMPT_TEMPLATE = (coachContext: CoachBioContext) => {
+  const credBlock = formatCredentialsBlock(coachContext);
+  return `You are helping a coach write their "About my coaching style and background" section for their profile on a sports coaching platform. Your job is to turn what they share into a **compelling, story-driven profile** that makes athletes and parents want to work with them.
 
 **Coach details (use these; do not invent):**
 - Name: ${coachContext.displayName.trim() || "The coach"}. Always refer to them by this exact name in the bio. Never use another name (e.g. do not use "Sarah" or any name unless it is exactly "${coachContext.displayName.trim() || "The coach"}").
 ${coachContext.sports?.length ? `- Sports they coach: ${coachContext.sports.join(", ")}.` : ""}
 ${coachContext.serviceCities?.length ? `- Service areas: ${coachContext.serviceCities.join(", ")}.` : ""}
+${credBlock}
 
 **Rules:**
 - You receive the FULL conversation history. Use it. Do not ask the same or similar question twice. If the coach already answered something (e.g. who they work with, their approach, what makes them unique), incorporate that into the bio and either ask something different or invite them to accept or add more.
-- Only use information the coach has actually said. Do not invent credentials, years, or facts.
+- **NEVER invent or fabricate any information.** Only use facts the coach has actually said or that appear in the coach details above. Do not add credentials, statistics, years of experience, awards, or any other specific claim that was not provided. If in doubt, leave it out.
 - Write in a warm, professional tone in third person using the coach's real name above.
-- If you need more, ask one short follow-up about something they have NOT yet covered (e.g. certifications, session structure, success stories)—or if they have given plenty, update the bioPreview and say "Here's your profile so far—accept it or tell me what to add."
+- If you need more, ask one short follow-up about something they have NOT yet covered (e.g. session structure, success stories)—or if they have given plenty, update the bioPreview and say "Here's your profile so far—accept it or tell me what to add."
 - When you have enough to write a profile, produce a **structured markdown** "About your coaching" section (see below).
 
 **Be creative and compelling:** Don't just repeat their words—elevate them. Use vivid, active language. Turn their experience into a short story: why they coach, how they make a difference, and what athletes get. Use **bold** for key phrases that grab attention. Frame their approach so it sounds distinctive and memorable while staying 100% true to what they said. Help them sound like the standout coach they are.
 
-**Bio format:** Build a complete, compelling profile section using markdown:
+**Bio format — KEEP IT CONCISE:** Build a complete profile section using markdown:
 - Use **headings** (##) for sections, e.g. ## Experience, ## My approach, ## Who I work with, ## What you'll get.
-- Use **bullet points** and short paragraphs. Expand and reframe their ideas into clear, confident, story-like copy—the kind that belongs on a top coach's profile.
-- Aim for 3–5 sections with a few bullets or 1–2 sentences each. Use bold for emphasis. Only include facts the coach has shared; make every line count.
+- Use **bullet points** and short paragraphs. Expand and reframe their ideas into clear, confident copy.
+- Aim for 3–5 short sections with a few bullets or 1–2 sentences each. Use bold for emphasis. Only include facts the coach has shared; make every line count.
+- **Total bio length should be 150–300 words.** Be punchy and direct. Avoid filler, fluff, or repetitive phrasing.
 
 You must respond with ONLY a valid JSON object—no markdown, no code fence, no text before or after. Use exactly this shape:
 {"message": "Your reply to the coach (question or closing invitation)", "bioPreview": "The full markdown profile section, or empty string if you are only asking a question and don't have enough yet"}
@@ -54,45 +73,66 @@ You must respond with ONLY a valid JSON object—no markdown, no code fence, no 
 Output only the JSON. The message will be shown in the chat; the bioPreview will be shown in a separate preview panel.
 
 If the coach is answering a follow-up and we already have a current bio draft, incorporate their new answer into the existing structure and return the updated markdown in bioPreview.`;
+};
 
-const SYSTEM_PROMPT_GENERATE = (coachContext: { displayName: string; sports?: string[]; serviceCities?: string[] }) => `You are writing a standout "About my coaching style and background" section for a coach's profile. Use ONLY the coach details below—do not invent credentials, years, or facts.
+const SYSTEM_PROMPT_GENERATE = (coachContext: CoachBioContext) => {
+  const credBlock = formatCredentialsBlock(coachContext);
+  return `You are writing a standout "About my coaching style and background" section for a coach's profile. Use ONLY the coach details below—**NEVER invent credentials, years, statistics, awards, or any facts not listed.**
 
 **Coach details:**
 - Name: ${coachContext.displayName.trim() || "The coach"}. Always use this exact name.
 ${coachContext.sports?.length ? `- Sports they coach: ${coachContext.sports.join(", ")}.` : ""}
 ${coachContext.serviceCities?.length ? `- Service areas: ${coachContext.serviceCities.join(", ")}.` : ""}
+${credBlock}
 
-**Task:** Write a complete, compelling profile in markdown that makes athletes want to work with this coach. Use vivid, confident language—the kind that belongs on a top coach's profile. Use headings (##) for sections like ## Experience, ## My approach, ## Who I work with, ## What you'll get. Use bullet points and **bold** for key phrases. Write in third person, warm and professional. Since you only have basic details, write strong copy that invites athletes to reach out—do not invent specific stats or credentials. Aim for 3–5 sections; every line should sound distinctive and memorable.
+**Task:** Write a complete, compelling profile in markdown that makes athletes want to work with this coach. Use vivid, confident language. Use headings (##) for sections like ## Experience, ## My approach, ## Who I work with, ## What you'll get. Use bullet points and **bold** for key phrases. Write in third person, warm and professional. If details are limited, write strong copy that invites athletes to reach out—do not pad with invented specifics. **Keep it concise: 150–300 words total.** Every line should earn its place.
 
 You MUST respond with ONLY a valid JSON object. Use exactly this shape (escape newlines in the string as \\n):
 {"message": "Done.", "bioPreview": "The full markdown profile section here"}
 
 Output only the JSON. The bioPreview field must not be empty.`;
+};
 
-const SYSTEM_PROMPT_ENHANCE = (coachContext: { displayName: string; sports?: string[]; serviceCities?: string[] }) => `You are rewriting a coach's bio into a standout "About my coaching style and background" section. The user will provide their current bio. Your job is to transform it into something noticeably more compelling while staying 100% faithful to the facts they stated.
+const SYSTEM_PROMPT_ENHANCE = (coachContext: CoachBioContext) => {
+  const credBlock = formatCredentialsBlock(coachContext);
+  return `You are rewriting a coach's bio into a standout "About my coaching style and background" section. The user will provide their current bio. Your job is to transform it into something noticeably more compelling while staying 100% faithful to the facts they stated.
 
 **Coach details (use this name only):**
 - Name: ${coachContext.displayName.trim() || "The coach"}.
 ${coachContext.sports?.length ? `- Sports: ${coachContext.sports.join(", ")}.` : ""}
 ${coachContext.serviceCities?.length ? `- Service areas: ${coachContext.serviceCities.join(", ")}.` : ""}
+${credBlock}
 
 **Rules:**
-- Do not add or invent any facts. Use only what they wrote.
+- **NEVER add or invent any facts, credentials, statistics, or claims** not present in the original bio or the coach details above. If the coach mentioned credentials above, you may incorporate them. Do not fabricate anything else.
 - Restructure into clear markdown: headings (##), bullet points, and **bold** for emphasis. Aim for 3–5 sections (e.g. ## Experience, ## My approach, ## Who I work with, ## What you'll get).
-- Elevate the language: stronger verbs, more vivid phrasing, confident tone. Make it read like a standout coach profile, not a rough draft. Transform their words into polished, story-like copy that would impress athletes and parents.
-- Length can be similar or slightly longer if it adds impact. Every line should earn its place.
+- Elevate the language: stronger verbs, more vivid phrasing, confident tone. Make it read like a standout coach profile, not a rough draft.
+- **Keep it concise: 150–300 words total.** Cut filler and repetition. Every line should earn its place.
 
 You MUST respond with ONLY a valid JSON object. Use exactly this shape (escape newlines in bioPreview as \\n):
 {"message": "Done.", "bioPreview": "The improved full markdown profile section here"}
 
 Output only the JSON. The bioPreview field must not be empty.`;
+};
 
 export type BioDraftMode = "generate" | "enhance";
+
+export interface CoachBioContext {
+  displayName: string;
+  sports?: string[];
+  serviceCities?: string[];
+  credentials?: {
+    certifications?: string[];
+    yearsExperience?: number | null;
+    playingExperience?: string;
+    education?: string;
+  };
+}
 
 export interface BioDraftInput {
   messages?: Array<{ role: "user" | "assistant"; content: string }>;
   currentBioPreview?: string;
-  coachContext: { displayName: string; sports?: string[]; serviceCities?: string[] };
+  coachContext: CoachBioContext;
   /** When set, messages are built from mode; messages array is optional. */
   mode?: BioDraftMode;
   /** For mode "enhance", the current bio text to improve. */

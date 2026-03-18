@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, memo } from "react";
 import { loadGoogleMaps } from "@/lib/googleMaps";
 
 export interface CoachDetailLocation {
@@ -10,10 +10,11 @@ export interface CoachDetailLocation {
   longitude: number | null;
 }
 
-export function CoachDetailMap({ locations }: { locations: CoachDetailLocation[] }) {
+export const CoachDetailMap = memo(function CoachDetailMap({ locations }: { locations: CoachDetailLocation[] }) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const [mapReady, setMapReady] = useState(false);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<google.maps.Marker[]>([]);
+  const [mapReady, setMapReady] = useState(false);
 
   const withCoords = locations.filter(
     (loc) => loc.latitude != null && loc.longitude != null && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)
@@ -32,39 +33,43 @@ export function CoachDetailMap({ locations }: { locations: CoachDetailLocation[]
 
   useEffect(() => {
     if (!mapReady || !window.google || !mapRef.current || withCoords.length === 0) return;
-    const bounds = new window.google.maps.LatLngBounds();
-    const map = new window.google.maps.Map(mapRef.current, {
-      zoom: 13,
-      center: withCoords[0]
-        ? { lat: withCoords[0].latitude!, lng: withCoords[0].longitude! }
-        : { lat: 37.7749, lng: -122.4194 },
-      mapTypeControl: false,
-      streetViewControl: false,
-      fullscreenControl: true,
-      zoomControl: true,
-      styles: [
-        { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
-        { featureType: "transit", elementType: "labels", stylers: [{ visibility: "off" }] },
-      ],
-    });
+
+    if (!mapInstanceRef.current) {
+      mapInstanceRef.current = new window.google.maps.Map(mapRef.current, {
+        zoom: 13,
+        center: { lat: withCoords[0].latitude!, lng: withCoords[0].longitude! },
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: true,
+        zoomControl: true,
+        styles: [
+          { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
+          { featureType: "transit", elementType: "labels", stylers: [{ visibility: "off" }] },
+        ],
+      });
+    }
+
+    const map = mapInstanceRef.current;
+
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
+
+    const bounds = new window.google.maps.LatLngBounds();
     for (const loc of withCoords) {
       const pos = { lat: loc.latitude!, lng: loc.longitude! };
       bounds.extend(pos);
-      const marker = new window.google.maps.Marker({
-        position: pos,
-        map,
-        title: loc.name,
-      });
+      const marker = new window.google.maps.Marker({ position: pos, map, title: loc.name });
       markersRef.current.push(marker);
     }
-    if (withCoords.length > 1) map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
+    if (withCoords.length > 1) {
+      map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
+    }
+
     return () => {
       markersRef.current.forEach((m) => m.setMap(null));
       markersRef.current = [];
     };
-  }, [mapReady, locations]);
+  }, [mapReady, withCoords.length]);
 
   if (locations.length === 0) return null;
 
@@ -97,4 +102,4 @@ export function CoachDetailMap({ locations }: { locations: CoachDetailLocation[]
       </ul>
     </div>
   );
-}
+});

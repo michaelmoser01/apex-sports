@@ -26,12 +26,24 @@ import {
   ChevronRight,
   MapPin,
   Check,
+  Award,
+  Clock,
+  Medal,
+  GraduationCap,
+  Pencil,
 } from "lucide-react";
 
 interface CoachPhoto {
   id: string;
   url: string;
   sortOrder: number;
+}
+
+interface Credentials {
+  certifications: string[];
+  yearsExperience: number | null;
+  playingExperience: string;
+  education: string;
 }
 
 interface CoachProfile {
@@ -46,6 +58,7 @@ interface CoachProfile {
   avatarUrl: string | null;
   phone?: string | null;
   photos?: CoachPhoto[];
+  credentials?: Credentials;
   stripeConnectAccountId?: string | null;
   stripeOnboardingComplete?: boolean;
   assistantDisplayName?: string | null;
@@ -84,13 +97,12 @@ function EditProfileFormInline({
   onCancel,
 }: {
   coach: CoachProfile;
-  updateProfileMutation: { mutate: (data: { displayName?: string; sports?: string[]; serviceCities?: string[]; bio?: string; hourlyRate?: number; phone?: string }) => void; isPending: boolean };
+  updateProfileMutation: { mutate: (data: { displayName?: string; sports?: string[]; serviceCities?: string[]; hourlyRate?: number; phone?: string }) => void; isPending: boolean };
   onCancel: () => void;
 }) {
   const [displayName, setDisplayName] = useState(coach.displayName);
   const [sports, setSports] = useState<string[]>(coach.sports ?? []);
   const [serviceAreas, setServiceAreas] = useState<ServiceAreaItem[]>(coach.serviceAreas ?? []);
-  const [bio, setBio] = useState(coach.bio ?? "");
   const [hourlyRate, setHourlyRate] = useState(coach.hourlyRate ?? "");
   const [phone, setPhone] = useState(coach.phone ?? "");
   const [savingAreas, setSavingAreas] = useState(false);
@@ -136,7 +148,6 @@ function EditProfileFormInline({
       displayName,
       sports,
       serviceCities: serviceAreas.map((a) => a.label),
-      bio: bio || undefined,
       hourlyRate: hourlyRate ? parseFloat(hourlyRate) : undefined,
       phone: phone.trim() || undefined,
     });
@@ -176,15 +187,6 @@ function EditProfileFormInline({
         helperText="Search for a city and set your travel radius."
       />
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">About Me</label>
-        <textarea
-          value={bio}
-          onChange={(e) => setBio(e.target.value)}
-          rows={4}
-          className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-        />
-      </div>
-      <div>
         <label className="block text-sm font-medium text-slate-700 mb-1">Hourly rate ($)</label>
         <input
           type="number"
@@ -205,6 +207,7 @@ function EditProfileFormInline({
           placeholder="+1 555 123 4567"
         />
       </div>
+
       <div className="flex gap-2">
         <button
           type="submit"
@@ -237,6 +240,216 @@ interface BookingsData {
     paymentStatus: string | null;
     amountCents: number | null;
   }[];
+}
+
+function CredentialsSection({ coach }: { coach: CoachProfile }) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [certifications, setCertifications] = useState<string[]>(coach.credentials?.certifications ?? []);
+  const [certInput, setCertInput] = useState("");
+  const [yearsExperience, setYearsExperience] = useState(coach.credentials?.yearsExperience?.toString() ?? "");
+  const [playingExperience, setPlayingExperience] = useState(coach.credentials?.playingExperience ?? "");
+  const [education, setEducation] = useState(coach.credentials?.education ?? "");
+
+  useEffect(() => {
+    setCertifications(coach.credentials?.certifications ?? []);
+    setYearsExperience(coach.credentials?.yearsExperience?.toString() ?? "");
+    setPlayingExperience(coach.credentials?.playingExperience ?? "");
+    setEducation(coach.credentials?.education ?? "");
+  }, [coach.credentials]);
+
+  const creds = coach.credentials;
+  const hasAny =
+    (creds?.yearsExperience != null && creds.yearsExperience > 0) ||
+    (creds?.certifications?.length ?? 0) > 0 ||
+    !!creds?.playingExperience?.trim() ||
+    !!creds?.education?.trim();
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api("/coaches/me/credentials", {
+        method: "PUT",
+        body: JSON.stringify({
+          certifications,
+          yearsExperience: yearsExperience ? parseInt(yearsExperience, 10) : null,
+          playingExperience,
+          education,
+        }),
+      });
+      queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
+      setEditing(false);
+    } catch { /* save failed */ }
+    setSaving(false);
+  };
+
+  const addCert = () => {
+    const trimmed = certInput.trim();
+    if (trimmed && !certifications.includes(trimmed)) {
+      setCertifications((prev) => [...prev, trimmed]);
+      setCertInput("");
+    }
+  };
+
+  return (
+    <section className="mb-12 p-6 bg-white rounded-xl border border-slate-200">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-lg font-semibold text-slate-900">Credentials & Experience</h2>
+        {!editing && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="text-brand-600 font-medium hover:underline inline-flex items-center gap-1"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+            Edit
+          </button>
+        )}
+      </div>
+
+      {editing ? (
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Years of coaching experience</label>
+            <input
+              type="number"
+              min={0}
+              max={80}
+              value={yearsExperience}
+              onChange={(e) => setYearsExperience(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+              placeholder="e.g. 10"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Certifications</label>
+            {certifications.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {certifications.map((cert) => (
+                  <span
+                    key={cert}
+                    className="inline-flex items-center gap-1 text-sm bg-brand-50 text-brand-700 px-2.5 py-1 rounded-full border border-brand-200"
+                  >
+                    {cert}
+                    <button
+                      type="button"
+                      onClick={() => setCertifications((prev) => prev.filter((c) => c !== cert))}
+                      className="text-brand-400 hover:text-brand-600"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={certInput}
+                onChange={(e) => setCertInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addCert();
+                  }
+                }}
+                className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                placeholder="e.g. USSF Licensed, NASM CPT"
+              />
+              <button
+                type="button"
+                onClick={addCert}
+                className="px-3 py-2 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 font-medium"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Playing experience</label>
+            <textarea
+              value={playingExperience}
+              onChange={(e) => setPlayingExperience(e.target.value)}
+              rows={2}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+              placeholder="e.g. Played D1 soccer at UC Berkeley"
+              maxLength={500}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Education</label>
+            <textarea
+              value={education}
+              onChange={(e) => setEducation(e.target.value)}
+              rows={2}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+              placeholder="e.g. BS in Sports Science, Stanford"
+              maxLength={500}
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="bg-brand-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(false);
+                setCertifications(coach.credentials?.certifications ?? []);
+                setYearsExperience(coach.credentials?.yearsExperience?.toString() ?? "");
+                setPlayingExperience(coach.credentials?.playingExperience ?? "");
+                setEducation(coach.credentials?.education ?? "");
+              }}
+              className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : hasAny ? (
+        <div className="space-y-3">
+          {creds!.yearsExperience != null && creds!.yearsExperience > 0 && (
+            <div className="flex items-center gap-2.5 text-sm">
+              <Clock className="w-4 h-4 text-brand-500 shrink-0" />
+              <span className="text-slate-700">{creds!.yearsExperience} years of coaching experience</span>
+            </div>
+          )}
+          {creds!.certifications?.length > 0 && (
+            <div className="flex items-start gap-2.5 text-sm">
+              <Award className="w-4 h-4 text-brand-500 shrink-0 mt-0.5" />
+              <div className="flex flex-wrap gap-1.5">
+                {creds!.certifications.map((cert) => (
+                  <span key={cert} className="bg-brand-50 text-brand-700 px-2.5 py-0.5 rounded-full text-xs font-medium border border-brand-200">
+                    {cert}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {creds!.playingExperience?.trim() && (
+            <div className="flex items-start gap-2.5 text-sm">
+              <Medal className="w-4 h-4 text-brand-500 shrink-0 mt-0.5" />
+              <span className="text-slate-700">{creds!.playingExperience}</span>
+            </div>
+          )}
+          {creds!.education?.trim() && (
+            <div className="flex items-start gap-2.5 text-sm">
+              <GraduationCap className="w-4 h-4 text-brand-500 shrink-0 mt-0.5" />
+              <span className="text-slate-700">{creds!.education}</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="text-slate-500 text-sm">No credentials added yet. Add your experience, certifications, and education to build trust with athletes.</p>
+      )}
+    </section>
+  );
 }
 
 interface ConnectedAthlete {
@@ -337,7 +550,6 @@ export default function CoachDashboard() {
       displayName?: string;
       sports?: string[];
       serviceCities?: string[];
-      bio?: string;
       hourlyRate?: number;
       phone?: string;
     }) =>
@@ -1815,6 +2027,8 @@ export default function CoachDashboard() {
           )}
         </div>
       </section>
+
+      <CredentialsSection coach={coach} />
 
       <section className="mb-12 p-6 bg-white rounded-xl border border-slate-200">
         <div className="flex justify-between items-center mb-4">

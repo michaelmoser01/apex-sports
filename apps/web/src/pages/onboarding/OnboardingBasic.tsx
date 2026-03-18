@@ -17,7 +17,7 @@ export default function OnboardingBasic() {
     retry: (_, err) => (err?.message?.toLowerCase().includes("not found") ? false : true),
   });
   useEffect(() => {
-    if (existingProfile?.id) navigate(`${ONBOARDING_BASE}/about`, { replace: true });
+    if (existingProfile?.id) navigate(`${ONBOARDING_BASE}/credentials`, { replace: true });
   }, [existingProfile?.id, navigate]);
 
   const [displayName, setDisplayName] = useState("");
@@ -111,7 +111,7 @@ export default function OnboardingBasic() {
 
       queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
       queryClient.invalidateQueries({ queryKey: ["auth"] });
-      navigate(`${ONBOARDING_BASE}/about`, { replace: true });
+      navigate(`${ONBOARDING_BASE}/credentials`, { replace: true });
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {

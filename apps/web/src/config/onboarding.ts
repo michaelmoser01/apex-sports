@@ -1,5 +1,6 @@
 export const ONBOARDING_STEPS: readonly { path: string; label: string; stepLabel: string }[] = [
   { path: "basic", label: "Basic info", stepLabel: "Info" },
+  { path: "credentials", label: "Credentials", stepLabel: "Credentials" },
   { path: "about", label: "About", stepLabel: "About" },
   { path: "assistant", label: "Assistant", stepLabel: "Set up Assistant" },
 ];

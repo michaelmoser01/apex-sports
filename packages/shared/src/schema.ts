@@ -147,6 +147,16 @@ export const reviewSchema = z.object({
   comment: z.string().optional().default(""),
 });
 
+// Coach credentials (stored in CoachProfile.credentials JSON column)
+export const credentialsSchema = z.object({
+  certifications: z.array(z.string().max(120)).default([]),
+  yearsExperience: z.number().int().min(0).max(80).nullable().default(null),
+  playingExperience: z.string().max(500).default(""),
+  education: z.string().max(500).default(""),
+});
+
+export type CoachCredentials = z.infer<typeof credentialsSchema>;
+
 // Types
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;

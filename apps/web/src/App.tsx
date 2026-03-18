@@ -28,6 +28,7 @@ import OnboardingLayout from "./components/OnboardingLayout";
 import OnboardingBasic from "./pages/onboarding/OnboardingBasic";
 import OnboardingAbout from "./pages/onboarding/OnboardingAbout";
 import OnboardingGetPaid from "./pages/onboarding/OnboardingGetPaid";
+import OnboardingCredentials from "./pages/onboarding/OnboardingCredentials";
 import OnboardingAssistant from "./pages/onboarding/OnboardingAssistant";
 import OnboardingPlan, { OnboardingPlanSuccess } from "./pages/onboarding/OnboardingPlan";
 
@@ -80,6 +81,7 @@ function AppContent() {
         <Route path="coach/onboarding" element={<ProtectedRoute><OnboardingLayout /></ProtectedRoute>}>
           <Route index element={<Navigate to="/coach/onboarding/basic" replace />} />
           <Route path="basic" element={<OnboardingBasic />} />
+          <Route path="credentials" element={<OnboardingCredentials />} />
           <Route path="about" element={<OnboardingAbout />} />
           <Route path="assistant" element={<OnboardingAssistant />} />
         </Route>

@@ -53,6 +53,7 @@ model CoachProfile {
   invite             CoachInvite?
   coachAthletes     CoachAthlete[]    @relation("CoachAthletes")
   phoneOptIns       CoachAthletePhoneOptIn[]
+  favoritedBy       FavoriteCoach[]   @relation("FavoritedBy")
 
   @@map("coach_profiles")
 }
@@ -86,10 +87,11 @@ model AthleteProfile {
   phone       String?  @map("phone")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  serviceAreas      ServiceArea[]  @relation("AthleteServiceAreas")
-  coachAssociations CoachAthlete[] @relation("AthleteCoaches")
-  bookings          Booking[]      @relation("AthleteBookings")
+  serviceAreas      ServiceArea[]     @relation("AthleteServiceAreas")
+  coachAssociations CoachAthlete[]    @relation("AthleteCoaches")
+  bookings          Booking[]         @relation("AthleteBookings")
   reviews           Review[]
+  favorites         FavoriteCoach[]   @relation("AthleteFavorites")
 
   @@map("athlete_profiles")
 }
@@ -223,4 +225,16 @@ model ServiceArea {
   athleteProfile   AthleteProfile? @relation("AthleteServiceAreas", fields: [athleteProfileId], references: [id], onDelete: Cascade)
 
   @@map("service_areas")
+}
+
+model FavoriteCoach {
+  id               String         @id @default(uuid())
+  athleteProfileId String         @map("athlete_profile_id")
+  athlete          AthleteProfile @relation("AthleteFavorites", fields: [athleteProfileId], references: [id], onDelete: Cascade)
+  coachProfileId   String         @map("coach_profile_id")
+  coach            CoachProfile   @relation("FavoritedBy", fields: [coachProfileId], references: [id], onDelete: Cascade)
+  createdAt        DateTime       @default(now()) @map("created_at")
+
+  @@unique([athleteProfileId, coachProfileId])
+  @@map("favorite_coaches")
 }

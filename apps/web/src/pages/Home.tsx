@@ -9,7 +9,9 @@ import {
   Trophy,
   Zap,
   ArrowRight,
+  Search,
 } from "lucide-react";
+import { ALLOWED_SPORTS } from "@apex-sports/shared";
 import { Button } from "@/components/ui";
 import { SectionHeader } from "@/components/ui";
 
@@ -190,8 +192,50 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ── Browse by Sport ── */}
+      <section className="py-16 sm:py-20 bg-white">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <SectionHeader
+            eyebrow="Get started"
+            title="Browse by sport"
+            description="Find verified coaches near you in just a few clicks."
+          />
+          <div className="mt-10 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+            {ALLOWED_SPORTS.map((sport) => (
+              <Link
+                key={sport}
+                to={`/find?sport=${encodeURIComponent(sport)}`}
+                className="group flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/50 p-6 transition-all hover:border-brand-300 hover:shadow-md hover:-translate-y-0.5"
+              >
+                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-100 text-brand-600 group-hover:bg-brand-500 group-hover:text-white transition-colors text-2xl">
+                  {sport === "Soccer" && "⚽"}
+                  {sport === "Baseball" && "⚾"}
+                  {sport === "Softball" && "🥎"}
+                  {sport === "Basketball" && "🏀"}
+                  {sport === "Tennis" && "🎾"}
+                </span>
+                <span className="font-semibold text-slate-900 group-hover:text-brand-700 transition-colors">
+                  {sport}
+                </span>
+              </Link>
+            ))}
+            <Link
+              to="/find"
+              className="group flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/50 p-6 transition-all hover:border-brand-300 hover:shadow-md hover:-translate-y-0.5"
+            >
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-200 text-slate-600 group-hover:bg-brand-500 group-hover:text-white transition-colors">
+                <Search className="w-7 h-7" />
+              </span>
+              <span className="font-semibold text-slate-900 group-hover:text-brand-700 transition-colors">
+                View All
+              </span>
+            </Link>
+          </div>
+        </div>
+      </section>
+
       {/* ── Value Propositions ── */}
-      <section className="py-20 sm:py-28 bg-white" ref={valuesIO.ref}>
+      <section className="py-20 sm:py-28 bg-slate-50" ref={valuesIO.ref}>
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <SectionHeader
             eyebrow="Why ApexSports"

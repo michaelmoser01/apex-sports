@@ -194,5 +194,124 @@ router.post("/me/service-area", authMiddleware(), async (req, res) => {
   });
 });
 
+// ── Favorites ──
+
+router.get("/me/favorites/ids", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const profile = await prisma.athleteProfile.findFirst({ where: { userId: user.id }, select: { id: true } });
+  if (!profile) return res.json({ ids: [] });
+  const favs = await prisma.favoriteCoach.findMany({
+    where: { athleteProfileId: profile.id },
+    select: { coachProfileId: true },
+  });
+  res.json({ ids: favs.map((f) => f.coachProfileId) });
+});
+
+router.post("/me/favorites/:coachProfileId", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const profile = await prisma.athleteProfile.findFirst({ where: { userId: user.id }, select: { id: true } });
+  if (!profile) return res.status(404).json({ error: "Athlete profile not found" });
+  const coachProfileId = req.params.coachProfileId;
+  const coach = await prisma.coachProfile.findUnique({ where: { id: coachProfileId }, select: { id: true } });
+  if (!coach) return res.status(404).json({ error: "Coach not found" });
+  await prisma.favoriteCoach.upsert({
+    where: { athleteProfileId_coachProfileId: { athleteProfileId: profile.id, coachProfileId } },
+    create: { athleteProfileId: profile.id, coachProfileId },
+    update: {},
+  });
+  res.json({ favorited: true });
+});
+
+router.delete("/me/favorites/:coachProfileId", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const profile = await prisma.athleteProfile.findFirst({ where: { userId: user.id }, select: { id: true } });
+  if (!profile) return res.status(404).json({ error: "Athlete profile not found" });
+  const coachProfileId = req.params.coachProfileId;
+  await prisma.favoriteCoach.deleteMany({
+    where: { athleteProfileId: profile.id, coachProfileId },
+  });
+  res.json({ favorited: false });
+});
+
+// ── My Coaches (booked + favorited, merged) ──
+
+router.get("/me/my-coaches", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const profile = await prisma.athleteProfile.findFirst({ where: { userId: user.id }, select: { id: true } });
+  if (!profile) return res.json({ coaches: [] });
+
+  const [favorites, bookings] = await Promise.all([
+    prisma.favoriteCoach.findMany({
+      where: { athleteProfileId: profile.id },
+      include: {
+        coach: {
+          select: { id: true, displayName: true, sports: true, avatarUrl: true, hourlyRate: true },
+        },
+      },
+    }),
+    prisma.booking.findMany({
+      where: { athleteProfileId: profile.id, status: { not: "cancelled" } },
+      select: { coachId: true, createdAt: true, coach: { select: { id: true, displayName: true, sports: true, avatarUrl: true, hourlyRate: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+
+  const favoriteIds = new Set(favorites.map((f) => f.coachProfileId));
+
+  const coachMap = new Map<string, {
+    coachId: string;
+    displayName: string;
+    sports: string[];
+    avatarUrl: string | null;
+    hourlyRate: string | null;
+    isFavorite: boolean;
+    lastBookingDate: string | null;
+  }>();
+
+  for (const fav of favorites) {
+    coachMap.set(fav.coachProfileId, {
+      coachId: fav.coachProfileId,
+      displayName: fav.coach.displayName,
+      sports: fav.coach.sports,
+      avatarUrl: fav.coach.avatarUrl,
+      hourlyRate: fav.coach.hourlyRate?.toString() ?? null,
+      isFavorite: true,
+      lastBookingDate: null,
+    });
+  }
+
+  for (const b of bookings) {
+    const existing = coachMap.get(b.coachId);
+    if (existing) {
+      if (!existing.lastBookingDate) {
+        existing.lastBookingDate = b.createdAt.toISOString();
+      }
+    } else {
+      coachMap.set(b.coachId, {
+        coachId: b.coachId,
+        displayName: b.coach.displayName,
+        sports: b.coach.sports,
+        avatarUrl: b.coach.avatarUrl,
+        hourlyRate: b.coach.hourlyRate?.toString() ?? null,
+        isFavorite: false,
+        lastBookingDate: b.createdAt.toISOString(),
+      });
+    }
+  }
+
+  const coaches = Array.from(coachMap.values()).sort((a, b) => {
+    if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
+    const aDate = a.lastBookingDate ? new Date(a.lastBookingDate).getTime() : 0;
+    const bDate = b.lastBookingDate ? new Date(b.lastBookingDate).getTime() : 0;
+    return bDate - aDate;
+  });
+
+  res.json({ coaches });
+});
+
 export default router;
 
