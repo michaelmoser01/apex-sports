@@ -42,6 +42,12 @@ export interface BookingSlot {
   id: string;
   startTime: string;
   endTime: string;
+  maxCapacity?: number;
+  allowPrivate?: boolean;
+  spotsRemaining?: number;
+  currentHeadcount?: number;
+  currentPerPersonRate?: number | null;
+  isLocked?: boolean;
   location?: { id: string; name: string; address?: string } | null;
 }
 
@@ -51,6 +57,12 @@ interface BookingEvent {
   start: Date;
   end: Date;
   locationName?: string;
+  maxCapacity: number;
+  allowPrivate: boolean;
+  spotsRemaining: number;
+  currentHeadcount: number;
+  currentPerPersonRate: number | null;
+  isLocked: boolean;
 }
 
 function slotsToEvents(
@@ -72,6 +84,12 @@ function slotsToEvents(
         start,
         end,
         locationName: s.location?.name,
+        maxCapacity: s.maxCapacity ?? 1,
+        allowPrivate: s.allowPrivate !== false,
+        spotsRemaining: s.spotsRemaining ?? 1,
+        currentHeadcount: s.currentHeadcount ?? 0,
+        currentPerPersonRate: s.currentPerPersonRate ?? null,
+        isLocked: s.isLocked ?? false,
       };
     });
 }
@@ -329,25 +347,30 @@ export function PublicBookingCalendar({
                       const isSelected = ev.id === selectedSlotId;
                       const isRequested = requestedSlotIds?.has(ev.id);
                       const isBooked = bookedSlotIds?.has(ev.id);
+                      const isMine = isBooked || isRequested;
+                      const isFull = (ev.maxCapacity > 1 && ev.spotsRemaining <= 0) || ev.isLocked;
+                      const isUnavailable = isMine || isFull;
                       return (
                         <li key={ev.id}>
                           <button
                             type="button"
-                            disabled={isBooked}
+                            disabled={isUnavailable}
                             onClick={() => handleSlotClickFromList(ev.id)}
                             className={`w-full text-left flex items-center gap-3 rounded-lg border px-4 py-3 transition ${
                               isBooked
-                                ? "border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed"
-                                : isSelected
-                                  ? "border-brand-500 bg-brand-50 text-slate-900"
-                                  : isRequested
-                                    ? "border-amber-200 bg-amber-50/80 hover:bg-amber-50"
-                                    : "border-slate-200 bg-slate-50/50 hover:bg-slate-100"
+                                ? "border-green-200 bg-green-50/80 text-slate-700 cursor-not-allowed"
+                                : isRequested
+                                  ? "border-amber-200 bg-amber-50/80 text-slate-700 cursor-not-allowed"
+                                  : isFull
+                                    ? "border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed"
+                                    : isSelected
+                                      ? "border-brand-500 bg-brand-50 text-slate-900"
+                                      : "border-slate-200 bg-slate-50/50 hover:bg-slate-100"
                             }`}
                           >
                             <span
                               className={`shrink-0 w-2 h-10 rounded-sm ${
-                                isBooked ? "bg-slate-400" : isRequested ? "bg-amber-500" : "bg-brand-500"
+                                isBooked ? "bg-green-500" : isRequested ? "bg-amber-500" : isFull ? "bg-slate-400" : "bg-brand-500"
                               }`}
                             />
                             <div className="min-w-0 flex-1">
@@ -355,15 +378,30 @@ export function PublicBookingCalendar({
                               {ev.locationName && (
                                 <span className="block text-xs text-slate-500 truncate">📍 {ev.locationName}</span>
                               )}
+                              {ev.maxCapacity > 1 && !isUnavailable && !ev.isLocked && (
+                                <span className="block text-xs text-brand-600 font-medium">
+                                  {ev.currentHeadcount > 0
+                                    ? `${ev.currentHeadcount} joined${ev.currentPerPersonRate ? ` · $${ev.currentPerPersonRate}/hr each` : ""}`
+                                    : `Open session${ev.currentPerPersonRate ? ` · $${ev.currentPerPersonRate}/hr` : ""}`}
+                                </span>
+                              )}
+                              {ev.isLocked && !isUnavailable && (
+                                <span className="block text-xs text-slate-500 font-medium">Private session</span>
+                              )}
                             </div>
-                            {isBooked && (
+                            {isFull && !isMine && (
                               <span className="ml-auto text-xs font-medium text-slate-600 bg-slate-200 px-2 py-0.5 rounded shrink-0">
+                                Full
+                              </span>
+                            )}
+                            {isBooked && (
+                              <span className="ml-auto text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded shrink-0">
                                 Booked
                               </span>
                             )}
                             {isRequested && !isBooked && (
                               <span className="ml-auto text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded shrink-0">
-                                Requested
+                                Pending
                               </span>
                             )}
                           </button>
@@ -430,37 +468,57 @@ export function PublicBookingCalendar({
                     const isSelected = ev.id === selectedSlotId;
                     const isRequested = requestedSlotIds?.has(ev.id);
                     const isBooked = bookedSlotIds?.has(ev.id);
+                    const isMine = isBooked || isRequested;
+                    const isFull = (ev.maxCapacity > 1 && ev.spotsRemaining <= 0) || ev.isLocked;
+                    const isUnavailable = isMine || isFull;
                     return (
                       <li key={ev.id}>
                         <button
                           type="button"
-                          disabled={isBooked}
+                          disabled={isUnavailable}
                           onClick={() => handleSlotClickFromList(ev.id)}
                           className={`w-full text-left flex items-center gap-3 rounded-lg border px-4 py-3 min-h-[48px] touch-manipulation ${
                             isBooked
-                              ? "border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed"
-                              : isSelected
-                                ? "border-brand-500 bg-brand-50 text-slate-900"
-                                : isRequested
-                                  ? "border-amber-200 bg-amber-50/80 active:bg-amber-50"
-                                  : "border-slate-200 bg-slate-50/50 active:bg-slate-100"
+                              ? "border-green-200 bg-green-50/80 text-slate-700 cursor-not-allowed"
+                              : isRequested
+                                ? "border-amber-200 bg-amber-50/80 text-slate-700 cursor-not-allowed"
+                                : isFull
+                                  ? "border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed"
+                                  : isSelected
+                                    ? "border-brand-500 bg-brand-50 text-slate-900"
+                                    : "border-slate-200 bg-slate-50/50 active:bg-slate-100"
                           }`}
                         >
-                          <span className={`shrink-0 w-2 h-10 rounded-sm ${isBooked ? "bg-slate-400" : isRequested ? "bg-amber-500" : "bg-brand-500"}`} />
+                          <span className={`shrink-0 w-2 h-10 rounded-sm ${isBooked ? "bg-green-500" : isRequested ? "bg-amber-500" : isFull ? "bg-slate-400" : "bg-brand-500"}`} />
                           <div className="min-w-0 flex-1">
                             <span className="font-medium text-slate-800">{ev.title}</span>
                             {ev.locationName && (
                               <span className="block text-xs text-slate-500 truncate">📍 {ev.locationName}</span>
                             )}
+                            {ev.maxCapacity > 1 && !isUnavailable && !ev.isLocked && (
+                              <span className="block text-xs text-brand-600 font-medium">
+                                {ev.currentHeadcount > 0
+                                  ? `${ev.currentHeadcount} joined${ev.currentPerPersonRate ? ` · $${ev.currentPerPersonRate}/hr` : ""}`
+                                  : `Open session${ev.currentPerPersonRate ? ` · $${ev.currentPerPersonRate}/hr` : ""}`}
+                              </span>
+                            )}
+                            {ev.isLocked && !isUnavailable && (
+                              <span className="block text-xs text-slate-500 font-medium">Private session</span>
+                            )}
                           </div>
-                          {isBooked && (
+                          {isFull && !isMine && (
                             <span className="ml-auto text-xs font-medium text-slate-600 bg-slate-200 px-2 py-0.5 rounded shrink-0">
+                              Full
+                            </span>
+                          )}
+                          {isBooked && (
+                            <span className="ml-auto text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded shrink-0">
                               Booked
                             </span>
                           )}
                           {isRequested && !isBooked && (
                             <span className="ml-auto text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded shrink-0">
-                              Requested
+                              Pending
                             </span>
                           )}
                         </button>

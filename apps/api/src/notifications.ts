@@ -223,19 +223,24 @@ export interface BookingRequestedToCoachParams {
   slotEnd: string;
   message?: string | null;
   bookingId: string;
+  lockedPrivate?: boolean;
 }
 
 export async function sendBookingRequestedToCoach(params: BookingRequestedToCoachParams): Promise<void> {
-  const { coachEmail, coachPhone, athleteName, slotStart, slotEnd, message, bookingId } = params;
+  const { coachEmail, coachPhone, athleteName, slotStart, slotEnd, message, bookingId, lockedPrivate } = params;
   const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
   const athlete = athleteName?.trim() || "An athlete";
   const ctaUrl = bookingId && appUrl ? `${appUrl}/bookings/${bookingId}` : myBookingsUrl;
+  const typeLabel = lockedPrivate ? "private session" : "booking";
 
-  const subject = `New booking request from ${athlete}`;
+  const subject = lockedPrivate
+    ? `Private session request from ${athlete}`
+    : `New booking request from ${athlete}`;
   const bodyText = [
-    `${athlete} requested a booking with you.`,
+    `${athlete} requested a ${typeLabel} with you.`,
     "",
     `Time: ${slotStr}`,
+    lockedPrivate ? "Type: Private (1-on-1) — this slot will be locked to this athlete only." : null,
     message?.trim() ? `Message: ${message.trim()}` : null,
     "",
     "Log in to ApexSports to accept or decline.",
@@ -246,8 +251,9 @@ export async function sendBookingRequestedToCoach(params: BookingRequestedToCoac
 
   const bodyHtml = htmlEmail(
     [
-      `<p style="margin: 0 0 16px;">${escapeHtml(athlete)} requested a booking with you.</p>`,
+      `<p style="margin: 0 0 16px;">${escapeHtml(athlete)} requested a ${typeLabel} with you.</p>`,
       `<p style="margin: 0 0 16px;"><strong>Time:</strong> ${escapeHtml(slotStr)}</p>`,
+      lockedPrivate ? `<p style="margin: 0 0 16px;"><strong>Type:</strong> Private (1-on-1) — this slot will be locked to this athlete only.</p>` : "",
       message?.trim() ? `<p style="margin: 0 0 16px;"><strong>Message:</strong> ${escapeHtml(message.trim())}</p>` : "",
       `<p style="margin: 0 0 0;">Log in to Apex Sports to accept or decline.</p>`,
     ].join("\n"),
@@ -283,7 +289,9 @@ export async function sendBookingRequestedToCoach(params: BookingRequestedToCoac
   if (sendSms && coachPhone?.trim()) {
     try {
       const phone = normalizePhone(coachPhone.trim());
-      const smsBody = `ApexSports: ${athlete} requested a booking for ${formatSlotTime(slotStart)}. Log in to accept or decline.`;
+      const smsBody = lockedPrivate
+        ? `ApexSports: ${athlete} requested a private session for ${formatSlotTime(slotStart)}. Log in to accept or decline.`
+        : `ApexSports: ${athlete} requested a booking for ${formatSlotTime(slotStart)}. Log in to accept or decline.`;
       await sns.send(
         new PublishCommand({
           PhoneNumber: phone,
@@ -488,6 +496,85 @@ export async function sendBookingRequestSubmittedToAthlete(params: BookingReques
     const sesErr = err as { name?: string; message?: string; Code?: string };
     console.error(
       "[notifications] sendBookingRequestSubmittedToAthlete failed:",
+      sesErr?.name ?? sesErr?.Code,
+      sesErr?.message ?? err,
+      "from:",
+      fromEmail
+    );
+  }
+}
+
+export interface GroupInviteToAthleteParams {
+  athleteEmail: string;
+  inviterName?: string | null;
+  coachDisplayName: string;
+  sport?: string | null;
+  slotStart: string;
+  slotEnd: string;
+  perPersonRate?: number | null;
+  groupSize: number;
+  spotsRemaining: number;
+  inviteUrl: string;
+}
+
+export async function sendGroupInviteToAthlete(params: GroupInviteToAthleteParams): Promise<void> {
+  const {
+    athleteEmail, inviterName, coachDisplayName, sport,
+    slotStart, slotEnd, perPersonRate, groupSize, spotsRemaining, inviteUrl,
+  } = params;
+  const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
+  const coach = coachDisplayName?.trim() || "a coach";
+  const inviter = inviterName?.trim() || "Someone";
+  const sportStr = sport ? ` ${sport}` : "";
+
+  const subject = `${inviter} invited you to a group${sportStr} session`;
+  const bodyText = [
+    "Hi,",
+    "",
+    `${inviter} invited you to a group training session with ${coach}.`,
+    "",
+    `When: ${slotStr}`,
+    `Group size: ${groupSize} people (${spotsRemaining} spot${spotsRemaining !== 1 ? "s" : ""} left)`,
+    perPersonRate != null ? `Per-person rate: $${perPersonRate}/hr` : null,
+    "",
+    `Join the session: ${inviteUrl}`,
+  ]
+    .filter((l) => l !== null)
+    .join("\n");
+
+  const bodyHtml = htmlEmail(
+    [
+      `<p style="margin: 0 0 16px;">Hi,</p>`,
+      `<p style="margin: 0 0 16px;"><strong>${escapeHtml(inviter)}</strong> invited you to a group training session with <strong>${escapeHtml(coach)}</strong>.</p>`,
+      `<p style="margin: 0 0 8px;"><strong>When:</strong> ${escapeHtml(slotStr)}</p>`,
+      `<p style="margin: 0 0 8px;"><strong>Group size:</strong> ${groupSize} people (${spotsRemaining} spot${spotsRemaining !== 1 ? "s" : ""} left)</p>`,
+      perPersonRate != null
+        ? `<p style="margin: 0 0 16px;"><strong>Per-person rate:</strong> $${perPersonRate}/hr</p>`
+        : `<p style="margin: 0 0 16px;"></p>`,
+      `<p style="margin: 0 0 0;">Click below to view the session details and join.</p>`,
+    ].join("\n"),
+    "Join this session",
+    inviteUrl
+  );
+
+  try {
+    await ses.send(
+      new SendEmailCommand({
+        Source: fromEmail,
+        Destination: { ToAddresses: [athleteEmail] },
+        Message: {
+          Subject: { Data: subject, Charset: "UTF-8" },
+          Body: {
+            Text: { Data: bodyText, Charset: "UTF-8" },
+            Html: { Data: bodyHtml, Charset: "UTF-8" },
+          },
+        },
+      })
+    );
+  } catch (err) {
+    const sesErr = err as { name?: string; message?: string; Code?: string };
+    console.error(
+      "[notifications] sendGroupInviteToAthlete failed:",
       sesErr?.name ?? sesErr?.Code,
       sesErr?.message ?? err,
       "from:",
@@ -707,6 +794,76 @@ export async function sendPaymentLinkToAthlete(params: PaymentLinkToAthleteParam
       sesErr?.message ?? err,
       "from:",
       fromEmail
+    );
+  }
+}
+
+export interface PriceDropNotificationParams {
+  athleteEmail: string;
+  athleteName?: string | null;
+  coachDisplayName: string;
+  slotStart: string;
+  slotEnd: string;
+  newPerPersonRate: number;
+  headcount: number;
+  bookingId: string;
+}
+
+export async function sendPriceDropNotification(params: PriceDropNotificationParams): Promise<void> {
+  const { athleteEmail, athleteName, coachDisplayName, slotStart, slotEnd, newPerPersonRate, headcount, bookingId } = params;
+  const name = athleteName?.trim() || "there";
+  const coach = coachDisplayName?.trim() || "your coach";
+  const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
+  const rateStr = `$${newPerPersonRate}/hr`;
+  const bookingUrl = myBookingsUrl ? `${myBookingsUrl.replace("/bookings", "")}/bookings/${bookingId}` : "";
+
+  const subject = `Your rate just dropped to ${rateStr}`;
+  const bodyText = [
+    `Hi ${name},`,
+    "",
+    `Another athlete joined your session with ${coach}, so your per-person rate dropped!`,
+    "",
+    `Session: ${slotStr}`,
+    `Athletes: ${headcount}`,
+    `Your new rate: ${rateStr} per person`,
+    "",
+    bookingUrl ? `View your booking: ${bookingUrl}` : null,
+    "",
+    "Apex Sports",
+  ].filter((l) => l !== null).join("\n");
+
+  const bodyHtml = htmlEmail(
+    [
+      `<p style="margin: 0 0 16px;">Hi ${escapeHtml(name)},</p>`,
+      `<p style="margin: 0 0 16px;">Another athlete joined your session with <strong>${escapeHtml(coach)}</strong>, so your per-person rate dropped!</p>`,
+      `<p style="margin: 0 0 8px;"><strong>Session:</strong> ${escapeHtml(slotStr)}</p>`,
+      `<p style="margin: 0 0 8px;"><strong>Athletes:</strong> ${headcount}</p>`,
+      `<p style="margin: 0 0 16px;"><strong>Your new rate:</strong> ${escapeHtml(rateStr)} per person</p>`,
+    ].join("\n"),
+    "View Booking",
+    bookingUrl
+  );
+
+  try {
+    await ses.send(
+      new SendEmailCommand({
+        Source: fromEmail,
+        Destination: { ToAddresses: [athleteEmail] },
+        Message: {
+          Subject: { Data: subject, Charset: "UTF-8" },
+          Body: {
+            Text: { Data: bodyText, Charset: "UTF-8" },
+            Html: { Data: bodyHtml, Charset: "UTF-8" },
+          },
+        },
+      })
+    );
+  } catch (err) {
+    const sesErr = err as { name?: string; message?: string; Code?: string };
+    console.error(
+      "[notifications] sendPriceDropNotification failed:",
+      sesErr?.name ?? sesErr?.Code,
+      sesErr?.message ?? err,
     );
   }
 }

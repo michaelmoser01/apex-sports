@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Elements } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import { api } from "@/lib/api";
+import { consumeDeepLink } from "@/utils/deepLink";
 import { PRICING_PLANS } from "@/data/pricing";
 import { CheckCircle } from "lucide-react";
 import { PlanPaymentForm } from "@/components/PlanPaymentForm";
@@ -46,7 +47,7 @@ export default function OnboardingPlan() {
       queryClient.refetchQueries({ queryKey: ["auth"] }),
     ]).finally(() => {
       setNavigating(false);
-      navigate("/dashboard", { replace: true });
+      navigate(consumeDeepLink() ?? "/dashboard", { replace: true });
     });
   };
 
@@ -155,7 +156,7 @@ export function OnboardingPlanSuccess() {
       .then(() => {
         queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
         queryClient.invalidateQueries({ queryKey: ["auth"] });
-        navigate("/dashboard", { replace: true });
+        navigate(consumeDeepLink() ?? "/dashboard", { replace: true });
       })
       .catch(() => {
         // Error is shown below via state; or we could set state and show retry

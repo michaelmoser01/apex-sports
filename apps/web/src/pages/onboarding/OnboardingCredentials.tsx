@@ -1,7 +1,17 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ONBOARDING_BASE } from "@/config/onboarding";
+
+interface CoachProfileData {
+  credentials?: {
+    certifications?: string[];
+    yearsExperience?: number | null;
+    playingExperience?: string | null;
+    education?: string | null;
+  } | null;
+}
 
 export default function OnboardingCredentials() {
   const navigate = useNavigate();
@@ -11,6 +21,23 @@ export default function OnboardingCredentials() {
   const [playingExperience, setPlayingExperience] = useState("");
   const [education, setEducation] = useState("");
   const [saving, setSaving] = useState(false);
+  const [prefilled, setPrefilled] = useState(false);
+
+  const { data: profile } = useQuery({
+    queryKey: ["coachProfile"],
+    queryFn: () => api<CoachProfileData>("/coaches/me"),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (prefilled || !profile?.credentials) return;
+    setPrefilled(true);
+    const creds = profile.credentials;
+    if (creds.yearsExperience != null) setYearsExperience(String(creds.yearsExperience));
+    if (creds.certifications?.length) setCertifications(creds.certifications);
+    if (creds.playingExperience) setPlayingExperience(creds.playingExperience);
+    if (creds.education) setEducation(creds.education);
+  }, [profile, prefilled]);
 
   const hasAnyData = !!(
     yearsExperience ||

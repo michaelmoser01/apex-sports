@@ -1,11 +1,12 @@
-import { useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, Navigate, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { signUp, confirmSignUp, autoSignIn, signIn } from "aws-amplify/auth";
 import { Hub } from "aws-amplify/utils";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { api } from "@/lib/api";
+import { setDeepLink, consumeDeepLink } from "@/utils/deepLink";
 import { useQueryClient } from "@tanstack/react-query";
 import { Dumbbell, Users, ArrowRight, Eye, EyeOff } from "lucide-react";
 
@@ -32,6 +33,8 @@ interface DevUser {
 
 function DevSignUp() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
   const { setDevUser } = useAuth();
   const queryClient = useQueryClient();
   const [email, setEmail] = useState("");
@@ -39,6 +42,11 @@ function DevSignUp() {
   const [role, setRole] = useState<Role>("athlete");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const returnTo = searchParams.get("returnTo") ?? (location.state as { returnTo?: string })?.returnTo ?? null;
+  useEffect(() => {
+    if (returnTo) setDeepLink(returnTo);
+  }, [returnTo]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,7 +96,7 @@ function DevSignUp() {
         </form>
         <p className="mt-6 text-center text-sm text-slate-500">
           Already have an account?{" "}
-          <Link to="/sign-in" className="text-brand-600 font-semibold hover:underline">Sign in</Link>
+          <Link to={returnTo ? `/sign-in?returnTo=${encodeURIComponent(returnTo)}` : "/sign-in"} className="text-brand-600 font-semibold hover:underline">Sign in</Link>
         </p>
       </div>
     </div>
@@ -97,6 +105,8 @@ function DevSignUp() {
 
 function CognitoSignUp() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [step, setStep] = useState<Step>("form");
   const [name, setName] = useState("");
@@ -108,6 +118,11 @@ function CognitoSignUp() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  const returnTo = searchParams.get("returnTo") ?? (location.state as { returnTo?: string })?.returnTo ?? null;
+  useEffect(() => {
+    if (returnTo) setDeepLink(returnTo);
+  }, [returnTo]);
 
   const doSignIn = async () => {
     const hubReady = waitForSignIn();
@@ -266,7 +281,7 @@ function CognitoSignUp() {
         </form>
         <p className="mt-6 text-center text-sm text-slate-500">
           Already have an account?{" "}
-          <Link to="/sign-in" className="text-brand-600 font-semibold hover:underline">Sign in</Link>
+          <Link to={returnTo ? `/sign-in?returnTo=${encodeURIComponent(returnTo)}` : "/sign-in"} className="text-brand-600 font-semibold hover:underline">Sign in</Link>
         </p>
       </div>
     </div>
@@ -325,13 +340,28 @@ export default function SignUpPage() {
   const { authStatus } = useAuthenticator((ctx) => [ctx.authStatus]);
   const isAuthenticated = isDevMode ? !!devUser : authStatus === "authenticated";
   const { data: currentUser, isLoading } = useCurrentUser(isAuthenticated);
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+
+  const returnTo = searchParams.get("returnTo") ?? (location.state as { returnTo?: string })?.returnTo ?? null;
+  useEffect(() => {
+    if (returnTo) setDeepLink(returnTo);
+  }, [returnTo]);
 
   if (isAuthenticated && !isLoading && currentUser) {
     if (currentUser.signupRole === "coach" || currentUser.coachProfile) {
-      return <Navigate to={currentUser.coachProfile ? "/dashboard" : "/coach/onboarding/basic"} replace />;
+      if (currentUser.coachProfile) {
+        const dest = consumeDeepLink();
+        return <Navigate to={dest ?? "/dashboard"} replace />;
+      }
+      return <Navigate to="/coach/onboarding/basic" replace />;
     }
     if (currentUser.signupRole === "athlete" || currentUser.athleteProfile) {
-      return <Navigate to={currentUser.athleteProfile ? "/athlete" : "/athlete/onboarding"} replace />;
+      if (currentUser.athleteProfile) {
+        const dest = consumeDeepLink();
+        return <Navigate to={dest ?? "/athlete"} replace />;
+      }
+      return <Navigate to="/athlete/onboarding" replace />;
     }
     return <Navigate to="/welcome" replace />;
   }

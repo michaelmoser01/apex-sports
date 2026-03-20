@@ -3,41 +3,38 @@ import { useState, useMemo, useEffect } from "react";
 import { useLocation, Navigate, Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { ChevronDown, Calendar, Star, ChevronRight, Clock, CheckCircle, XCircle, DollarSign } from "lucide-react";
+import { ChevronDown, Calendar, Star, ChevronRight, Clock, CheckCircle, XCircle, DollarSign, Users, Lock } from "lucide-react";
+
+interface BookingBase {
+  id: string;
+  slot: {
+    id: string;
+    startTime: string;
+    endTime: string;
+    maxCapacity?: number;
+    location: { name: string; address: string; notes: string | null } | null;
+  };
+  message: string | null;
+  status: string;
+  amountCents: number | null;
+  paymentStatus: string | null;
+  createdAt: string;
+  lockedPrivate?: boolean;
+  sessionType?: "private" | "group";
+  participantCount?: number;
+  spotsRemaining?: number;
+}
 
 interface BookingsData {
-  asAthlete: {
-    id: string;
+  asAthlete: (BookingBase & {
     coach: { id: string; displayName: string; sports: string[] };
-    slot: {
-      id: string;
-      startTime: string;
-      endTime: string;
-      location: { name: string; address: string; notes: string | null } | null;
-    };
-    message: string | null;
-    status: string;
-    amountCents: number | null;
-    paymentStatus: string | null;
-    createdAt: string;
     review: { rating: number; comment: string } | null;
-  }[];
-  asCoach: {
-    id: string;
+  })[];
+  asCoach: (BookingBase & {
     athlete: { id: string; name: string | null; email: string };
-    slot: {
-      id: string;
-      startTime: string;
-      endTime: string;
-      location: { name: string; address: string; notes: string | null } | null;
-    };
-    message: string | null;
-    status: string;
-    amountCents: number | null;
-    paymentStatus: string | null;
-    createdAt: string;
     coachRecap: string | null;
-  }[];
+    review?: { rating: number; comment: string } | null;
+  })[];
 }
 
 type TabId = "athlete" | "coach";
@@ -183,7 +180,7 @@ export default function Bookings() {
     return { athleteUpcoming: active, athleteUnpaid: unpaid, athletePast: past };
   }, [asAthlete]);
 
-  const { coachUpcoming, coachUnpaid, coachPast } = useMemo(() => {
+  const { coachUpcomingSlots, coachUnpaid, coachPastSlots } = useMemo(() => {
     const active = asCoach
       .filter((b) => isActive(b.slot.endTime, b.status))
       .sort((a, b) => new Date(a.slot.startTime).getTime() - new Date(b.slot.startTime).getTime());
@@ -193,7 +190,20 @@ export default function Bookings() {
     );
     const unpaidIds = new Set(unpaid.map((b) => b.id));
     const past = asCoach.filter((b) => !isActive(b.slot.endTime, b.status) && !unpaidIds.has(b.id));
-    return { coachUpcoming: active, coachUnpaid: unpaid, coachPast: past };
+
+    const groupBySlot = (bookings: typeof asCoach) => {
+      const groups = new Map<string, typeof asCoach>();
+      for (const b of bookings) {
+        const key = b.slot.id;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(b);
+      }
+      return Array.from(groups.values()).sort(
+        (a, b) => new Date(a[0].slot.startTime).getTime() - new Date(b[0].slot.startTime).getTime()
+      );
+    };
+
+    return { coachUpcomingSlots: groupBySlot(active), coachUnpaid: unpaid, coachPastSlots: groupBySlot(past) };
   }, [asCoach]);
 
   const tabs: { id: TabId; label: string }[] = hasCoachProfile
@@ -332,6 +342,18 @@ export default function Bookings() {
                     </p>
                     {b.slot.location && (
                       <p className="text-slate-500 text-sm mt-0.5">{b.slot.location.name}</p>
+                    )}
+                    {b.sessionType === "group" && (
+                      <p className="text-indigo-600 text-sm mt-1 flex items-center gap-1">
+                        <Users className="w-3.5 h-3.5" />
+                        {b.participantCount ?? 0} joined{(b.spotsRemaining ?? 0) > 0 ? ` · ${b.spotsRemaining} spot${b.spotsRemaining === 1 ? "" : "s"} left` : ""}
+                      </p>
+                    )}
+                    {b.lockedPrivate && (
+                      <p className="text-slate-500 text-sm mt-1 flex items-center gap-1">
+                        <Lock className="w-3.5 h-3.5" />
+                        Private session
+                      </p>
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -508,97 +530,98 @@ export default function Bookings() {
               {updateError}
             </div>
           )}
-          {coachUpcoming.length === 0 ? (
+          {coachUpcomingSlots.length === 0 ? (
             <p className="text-slate-500">No active bookings or pending requests.</p>
           ) : (
             <div className="space-y-5 sm:space-y-4">
-              {coachUpcoming.map((b) => (
-                <div
-                  key={b.id}
-                  className="group p-5 sm:p-5 bg-white rounded-2xl border border-slate-200 border-l-4 border-l-brand-500 shadow-sm hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200"
-                >
-                <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
-                  <div className="min-w-0 flex-1">
-                    <Link to={`/bookings/${b.id}`} className="inline-flex items-center gap-1.5 font-bold text-slate-900 hover:text-brand-600 transition-colors">
-                      {b.athlete.name ?? b.athlete.email}
-                      <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-brand-500 shrink-0" />
-                    </Link>
-                    <p className="text-slate-500 text-sm mt-0.5">
-                      {new Date(b.slot.startTime).toLocaleString()}
-                    </p>
-                    {b.slot.location && (
-                      <p className="text-slate-500 text-sm mt-0.5">{b.slot.location.name}</p>
-                    )}
-                    {b.message != null && b.message.trim() !== "" && (
-                      <p className="text-slate-600 text-sm mt-2 whitespace-pre-wrap">{b.message}</p>
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2 shrink-0">
-                    <span
-                      className={`self-start inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ring-1 ${
-                        b.status === "confirmed"
-                          ? "bg-success-100 text-success-700 ring-success-600/10"
-                          : b.status === "completed"
-                          ? "bg-slate-100 text-slate-700 ring-slate-600/10"
-                          : b.status === "cancelled"
-                          ? "bg-danger-100 text-danger-700 ring-danger-600/10"
-                          : "bg-amber-100 text-amber-700 ring-amber-600/10"
-                      }`}
-                    >
-                      {b.status === "pending" && <Clock className="w-3.5 h-3.5" />}
-                      {(b.status === "confirmed" || b.status === "completed") && <CheckCircle className="w-3.5 h-3.5" />}
-                      {b.status === "cancelled" && <XCircle className="w-3.5 h-3.5" />}
-                      {b.status}
-                    </span>
-                    {b.status === "pending" && (
-                      <div className="flex flex-col gap-2 sm:flex-row sm:gap-2">
-                        <button
-                          onClick={() => {
-                            setPendingUpdateId(b.id);
-                            updateMutation.mutate({ id: b.id, status: "confirmed" });
-                          }}
-                          disabled={pendingUpdateId === b.id || updateMutation.isPending}
-                          className="bg-success-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50"
-                        >
-                          {pendingUpdateId === b.id ? "Accepting…" : "Accept"}
-                        </button>
-                        <button
-                          onClick={() => setConfirmAction({ type: "cancel", bookingId: b.id, athleteName: b.athlete.name ?? undefined })}
-                          disabled={pendingUpdateId != null}
-                          className="bg-danger-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50"
-                        >
-                          Decline
-                        </button>
+              {coachUpcomingSlots.map((slotBookings) => {
+                const slot = slotBookings[0].slot;
+                const pendingCount = slotBookings.filter((b) => b.status === "pending").length;
+                const confirmedCount = slotBookings.filter((b) => b.status === "confirmed").length;
+                const isMulti = slot.maxCapacity != null && slot.maxCapacity > 1;
+                const hasPending = pendingCount > 0;
+
+                return (
+                  <Link
+                    key={slot.id}
+                    to={`/bookings/${slotBookings[0].id}`}
+                    className="block group p-5 sm:p-5 bg-white rounded-2xl border border-slate-200 border-l-4 border-l-brand-500 shadow-sm hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                          <span className="font-bold text-slate-900">
+                            {new Date(slot.startTime).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+                            {" · "}
+                            {new Date(slot.startTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                            {" – "}
+                            {new Date(slot.endTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                          </span>
+                          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-brand-500 shrink-0" />
+                        </div>
+                        {slot.location && (
+                          <p className="text-slate-500 text-sm mt-1 ml-6">{slot.location.name}</p>
+                        )}
+                        <div className="mt-2 ml-6">
+                          {isMulti ? (
+                            <p className="text-sm text-slate-700 flex items-center gap-1.5">
+                              <Users className="w-4 h-4 text-indigo-500" />
+                              <span className="font-medium">{slotBookings.length} athlete{slotBookings.length !== 1 ? "s" : ""}</span>
+                              <span className="text-slate-400">—</span>
+                              {pendingCount > 0 && (
+                                <span className="text-amber-600 font-medium">{pendingCount} pending</span>
+                              )}
+                              {pendingCount > 0 && confirmedCount > 0 && (
+                                <span className="text-slate-400">,</span>
+                              )}
+                              {confirmedCount > 0 && (
+                                <span className="text-success-600 font-medium">{confirmedCount} confirmed</span>
+                              )}
+                            </p>
+                          ) : (
+                            <p className="text-sm text-slate-700">
+                              {slotBookings[0].athlete.name ?? slotBookings[0].athlete.email}
+                            </p>
+                          )}
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {slotBookings.map((b) => (
+                              <span
+                                key={b.id}
+                                className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${
+                                  b.status === "confirmed"
+                                    ? "bg-success-50 text-success-700"
+                                    : b.status === "pending"
+                                    ? "bg-amber-50 text-amber-700"
+                                    : "bg-slate-100 text-slate-600"
+                                }`}
+                              >
+                                <span className={`w-1.5 h-1.5 rounded-full ${
+                                  b.status === "confirmed" ? "bg-success-500" : b.status === "pending" ? "bg-amber-500" : "bg-slate-400"
+                                }`} />
+                                {b.athlete.name ?? b.athlete.email}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                    )}
-                    {b.status === "confirmed" && (
-                      <div className="flex flex-col gap-2 sm:flex-row sm:gap-2">
-                        <button
-                          onClick={() => {
-                            if ((b.amountCents ?? 0) > 0 && !coachProfile?.stripeOnboardingComplete) {
-                              setConfirmAction({ type: "needs_stripe", bookingId: b.id });
-                            } else {
-                              setConfirmAction({ type: "complete", bookingId: b.id, athleteName: b.athlete.name ?? undefined, paymentStatus: b.paymentStatus });
-                            }
-                          }}
-                          disabled={pendingUpdateId != null}
-                          className="bg-brand-500 text-white px-4 py-2.5 rounded-lg text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50"
-                        >
-                          Mark complete
-                        </button>
-                        <button
-                          onClick={() => setConfirmAction({ type: "cancel", bookingId: b.id, athleteName: b.athlete.name ?? undefined })}
-                          disabled={pendingUpdateId != null}
-                          className="bg-danger-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
+                      <div className="shrink-0">
+                        {hasPending ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ring-1 bg-amber-100 text-amber-700 ring-amber-600/10">
+                            <Clock className="w-3.5 h-3.5" />
+                            Needs review
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ring-1 bg-success-100 text-success-700 ring-success-600/10">
+                            <CheckCircle className="w-3.5 h-3.5" />
+                            Confirmed
+                          </span>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </div>
-                </div>
-              ))}
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           )}
 
@@ -672,7 +695,7 @@ export default function Bookings() {
             </div>
           )}
 
-          {coachPast.length > 0 && (
+          {coachPastSlots.length > 0 && (
             <div className="mt-8">
               <button
                 type="button"
@@ -680,7 +703,7 @@ export default function Bookings() {
                 className="flex items-center gap-2 text-slate-600 hover:text-slate-900 font-medium text-sm mb-4"
               >
                 <span>
-                  {showPastCoach ? "Hide" : "Show"} past or closed ({coachPast.length})
+                  {showPastCoach ? "Hide" : "Show"} past or closed ({coachPastSlots.length})
                 </span>
                 <ChevronDown className={`w-4 h-4 transition-transform ${showPastCoach ? "rotate-180" : ""}`} />
               </button>
@@ -689,56 +712,72 @@ export default function Bookings() {
                   <p className="text-slate-500 text-sm mb-1">
                     Slots that have already passed or are completed/cancelled. Pending here means the session date passed before it was confirmed or completed.
                   </p>
-                  {coachPast.map((b) => (
-                    <div
-                      key={b.id}
-                      className="p-5 sm:p-4 bg-white rounded-2xl border border-slate-200 border-l-4 border-l-slate-300 opacity-90 hover:opacity-100 transition-opacity"
-                    >
-                      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
-                        <div className="min-w-0">
-                          <Link to={`/bookings/${b.id}`} className="inline-flex items-center gap-1.5 font-medium hover:text-brand-600 transition-colors">
-                            {b.athlete.name ?? b.athlete.email}
-                            <ChevronRight className="w-4 h-4 text-slate-400" />
-                          </Link>
-                          <p className="text-slate-500 text-sm">
-                            {new Date(b.slot.startTime).toLocaleString()}
-                          </p>
-                          {b.slot.location && (
-                            <p className="text-slate-500 text-sm mt-0.5">{b.slot.location.name}</p>
-                          )}
-                          {b.message != null && b.message.trim() !== "" && (
-                            <p className="text-slate-600 text-sm mt-2 whitespace-pre-wrap">{b.message}</p>
-                          )}
+                  {coachPastSlots.map((slotBookings) => {
+                    const slot = slotBookings[0].slot;
+                    const isMulti = slot.maxCapacity != null && slot.maxCapacity > 1;
+                    const completedCount = slotBookings.filter((b) => b.status === "completed").length;
+                    const cancelledCount = slotBookings.filter((b) => b.status === "cancelled").length;
+                    const hasRecap = slotBookings.some((b) => b.coachRecap);
+
+                    return (
+                      <Link
+                        key={slot.id}
+                        to={`/bookings/${slotBookings[0].id}`}
+                        className="block p-5 sm:p-4 bg-white rounded-2xl border border-slate-200 border-l-4 border-l-slate-300 opacity-90 hover:opacity-100 transition-opacity"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                              <span className="font-medium text-slate-900">
+                                {new Date(slot.startTime).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+                                {" · "}
+                                {new Date(slot.startTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                                {" – "}
+                                {new Date(slot.endTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                              </span>
+                              <ChevronRight className="w-4 h-4 text-slate-400" />
+                            </div>
+                            {slot.location && (
+                              <p className="text-slate-500 text-sm mt-1 ml-6">{slot.location.name}</p>
+                            )}
+                            <div className="mt-2 ml-6">
+                              {isMulti ? (
+                                <p className="text-sm text-slate-600">
+                                  {slotBookings.length} athlete{slotBookings.length !== 1 ? "s" : ""}
+                                  {completedCount > 0 && <span className="text-slate-500"> · {completedCount} completed</span>}
+                                  {cancelledCount > 0 && <span className="text-slate-400"> · {cancelledCount} cancelled</span>}
+                                </p>
+                              ) : (
+                                <p className="text-sm text-slate-600">
+                                  {slotBookings[0].athlete.name ?? slotBookings[0].athlete.email}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end gap-2 shrink-0">
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ring-1 ${
+                                completedCount > 0
+                                  ? "bg-slate-100 text-slate-700 ring-slate-600/10"
+                                  : cancelledCount === slotBookings.length
+                                  ? "bg-danger-100 text-danger-700 ring-danger-600/10"
+                                  : "bg-amber-100 text-amber-700 ring-amber-600/10"
+                              }`}
+                            >
+                              {completedCount > 0 && <CheckCircle className="w-3.5 h-3.5" />}
+                              {completedCount > 0 ? "completed" : cancelledCount === slotBookings.length ? "cancelled" : "expired"}
+                            </span>
+                            {completedCount > 0 && (
+                              <span className="text-brand-600 text-sm font-medium">
+                                {hasRecap ? "View session" : "Add recap"}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <span
-                          className={`self-start inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ring-1 shrink-0 ${
-                            b.status === "confirmed"
-                              ? "bg-success-100 text-success-700 ring-success-600/10"
-                              : b.status === "completed"
-                              ? "bg-slate-100 text-slate-700 ring-slate-600/10"
-                              : b.status === "cancelled"
-                              ? "bg-danger-100 text-danger-700 ring-danger-600/10"
-                              : "bg-amber-100 text-amber-700 ring-amber-600/10"
-                          }`}
-                        >
-                          {b.status === "pending" && <Clock className="w-3.5 h-3.5" />}
-                          {(b.status === "confirmed" || b.status === "completed") && <CheckCircle className="w-3.5 h-3.5" />}
-                          {b.status === "cancelled" && <XCircle className="w-3.5 h-3.5" />}
-                          {b.status}
-                        </span>
-                      </div>
-                      {b.status === "completed" && (
-                        <div className="mt-4">
-                          <Link
-                            to={`/bookings/${b.id}`}
-                            className="text-brand-600 text-sm font-medium hover:underline"
-                          >
-                            {b.coachRecap ? "View booking" : "Add session recap"}
-                          </Link>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                      </Link>
+                    );
+                  })}
                 </div>
               )}
             </div>

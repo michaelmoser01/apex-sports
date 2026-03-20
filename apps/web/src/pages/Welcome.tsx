@@ -9,6 +9,7 @@ import {
 } from "./Join";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { hasCompletedAthleteOnboarding } from "@/lib/athleteProfile";
+import { consumeDeepLink } from "@/utils/deepLink";
 import { Dumbbell, Users, ArrowRight } from "lucide-react";
 
 export default function Welcome() {
@@ -54,7 +55,8 @@ export default function Welcome() {
 
   // Coach check first — prevents coaches with dual profiles from hitting athlete flow
   if (currentUser?.signupRole === "coach" || currentUser?.coachProfile) {
-    return <Navigate to="/dashboard" replace />;
+    const dest = consumeDeepLink();
+    return <Navigate to={dest ?? "/dashboard"} replace />;
   }
 
   const isAlreadyAthlete =
@@ -63,13 +65,15 @@ export default function Welcome() {
 
   if (isAlreadyAthlete) {
     if (fromInvite && inviteCoachId && athleteProfileComplete) {
-      return <Navigate to={`/coaches/${inviteCoachId}`} replace />;
+      const dest = consumeDeepLink();
+      return <Navigate to={dest ?? `/coaches/${inviteCoachId}`} replace />;
     }
     if (fromInvite && inviteCoachId && !athleteProfileComplete) {
       return <Navigate to="/athlete/onboarding" replace />;
     }
     if (athleteProfileComplete) {
-      return <Navigate to="/athlete" replace />;
+      const dest = consumeDeepLink();
+      return <Navigate to={dest ?? "/athlete"} replace />;
     }
     return <Navigate to="/athlete/onboarding" replace />;
   }

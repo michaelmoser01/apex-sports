@@ -22,6 +22,7 @@ import CoachOnboardingBio from "./pages/CoachOnboardingBio";
 import CoachAthleteDetail from "./pages/CoachAthleteDetail";
 import Welcome from "./pages/Welcome";
 import Join from "./pages/Join";
+import GroupInvite from "./pages/GroupInvite";
 import SignUpPage from "./pages/SignUp";
 import SignInPage from "./pages/SignIn";
 import OnboardingLayout from "./components/OnboardingLayout";
@@ -30,6 +31,7 @@ import OnboardingAbout from "./pages/onboarding/OnboardingAbout";
 import OnboardingGetPaid from "./pages/onboarding/OnboardingGetPaid";
 import OnboardingCredentials from "./pages/onboarding/OnboardingCredentials";
 import OnboardingAssistant from "./pages/onboarding/OnboardingAssistant";
+import OnboardingPricing from "./pages/onboarding/OnboardingPricing";
 import OnboardingPlan, { OnboardingPlanSuccess } from "./pages/onboarding/OnboardingPlan";
 
 const hasCognito =
@@ -55,6 +57,7 @@ function AppContent() {
         <Route path="pricing" element={<Navigate to="/coaches#pricing" replace />} />
         <Route path="find" element={<Coaches />} />
         <Route path="join/:slug" element={<Join />} />
+        <Route path="group/:inviteCode" element={<GroupInvite />} />
         <Route path="coaches/:id" element={<CoachDetailErrorBoundary><Outlet /></CoachDetailErrorBoundary>}>
           <Route index element={<CoachDetail />} />
           <Route path="book" element={<CoachBook />} />
@@ -81,6 +84,7 @@ function AppContent() {
         <Route path="coach/onboarding" element={<ProtectedRoute><OnboardingLayout /></ProtectedRoute>}>
           <Route index element={<Navigate to="/coach/onboarding/basic" replace />} />
           <Route path="basic" element={<OnboardingBasic />} />
+          <Route path="pricing" element={<OnboardingPricing />} />
           <Route path="credentials" element={<OnboardingCredentials />} />
           <Route path="about" element={<OnboardingAbout />} />
           <Route path="assistant" element={<OnboardingAssistant />} />

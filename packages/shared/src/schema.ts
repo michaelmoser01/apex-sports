@@ -47,7 +47,7 @@ export const coachProfileSchema = z.object({
     .optional()
     .default([]),
   bio: z.string().optional().default(""),
-  hourlyRate: z.number().positive("Hourly rate must be positive"),
+  hourlyRate: z.number().positive("Hourly rate must be positive").optional(),
   phone: z.string().max(20).optional(),
 });
 

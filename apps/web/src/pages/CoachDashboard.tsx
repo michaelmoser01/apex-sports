@@ -14,6 +14,7 @@ import {
 } from "@/components/AvailabilityCalendar";
 import { CoachLocationsCompact } from "@/components/CoachLocations";
 import { Avatar } from "@/components/Avatar";
+import SessionPricingEditor from "@/components/SessionPricingEditor";
 import {
   AlertTriangle,
   ShieldCheck,
@@ -66,6 +67,7 @@ interface CoachProfile {
   assistantPhoneNumber?: string | null;
   planId?: string | null;
   billingMode?: string;
+  groupRates?: Record<string, number> | null;
 }
 
 interface AvailabilityRule {
@@ -84,6 +86,8 @@ interface OneOffSlot {
   startTime: string;
   endTime: string;
   status: string;
+  maxCapacity?: number;
+  allowPrivate?: boolean;
 }
 
 interface AvailabilityResponse {
@@ -566,7 +570,7 @@ export default function CoachDashboard() {
   });
 
   const addSlotMutation = useMutation({
-    mutationFn: (data: { startTime: string; durationMinutes: number; recurrence: "none" }) =>
+    mutationFn: (data: { startTime: string; durationMinutes: number; recurrence: "none"; maxCapacity?: number }) =>
       api("/coaches/me/availability", {
         method: "POST",
         body: JSON.stringify(data),
@@ -582,7 +586,7 @@ export default function CoachDashboard() {
   });
 
   const addRuleMutation = useMutation({
-    mutationFn: (data: { firstStartTime: string; durationMinutes: number; recurrence: "weekly"; endDate: string }) =>
+    mutationFn: (data: { firstStartTime: string; durationMinutes: number; recurrence: "weekly"; endDate: string; maxCapacity?: number }) =>
       api("/coaches/me/availability/rules", {
         method: "POST",
         body: JSON.stringify(data),
@@ -598,7 +602,7 @@ export default function CoachDashboard() {
   });
 
   const addBatchMutation = useMutation({
-    mutationFn: (slots: { startTime: string; durationMinutes: number; locationId?: string }[]) =>
+    mutationFn: (slots: { startTime: string; durationMinutes: number; locationId?: string; maxCapacity?: number }[]) =>
       api("/coaches/me/availability/batch", { method: "POST", body: JSON.stringify({ slots }) }),
     onSuccess: () => {
       setAddOneOffModalStart(null);
@@ -609,7 +613,7 @@ export default function CoachDashboard() {
   });
 
   const addBatchRuleMutation = useMutation({
-    mutationFn: (rules: { firstStartTime: string; durationMinutes: number; endDate: string; locationId?: string }[]) =>
+    mutationFn: (rules: { firstStartTime: string; durationMinutes: number; endDate: string; locationId?: string; maxCapacity?: number }[]) =>
       api("/coaches/me/availability/rules/batch", { method: "POST", body: JSON.stringify({ rules }) }),
     onSuccess: () => {
       setAddOneOffModalStart(null);
@@ -633,6 +637,18 @@ export default function CoachDashboard() {
       api(`/coaches/me/availability/rules/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       setRemoveTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["availability"] });
+    },
+  });
+
+  const updateSlotMutation = useMutation({
+    mutationFn: ({ slotId, data }: { slotId: string; data: { startTime?: string; durationMinutes?: number; locationId?: string | null; maxCapacity?: number } }) =>
+      api(`/coaches/me/availability/${slotId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      setSelectedEvent(null);
       queryClient.invalidateQueries({ queryKey: ["availability"] });
     },
   });
@@ -761,6 +777,15 @@ export default function CoachDashboard() {
     },
   });
 
+  const groupRatesMutation = useMutation({
+    mutationFn: async (groupRates: Record<string, number>) => {
+      await api("/coaches/me", { method: "PUT", body: JSON.stringify({ groupRates }) });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
+    },
+  });
+
   useEffect(() => {
     if (profile && !("error" in profile) && "photos" in profile && Array.isArray(profile.photos)) {
       const urls = profile.photos.map((p) => p.url);
@@ -802,6 +827,7 @@ export default function CoachDashboard() {
   const coach = profile as CoachProfile;
   const nextOnboardingStep = getNextOnboardingStep({
     hasProfile: true,
+    hasHourlyRate: !!(coach.hourlyRate && parseFloat(coach.hourlyRate) > 0),
     hasBio: !!(coach.bio?.trim()),
     hasAssistant: !!(coach.assistantPhoneNumber?.trim()),
   });
@@ -1757,27 +1783,31 @@ export default function CoachDashboard() {
                   setAddOneOffModalStart(null);
                   setAddOneOffError(null);
                 }}
-                onAddOneOff={(startTime, durationMinutes, locationId) => {
+                onAddOneOff={(startTime, durationMinutes, locationId, maxCapacity, allowPrivate) => {
                   addSlotMutation.mutate({
                     startTime,
                     durationMinutes,
                     recurrence: "none",
                     ...(locationId && { locationId }),
+                    ...(maxCapacity && maxCapacity > 1 && { maxCapacity }),
+                    ...(allowPrivate !== undefined && { allowPrivate }),
                   });
                 }}
-                onAddRecurring={(firstStartTime, durationMinutes, endDate, locationId) => {
+                onAddRecurring={(firstStartTime, durationMinutes, endDate, locationId, maxCapacity, _allowPrivate) => {
                   addRuleMutation.mutate({
                     firstStartTime,
                     durationMinutes,
                     recurrence: "weekly",
                     endDate,
                     ...(locationId && { locationId }),
+                    ...(maxCapacity && maxCapacity > 1 && { maxCapacity }),
                   });
                 }}
                 onAddBatch={(slots) => addBatchMutation.mutate(slots)}
                 onAddBatchRecurring={(rules) => addBatchRuleMutation.mutate(rules)}
                 isAddSubmitting={addSlotMutation.isPending || addRuleMutation.isPending || addBatchMutation.isPending || addBatchRuleMutation.isPending}
                 addError={addOneOffError}
+                hasGroupRates={!!(coach.groupRates && Object.keys(coach.groupRates as Record<string, number>).length > 1)}
               />
               {removeTarget && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="remove-availability-title">
@@ -1831,6 +1861,9 @@ export default function CoachDashboard() {
             onClose={() => setSelectedEvent(null)}
             onRemove={() => handleEventRemove(selectedEvent)}
             isRemoving={deleteSlotMutation.isPending || deleteRuleMutation.isPending}
+            onUpdate={(slotId, data) => updateSlotMutation.mutate({ slotId, data })}
+            isUpdating={updateSlotMutation.isPending}
+            locations={coachLocations}
           />
         )}
         <p className="mt-6 text-slate-500 text-sm">
@@ -2075,6 +2108,17 @@ export default function CoachDashboard() {
       </section>
 
       <CredentialsSection coach={coach} />
+
+      {coach.hourlyRate && (
+        <div className="mb-8">
+          <SessionPricingEditor
+            groupRates={coach.groupRates ?? null}
+            hourlyRate={coach.hourlyRate}
+            onSave={(rates) => groupRatesMutation.mutate(rates)}
+            saving={groupRatesMutation.isPending}
+          />
+        </div>
+      )}
 
       <section className="mb-12 p-6 bg-white rounded-xl border border-slate-200">
         <div className="flex justify-between items-center mb-4">

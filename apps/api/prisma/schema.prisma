@@ -42,6 +42,7 @@ model CoachProfile {
   assistantCapabilities    Json?    @map("assistant_capabilities") // e.g. { "scheduling": true, "bookings": true }
   planId                   String?  @map("plan_id") // "starter" | "pro" | "elite"
   billingMode              String   @default("after_session") @map("billing_mode") // "upfront" | "after_session"
+  groupRates               Json?    @map("group_rates") // e.g. {"1": 100, "2": 75, "3": 60}
 
   photos             CoachPhoto[]
   locations          CoachLocation[]
@@ -116,6 +117,7 @@ model AvailabilityRule {
   durationMinutes Int      @map("duration_minutes")
   recurrence      String   @default("weekly")
   endDate         DateTime @map("end_date")
+  maxCapacity     Int      @default(1) @map("max_capacity")
 
   slots AvailabilitySlot[]
 
@@ -123,17 +125,19 @@ model AvailabilityRule {
 }
 
 model AvailabilitySlot {
-  id         String   @id @default(uuid())
-  coachId    String   @map("coach_id")
-  coach      CoachProfile @relation(fields: [coachId], references: [id], onDelete: Cascade)
-  locationId String?  @map("location_id")
-  location   CoachLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  ruleId     String?  @map("rule_id")
-  rule       AvailabilityRule? @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-  startTime  DateTime @map("start_time")
-  endTime    DateTime @map("end_time")
-  recurrence String   @default("none")
-  status     String   @default("available")
+  id          String   @id @default(uuid())
+  coachId     String   @map("coach_id")
+  coach       CoachProfile @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  locationId  String?  @map("location_id")
+  location    CoachLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  ruleId      String?  @map("rule_id")
+  rule        AvailabilityRule? @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  startTime   DateTime @map("start_time")
+  endTime     DateTime @map("end_time")
+  recurrence  String   @default("none")
+  status      String   @default("available")
+  maxCapacity  Int      @default(1) @map("max_capacity")
+  allowPrivate Boolean  @default(true) @map("allow_private")
 
   bookings Booking[]
 
@@ -153,10 +157,20 @@ model Booking {
   amountCents           Int?     @map("amount_cents")
   currency              String   @default("usd")
   stripePaymentIntentId String?  @map("stripe_payment_intent_id")
-  paymentStatus         String?  @map("payment_status") // authorized, succeeded, refunded, failed, canceled
+  paymentStatus         String?  @map("payment_status")
   createdAt             DateTime @default(now()) @map("created_at")
   completedAt           DateTime? @map("completed_at")
   coachRecap            String?  @map("coach_recap") @db.Text
+
+  // Group booking fields
+  groupSize             Int      @default(1) @map("group_size")
+  inviteCode            String?  @unique @map("invite_code")
+  isGroupOrganizer      Boolean  @default(true) @map("is_group_organizer")
+  groupBookingId        String?  @map("group_booking_id")
+  groupBooking          Booking? @relation("GroupMembers", fields: [groupBookingId], references: [id])
+  groupMembers          Booking[] @relation("GroupMembers")
+  attended              Boolean  @default(true)
+  lockedPrivate         Boolean  @default(false) @map("locked_private")
 
   review Review?
 

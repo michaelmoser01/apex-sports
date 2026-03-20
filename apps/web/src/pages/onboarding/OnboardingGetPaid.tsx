@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { consumeDeepLink } from "@/utils/deepLink";
 import { CheckCircle, Banknote, Info } from "lucide-react";
 
 interface ConnectStatus {
@@ -67,7 +68,7 @@ export default function OnboardingGetPaid() {
             <div className="px-6 py-5">
               <button
                 type="button"
-                onClick={() => navigate("/dashboard", { replace: true })}
+                onClick={() => navigate(consumeDeepLink() ?? "/dashboard", { replace: true })}
                 className="w-full py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 hover:shadow-glow-brand transition-all"
               >
                 Go to dashboard

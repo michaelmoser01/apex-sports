@@ -10,6 +10,7 @@ import {
 } from "./Join";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { hasCompletedAthleteOnboarding } from "@/lib/athleteProfile";
+import { consumeDeepLink } from "@/utils/deepLink";
 import ServiceAreaPicker, { type ServiceAreaItem } from "@/components/ServiceAreaPicker";
 
 interface AthleteProfile {
@@ -125,6 +126,12 @@ export default function AthleteOnboarding() {
       queryClient.invalidateQueries({ queryKey: ["athleteProfile"] });
       queryClient.invalidateQueries({ queryKey: ["athleteServiceArea"] });
       queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      const deepLink = consumeDeepLink();
+      if (deepLink) {
+        clearStoredInviteSlug();
+        navigate(deepLink, { replace: true });
+        return;
+      }
       const coachId = getStoredInviteCoachId();
       clearStoredInviteSlug();
       navigate(coachId ? `/coaches/${coachId}` : "/athlete", { replace: true });
