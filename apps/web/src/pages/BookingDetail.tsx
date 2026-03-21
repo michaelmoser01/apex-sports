@@ -66,6 +66,7 @@ interface BookingDetailData {
   inviteCode?: string | null;
   slotParticipants?: SlotParticipant[];
   spotsRemaining?: number;
+  currentPerPersonAmountCents?: number | null;
 }
 
 export default function BookingDetail() {
@@ -81,7 +82,7 @@ export default function BookingDetail() {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
   const [confirmAction, setConfirmAction] = useState<{
-    type: "cancel" | "complete" | "needs_stripe";
+    type: "cancel" | "complete" | "needs_stripe" | "athlete-cancel";
     athleteName?: string;
     paymentStatus?: string | null;
   } | null>(null);
@@ -93,14 +94,12 @@ export default function BookingDetail() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ status, attendance, adjustedGroupSize }: {
+    mutationFn: ({ status }: {
       status: "confirmed" | "cancelled" | "completed";
-      attendance?: { bookingId: string; attended: boolean }[];
-      adjustedGroupSize?: number;
     }) =>
       api<{ status: string }>(`/bookings/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ status, ...(attendance && { attendance }), ...(adjustedGroupSize && { adjustedGroupSize }) }),
+        body: JSON.stringify({ status }),
       }),
     onSuccess: (data) => {
       setUpdateError(null);
@@ -131,52 +130,20 @@ export default function BookingDetail() {
     },
   });
 
-  const memberActionMutation = useMutation({
-    mutationFn: ({ memberId, status }: { memberId: string; status: "confirmed" | "cancelled" }) =>
-      api<{ status: string }>(`/bookings/${memberId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      }),
-    onSuccess: (data) => {
-      if (data?.status === "confirmed") setSuccessMessage("Participant confirmed.");
-      else if (data?.status === "cancelled") setSuccessMessage("Participant declined.");
-      setTimeout(() => setSuccessMessage(null), 5000);
-      queryClient.invalidateQueries({ queryKey: ["booking", id] });
-      queryClient.invalidateQueries({ queryKey: ["bookings"] });
-    },
-    onError: (err: Error) => {
-      setUpdateError(err.message ?? "Update failed");
-    },
-  });
-
-  const bulkActionMutation = useMutation({
-    mutationFn: async ({ participantIds, status }: { participantIds: string[]; status: "confirmed" | "cancelled" }) => {
-      for (const pid of participantIds) {
-        await api<{ status: string }>(`/bookings/${pid}`, {
-          method: "PATCH",
-          body: JSON.stringify({ status }),
-        });
-      }
-      return { status, count: participantIds.length };
-    },
-    onSuccess: (data) => {
-      if (data.status === "confirmed") setSuccessMessage(`All ${data.count} participant${data.count !== 1 ? "s" : ""} confirmed.`);
-      else setSuccessMessage(`All ${data.count} participant${data.count !== 1 ? "s" : ""} declined.`);
-      setTimeout(() => setSuccessMessage(null), 5000);
-      queryClient.invalidateQueries({ queryKey: ["booking", id] });
-      queryClient.invalidateQueries({ queryKey: ["bookings"] });
-    },
-    onError: (err: Error) => {
-      setUpdateError(err.message ?? "Bulk update failed");
-      queryClient.invalidateQueries({ queryKey: ["booking", id] });
-      queryClient.invalidateQueries({ queryKey: ["bookings"] });
-    },
-  });
-
   const paymentRequestMutation = useMutation({
     mutationFn: () => api(`/bookings/${id}/payment-request`, { method: "POST" }),
     onSuccess: () => {
       setSuccessMessage("Payment link sent to athlete.");
+      setTimeout(() => setSuccessMessage(null), 5000);
+      queryClient.invalidateQueries({ queryKey: ["booking", id] });
+      queryClient.invalidateQueries({ queryKey: ["bookings"] });
+    },
+  });
+
+  const markPaidMutation = useMutation({
+    mutationFn: () => api(`/bookings/${id}/mark-paid`, { method: "POST" }),
+    onSuccess: () => {
+      setSuccessMessage("Payment marked as received.");
       setTimeout(() => setSuccessMessage(null), 5000);
       queryClient.invalidateQueries({ queryKey: ["booking", id] });
       queryClient.invalidateQueries({ queryKey: ["bookings"] });
@@ -197,7 +164,7 @@ export default function BookingDetail() {
 
   const isAthlete = booking.viewerRole === "athlete";
   const isCoach = booking.viewerRole === "coach";
-  const isPaid = booking.paymentStatus === "succeeded" || booking.paymentStatus === "authorized";
+  const isPaid = booking.paymentStatus === "succeeded" || booking.paymentStatus === "authorized" || booking.paymentStatus === "paid_offline";
   const paymentLinkSent = booking.paymentStatus === "deferred" || booking.paymentStatus === "payment_link_sent";
   const needsPayment =
     isAthlete &&
@@ -211,9 +178,9 @@ export default function BookingDetail() {
     (booking.amountCents ?? 0) > 0 &&
     (paymentLinkSent || isPaid || paymentJustCompleted);
   const canReview = isAthlete && booking.status === "completed" && !booking.review;
-  const isUpcoming = booking.status === "pending" || booking.status === "confirmed";
 
   const hasParticipants = (booking.slotParticipants?.length ?? 0) > 1;
+  const isUpcoming = booking.status === "pending" || booking.status === "confirmed";
   const shareUrl = booking.inviteCode
     ? `${window.location.origin}/group/${booking.inviteCode}`
     : booking.coach?.id
@@ -304,7 +271,9 @@ export default function BookingDetail() {
         <div className="p-6 pb-4">
           <div className="flex flex-wrap items-center gap-2.5 mb-4">
             <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
-              {isAthlete ? booking.coach.displayName : booking.athlete?.name ?? booking.athlete?.email ?? "Athlete"}
+              {isAthlete
+                ? booking.coach.displayName
+                : booking.athlete?.name ?? booking.athlete?.email ?? "Athlete"}
             </h1>
             <span
               className={`px-3 py-1 rounded-full text-xs font-semibold ring-1 ${
@@ -322,6 +291,11 @@ export default function BookingDetail() {
             {(booking.paymentStatus === "succeeded" || booking.paymentStatus === "authorized") && (
               <span className="px-3 py-1 rounded-full text-xs font-semibold bg-success-100 text-success-700 ring-1 ring-success-600/10">
                 Paid
+              </span>
+            )}
+            {booking.paymentStatus === "paid_offline" && (
+              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-success-100 text-success-700 ring-1 ring-success-600/10">
+                Paid (offline)
               </span>
             )}
             {booking.lockedPrivate && (
@@ -355,15 +329,20 @@ export default function BookingDetail() {
               <Calendar className="w-5 h-5 shrink-0 mt-0.5 text-slate-400" />
               <span>{slotTime}</span>
             </div>
-            {booking.amountCents != null && (
-              <div className="flex items-center gap-3 text-slate-700">
-                <DollarSign className="w-5 h-5 shrink-0 text-slate-400" />
-                <span className="font-semibold">
-                  ${(booking.amountCents / 100).toFixed(2)}
-                  {hasParticipants && <span className="text-sm font-normal text-slate-500 ml-1">per person</span>}
-                </span>
-              </div>
-            )}
+            {(booking.amountCents != null || booking.currentPerPersonAmountCents != null) && (() => {
+              const displayAmount = hasParticipants && booking.currentPerPersonAmountCents != null
+                ? booking.currentPerPersonAmountCents
+                : booking.amountCents!;
+              return (
+                <div className="flex items-center gap-3 text-slate-700">
+                  <DollarSign className="w-5 h-5 shrink-0 text-slate-400" />
+                  <span className="font-semibold">
+                    ${(displayAmount / 100).toFixed(2)}
+                    {hasParticipants && <span className="text-sm font-normal text-slate-500 ml-1">per person</span>}
+                  </span>
+                </div>
+              );
+            })()}
             {booking.slot.location && (
               <div className="flex items-start gap-3 text-slate-600">
                 <MapPin className="w-5 h-5 shrink-0 mt-0.5 text-slate-400" />
@@ -492,13 +471,13 @@ export default function BookingDetail() {
           </div>
         )}
 
-        {/* Session Participants */}
-        {booking.slotParticipants && booking.slotParticipants.length > 0 && (
+        {/* Session Participants (athlete read-only view) */}
+        {isAthlete && booking.slotParticipants && booking.slotParticipants.length > 0 && (
           <div className="px-6 py-5 border-t border-slate-200">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
                 <Users className="w-5 h-5 text-slate-400" />
-                Session Participants ({booking.slotParticipants.length})
+                Session Participants ({booking.slotParticipants.filter((p) => p.status !== "cancelled").length})
               </h2>
               {shareUrl && (booking.spotsRemaining ?? 0) > 0 && booking.status !== "cancelled" && (
                 <button
@@ -538,100 +517,26 @@ export default function BookingDetail() {
                         </span>
                       )}
                     </p>
-                    <div className="flex gap-2 text-xs">
-                      <span className={`${
-                        p.status === "confirmed" || p.status === "completed"
-                          ? "text-success-600" : p.status === "cancelled"
-                            ? "text-slate-400" : "text-amber-600"
-                      }`}>
-                        {p.status}
-                      </span>
-                      {p.paymentStatus && (
-                        <span className="text-slate-400">· {p.paymentStatus}</span>
-                      )}
-                    </div>
+                    <span className={`text-xs ${
+                      p.status === "confirmed" || p.status === "completed"
+                        ? "text-success-600" : p.status === "cancelled"
+                          ? "text-slate-400" : "text-amber-600"
+                    }`}>
+                      {p.status}
+                    </span>
                   </div>
-                  {isCoach && p.status === "pending" && !p.isCurrentUser && (
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => memberActionMutation.mutate({ memberId: p.id, status: "confirmed" })}
-                        disabled={memberActionMutation.isPending}
-                        className="px-2.5 py-1 text-xs font-medium bg-success-100 text-success-700 rounded-lg hover:bg-success-200 disabled:opacity-50"
-                      >
-                        Confirm
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => memberActionMutation.mutate({ memberId: p.id, status: "cancelled" })}
-                        disabled={memberActionMutation.isPending}
-                        className="px-2.5 py-1 text-xs font-medium bg-danger-100 text-danger-700 rounded-lg hover:bg-danger-200 disabled:opacity-50"
-                      >
-                        Decline
-                      </button>
-                    </div>
-                  )}
-                  {isCoach && (p.status === "confirmed" || p.status === "completed") && booking.status === "confirmed" && (
-                    <div className="flex items-center gap-1 text-xs">
-                      <label className="flex items-center gap-1 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          defaultChecked={p.attended}
-                          onChange={(e) => {
-                            const attendance = booking.slotParticipants!.map((m) => ({
-                              bookingId: m.id,
-                              attended: m.id === p.id ? e.target.checked : m.attended,
-                            }));
-                            updateMutation.mutate({
-                              status: booking.status as "confirmed" | "cancelled" | "completed",
-                              attendance,
-                            });
-                          }}
-                          className="rounded border-slate-300"
-                        />
-                        <span className="text-slate-500">Attended</span>
-                      </label>
-                    </div>
-                  )}
-                  {!p.attended && p.status !== "pending" && (
-                    <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">No-show</span>
-                  )}
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* Coach: Actions */}
-        {isCoach && booking.status !== "cancelled" && (() => {
-          const pendingParticipants = booking.slotParticipants?.filter((p) => p.status === "pending") ?? [];
-          const isGroupSession = (booking.slotParticipants?.length ?? 0) > 1;
-          const anyPending = pendingParticipants.length > 0;
-          const isBulkBusy = bulkActionMutation.isPending;
-
-          return (
+        {/* Coach: Actions (individual booking only) */}
+        {isCoach && booking.status !== "cancelled" && (
           <div className="px-6 py-5 border-t border-slate-200">
             <h2 className="text-lg font-semibold text-slate-900 mb-3">Actions</h2>
             <div className="flex flex-wrap gap-3">
-              {isGroupSession && anyPending && (
-                <>
-                  <button
-                    onClick={() => bulkActionMutation.mutate({ participantIds: pendingParticipants.map((p) => p.id), status: "confirmed" })}
-                    disabled={isBulkBusy}
-                    className="bg-success-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-success-700 disabled:opacity-50"
-                  >
-                    {isBulkBusy ? "Updating…" : `Confirm all (${pendingParticipants.length} pending)`}
-                  </button>
-                  <button
-                    onClick={() => bulkActionMutation.mutate({ participantIds: pendingParticipants.map((p) => p.id), status: "cancelled" })}
-                    disabled={isBulkBusy}
-                    className="bg-danger-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-danger-700 disabled:opacity-50"
-                  >
-                    Decline all
-                  </button>
-                </>
-              )}
-              {!isGroupSession && booking.status === "pending" && (
+              {booking.status === "pending" && (
                 <>
                   <button
                     onClick={() => updateMutation.mutate({ status: "confirmed" })}
@@ -677,18 +582,38 @@ export default function BookingDetail() {
               )}
               {booking.status === "completed" &&
                 (booking.paymentStatus === "deferred" || booking.paymentStatus === "payment_link_sent") && (
-                <button
-                  onClick={() => paymentRequestMutation.mutate()}
-                  disabled={paymentRequestMutation.isPending}
-                  className="px-4 py-2 text-sm font-medium text-success-800 bg-success-100 rounded-lg hover:bg-success-200 disabled:opacity-50"
-                >
-                  Resend payment link
-                </button>
+                <>
+                  <button
+                    onClick={() => markPaidMutation.mutate()}
+                    disabled={markPaidMutation.isPending}
+                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Mark as paid
+                  </button>
+                  <button
+                    onClick={() => paymentRequestMutation.mutate()}
+                    disabled={paymentRequestMutation.isPending}
+                    className="px-4 py-2 text-sm font-medium text-success-800 bg-success-100 rounded-lg hover:bg-success-200 disabled:opacity-50"
+                  >
+                    Resend payment link
+                  </button>
+                </>
               )}
             </div>
           </div>
-          );
-        })()}
+        )}
+
+        {/* Athlete: Cancel */}
+        {isAthlete && (booking.status === "pending" || booking.status === "confirmed") && (
+          <div className="px-6 py-5 border-t border-slate-200">
+            <button
+              onClick={() => setConfirmAction({ type: "athlete-cancel" })}
+              className="text-sm font-medium text-danger-600 hover:text-danger-700"
+            >
+              {booking.status === "pending" ? "Cancel request" : "Cancel booking"}
+            </button>
+          </div>
+        )}
 
         {/* Session Recap */}
         {booking.status === "completed" && (
@@ -744,7 +669,11 @@ export default function BookingDetail() {
         >
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
             <h2 id="confirm-title" className="text-lg font-semibold text-slate-900 mb-2">
-              {confirmAction.type === "complete" ? "Mark session complete?" : "Cancel booking?"}
+              {confirmAction.type === "complete"
+                ? "Mark session complete?"
+                : confirmAction.type === "athlete-cancel"
+                  ? "Cancel your booking?"
+                  : "Cancel booking?"}
             </h2>
             <p className="text-slate-600 text-sm mb-4">
               {confirmAction.type === "complete"
@@ -753,7 +682,9 @@ export default function BookingDetail() {
                   : confirmAction.paymentStatus === "deferred"
                     ? "This will mark the session as complete and automatically send a payment link to the athlete."
                     : "This will mark the session as complete."
-                : `This will cancel the booking${confirmAction.athleteName ? ` with ${confirmAction.athleteName}` : ""}. Any payment hold will be released.`}
+                : confirmAction.type === "athlete-cancel"
+                  ? "This will cancel your booking and free the spot. Any payment hold will be released."
+                  : `This will cancel the booking${confirmAction.athleteName ? ` with ${confirmAction.athleteName}` : ""}. Any payment hold will be released.`}
             </p>
             <div className="flex gap-3 justify-end">
               <button
@@ -766,8 +697,12 @@ export default function BookingDetail() {
               <button
                 type="button"
                 onClick={() => {
-                  const status = confirmAction.type === "complete" ? "completed" : "cancelled";
-                  updateMutation.mutate({ status });
+                  if (confirmAction.type === "athlete-cancel") {
+                    updateMutation.mutate({ status: "cancelled" });
+                  } else {
+                    const status = confirmAction.type === "complete" ? "completed" : "cancelled";
+                    updateMutation.mutate({ status });
+                  }
                 }}
                 disabled={updateMutation.isPending}
                 className={
@@ -776,7 +711,9 @@ export default function BookingDetail() {
                     : "px-4 py-2 rounded-lg text-sm font-medium bg-danger-600 text-white hover:bg-danger-700 disabled:opacity-50"
                 }
               >
-                {confirmAction.type === "complete" ? "Mark complete" : "Yes, cancel"}
+                {confirmAction.type === "complete"
+                  ? "Mark complete"
+                  : "Yes, cancel"}
               </button>
             </div>
           </div>

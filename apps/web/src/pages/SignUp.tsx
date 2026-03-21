@@ -8,7 +8,7 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { api } from "@/lib/api";
 import { setDeepLink, consumeDeepLink } from "@/utils/deepLink";
 import { useQueryClient } from "@tanstack/react-query";
-import { Dumbbell, Users, ArrowRight, Eye, EyeOff } from "lucide-react";
+import { Trophy, Users, ArrowRight, Eye, EyeOff } from "lucide-react";
 
 function waitForSignIn(): Promise<void> {
   return new Promise((resolve) => {
@@ -63,7 +63,7 @@ function DevSignUp() {
         method: "PATCH",
         body: JSON.stringify({ signupRole: role }),
       });
-      queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      await queryClient.refetchQueries({ queryKey: ["auth", "me"] });
       navigate(role === "coach" ? "/coach/onboarding/basic" : "/athlete/onboarding", { replace: true });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Sign up failed");
@@ -214,7 +214,7 @@ function CognitoSignUp() {
     } catch {
       // Role may already be set if this is a retry
     }
-    queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+    await queryClient.refetchQueries({ queryKey: ["auth", "me"] });
     navigate(
       role === "coach" ? "/coach/onboarding/basic" : "/athlete/onboarding",
       { replace: true },
@@ -302,7 +302,7 @@ function RoleSelector({ role, onChange }: { role: Role; onChange: (r: Role) => v
               : "border-slate-200 hover:border-slate-300"
           }`}
         >
-          <Dumbbell className={`w-5 h-5 mb-2 ${role === "coach" ? "text-brand-600" : "text-slate-400"}`} />
+          <Trophy className={`w-5 h-5 mb-2 ${role === "coach" ? "text-brand-600" : "text-slate-400"}`} />
           <p className={`font-bold text-sm ${role === "coach" ? "text-brand-700" : "text-slate-700"}`}>Coach</p>
           <p className="text-xs text-slate-500 mt-0.5">Manage athletes and sessions</p>
         </button>

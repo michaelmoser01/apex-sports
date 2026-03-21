@@ -13,6 +13,7 @@ import CoachBookingSuccess from "./pages/CoachBookingSuccess";
 import { CoachDetailErrorBoundary } from "./components/CoachDetailErrorBoundary";
 import Bookings from "./pages/Bookings";
 import BookingDetail from "./pages/BookingDetail";
+import SessionDetail from "./pages/SessionDetail";
 import CompleteReservedBooking from "./pages/CompleteReservedBooking";
 import CoachDashboard from "./pages/CoachDashboard";
 import AthleteProfilePage from "./pages/AthleteProfile";
@@ -72,6 +73,7 @@ function AppContent() {
         <Route path="book/:coachId/:slotId" element={<ProtectedRoute><CompleteReservedBooking /></ProtectedRoute>} />
         <Route path="bookings" element={<ProtectedRoute><Bookings /></ProtectedRoute>} />
         <Route path="bookings/:id" element={<ProtectedRoute><BookingDetail /></ProtectedRoute>} />
+        <Route path="sessions/:slotId" element={<ProtectedRoute><SessionDetail /></ProtectedRoute>} />
         <Route path="dashboard" element={<ProtectedRoute><CoachDashboard /></ProtectedRoute>} />
         <Route path="dashboard/profile" element={<ProtectedRoute><CoachDashboard /></ProtectedRoute>} />
         <Route path="dashboard/athletes" element={<ProtectedRoute><CoachDashboard /></ProtectedRoute>} />

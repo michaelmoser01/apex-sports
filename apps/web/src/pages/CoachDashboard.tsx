@@ -3,7 +3,8 @@ import { getNextOnboardingStep } from "@/config/onboarding";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useMemo } from "react";
 import { startOfMonth, endOfMonth, format, isBefore } from "date-fns";
-import { api } from "@/lib/api";
+import { api, ApiRequestError } from "@/lib/api";
+import { hasGroupRatesConfigured } from "@/lib/coachPricing";
 import { ALLOWED_SPORTS } from "@apex-sports/shared";
 import ServiceAreaPicker, { type ServiceAreaItem } from "@/components/ServiceAreaPicker";
 import ReactMarkdown from "react-markdown";
@@ -237,13 +238,14 @@ interface BookingsData {
   asCoach: {
     id: string;
     athlete: { id: string; name: string | null; email: string };
-    slot: { id: string; startTime: string; endTime: string };
+    slot: { id: string; startTime: string; endTime: string; maxCapacity?: number };
     status: string;
     createdAt: string;
     completedAt: string | null;
     review: { rating: number; comment: string; createdAt: string } | null;
     paymentStatus: string | null;
     amountCents: number | null;
+    sessionType?: string;
   }[];
 }
 
@@ -580,8 +582,12 @@ export default function CoachDashboard() {
       setAddOneOffError(null);
       queryClient.invalidateQueries({ queryKey: ["availability"] });
     },
-    onError: (err: Error) => {
-      setAddOneOffError(err.message ?? "Failed to add session");
+    onError: (err: unknown) => {
+      if (err instanceof ApiRequestError && err.code === "GROUP_RATES_REQUIRED") {
+        setAddOneOffError(err.message);
+        return;
+      }
+      setAddOneOffError(err instanceof Error ? err.message : "Failed to add session");
     },
   });
 
@@ -596,8 +602,12 @@ export default function CoachDashboard() {
       setAddOneOffError(null);
       queryClient.invalidateQueries({ queryKey: ["availability"] });
     },
-    onError: (err: Error) => {
-      setAddOneOffError(err.message ?? "Failed to add recurring availability");
+    onError: (err: unknown) => {
+      if (err instanceof ApiRequestError && err.code === "GROUP_RATES_REQUIRED") {
+        setAddOneOffError(err.message);
+        return;
+      }
+      setAddOneOffError(err instanceof Error ? err.message : "Failed to add recurring availability");
     },
   });
 
@@ -609,7 +619,13 @@ export default function CoachDashboard() {
       setAddOneOffError(null);
       queryClient.invalidateQueries({ queryKey: ["availability"] });
     },
-    onError: (err: Error) => { setAddOneOffError(err.message ?? "Failed to add slots"); },
+    onError: (err: unknown) => {
+      if (err instanceof ApiRequestError && err.code === "GROUP_RATES_REQUIRED") {
+        setAddOneOffError(err.message);
+        return;
+      }
+      setAddOneOffError(err instanceof Error ? err.message : "Failed to add slots");
+    },
   });
 
   const addBatchRuleMutation = useMutation({
@@ -620,7 +636,13 @@ export default function CoachDashboard() {
       setAddOneOffError(null);
       queryClient.invalidateQueries({ queryKey: ["availability"] });
     },
-    onError: (err: Error) => { setAddOneOffError(err.message ?? "Failed to add recurring slots"); },
+    onError: (err: unknown) => {
+      if (err instanceof ApiRequestError && err.code === "GROUP_RATES_REQUIRED") {
+        setAddOneOffError(err.message);
+        return;
+      }
+      setAddOneOffError(err instanceof Error ? err.message : "Failed to add recurring slots");
+    },
   });
 
   const deleteSlotMutation = useMutation({
@@ -762,6 +784,15 @@ export default function CoachDashboard() {
   const paymentRequestMutation = useMutation({
     mutationFn: async (bookingId: string) => {
       await api(`/bookings/${bookingId}/payment-request`, { method: "POST" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bookings"] });
+    },
+  });
+
+  const markPaidMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      await api(`/bookings/${bookingId}/mark-paid`, { method: "POST" });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["bookings"] });
@@ -1024,11 +1055,17 @@ export default function CoachDashboard() {
                       >
                         <div className="min-w-0">
                           <p className="font-medium text-slate-900 text-sm truncate">
-                            {b.athlete.name ?? b.athlete.email}
+                            {b.sessionType === "group"
+                              ? `Session · ${new Date(b.slot.startTime).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+                              : b.athlete.name ?? b.athlete.email}
                           </p>
-                          <p className="text-slate-500 text-xs sm:text-sm">
-                            {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
-                          </p>
+                          {b.sessionType === "group" ? (
+                            <p className="text-slate-500 text-xs sm:text-sm">{b.athlete.name ?? b.athlete.email} wants to join</p>
+                          ) : (
+                            <p className="text-slate-500 text-xs sm:text-sm">
+                              {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                            </p>
+                          )}
                         </div>
                         <div className="flex gap-2 shrink-0">
                           <button
@@ -1054,7 +1091,9 @@ export default function CoachDashboard() {
                       <div key={b.id} className="flex items-center justify-between gap-2 p-3 rounded-lg bg-amber-50/80 border border-amber-100">
                         <div className="min-w-0">
                           <p className="font-medium text-slate-900 text-sm truncate">
-                            {b.athlete.name ?? b.athlete.email} – session done
+                            {b.sessionType === "group"
+                              ? `Session · ${new Date(b.slot.startTime).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+                              : `${b.athlete.name ?? b.athlete.email} – session done`}
                           </p>
                           <p className="text-amber-700 text-xs">Leave a follow-up / review</p>
                         </div>
@@ -1100,14 +1139,18 @@ export default function CoachDashboard() {
                       />
                       <div className="min-w-0">
                         <p className="font-medium text-slate-900 text-sm truncate">
-                          {b.athlete.name ?? b.athlete.email}
+                          {b.sessionType === "group"
+                            ? `Session · ${new Date(b.slot.startTime).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+                            : b.athlete.name ?? b.athlete.email}
                         </p>
                         <p className="text-slate-500 text-xs">
-                          {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                          {b.sessionType === "group"
+                            ? `${b.athlete.name ?? b.athlete.email}`
+                            : new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                         </p>
                       </div>
                     </div>
-                    <Link to={`/bookings/${b.id}`} className="shrink-0 text-brand-600 font-medium text-sm hover:underline touch-manipulation">
+                    <Link to={`/sessions/${b.slot.id}`} className="shrink-0 text-brand-600 font-medium text-sm hover:underline touch-manipulation">
                       View
                     </Link>
                   </li>
@@ -1246,6 +1289,14 @@ export default function CoachDashboard() {
                       }`}>
                         {b.paymentStatus === "payment_link_sent" ? "Link sent" : "Not sent"}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => markPaidMutation.mutate(b.id)}
+                        disabled={markPaidMutation.isPending}
+                        className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 touch-manipulation disabled:opacity-50"
+                      >
+                        Mark as paid
+                      </button>
                       {coach.stripeOnboardingComplete ? (
                         <button
                           type="button"
@@ -1807,7 +1858,7 @@ export default function CoachDashboard() {
                 onAddBatchRecurring={(rules) => addBatchRuleMutation.mutate(rules)}
                 isAddSubmitting={addSlotMutation.isPending || addRuleMutation.isPending || addBatchMutation.isPending || addBatchRuleMutation.isPending}
                 addError={addOneOffError}
-                hasGroupRates={!!(coach.groupRates && Object.keys(coach.groupRates as Record<string, number>).length > 1)}
+                hasGroupRates={hasGroupRatesConfigured(coach.groupRates)}
               />
               {removeTarget && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="remove-availability-title">
@@ -2110,7 +2161,7 @@ export default function CoachDashboard() {
       <CredentialsSection coach={coach} />
 
       {coach.hourlyRate && (
-        <div className="mb-8">
+        <div className="mb-8" id="group-pricing">
           <SessionPricingEditor
             groupRates={coach.groupRates ?? null}
             hourlyRate={coach.hourlyRate}

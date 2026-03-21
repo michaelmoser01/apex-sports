@@ -107,6 +107,12 @@ function paymentBadge(paymentStatus: string | null, amountCents: number | null) 
         Paid {formatCurrency(amountCents)}
       </span>
     );
+  if (paymentStatus === "paid_offline")
+    return (
+      <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 whitespace-nowrap">
+        Paid (offline) {formatCurrency(amountCents)}
+      </span>
+    );
   if (paymentStatus === "deferred" || paymentStatus === "payment_link_sent")
     return (
       <span className="inline-flex items-center rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-medium text-orange-800 whitespace-nowrap">
@@ -571,7 +577,7 @@ function PaymentsSection({ bookings }: { bookings: AthleteBooking[] }) {
   const COLLAPSED_LIMIT = 5;
 
   const paid = bookings
-    .filter((b) => b.amountCents != null && b.amountCents > 0 && b.paymentStatus === "succeeded")
+    .filter((b) => b.amountCents != null && b.amountCents > 0 && (b.paymentStatus === "succeeded" || b.paymentStatus === "paid_offline"))
     .sort((a, b) => new Date(b.slot.startTime).getTime() - new Date(a.slot.startTime).getTime());
 
   if (paid.length === 0) return null;

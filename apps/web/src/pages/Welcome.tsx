@@ -10,7 +10,7 @@ import {
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { hasCompletedAthleteOnboarding } from "@/lib/athleteProfile";
 import { consumeDeepLink } from "@/utils/deepLink";
-import { Dumbbell, Users, ArrowRight } from "lucide-react";
+import { Trophy, Users, ArrowRight } from "lucide-react";
 
 export default function Welcome() {
   const navigate = useNavigate();
@@ -131,7 +131,7 @@ export default function Welcome() {
             className="group relative p-8 rounded-2xl border-2 border-slate-200 bg-white hover:border-brand-500 hover:shadow-lg transition-all disabled:opacity-50 text-left"
           >
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-500/10 text-brand-600 mb-4 group-hover:bg-brand-500 group-hover:text-white transition-colors">
-              <Dumbbell className="w-7 h-7" />
+              <Trophy className="w-7 h-7" />
             </div>
             <h2 className="text-xl font-bold text-slate-900 mb-1">I'm a Coach</h2>
             <p className="text-sm text-slate-500">Set up your profile, manage availability, and grow your coaching business.</p>

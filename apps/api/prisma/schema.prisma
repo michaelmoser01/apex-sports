@@ -125,19 +125,24 @@ model AvailabilityRule {
 }
 
 model AvailabilitySlot {
-  id          String   @id @default(uuid())
-  coachId     String   @map("coach_id")
-  coach       CoachProfile @relation(fields: [coachId], references: [id], onDelete: Cascade)
-  locationId  String?  @map("location_id")
-  location    CoachLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  ruleId      String?  @map("rule_id")
-  rule        AvailabilityRule? @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-  startTime   DateTime @map("start_time")
-  endTime     DateTime @map("end_time")
-  recurrence  String   @default("none")
-  status      String   @default("available")
-  maxCapacity  Int      @default(1) @map("max_capacity")
-  allowPrivate Boolean  @default(true) @map("allow_private")
+  id            String   @id @default(uuid())
+  coachId       String   @map("coach_id")
+  coach         CoachProfile @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  locationId    String?  @map("location_id")
+  location      CoachLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  ruleId        String?  @map("rule_id")
+  rule          AvailabilityRule? @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  startTime     DateTime @map("start_time")
+  endTime       DateTime @map("end_time")
+  recurrence    String   @default("none")
+  status        String   @default("available")
+  maxCapacity   Int      @default(1) @map("max_capacity")
+  allowPrivate  Boolean  @default(true) @map("allow_private")
+
+  // Session-level fields (slot = session anchor)
+  sessionStatus String   @default("available") @map("session_status")
+  inviteCode    String?  @unique @map("slot_invite_code")
+  lockedPrivate Boolean  @default(false) @map("slot_locked_private")
 
   bookings Booking[]
 

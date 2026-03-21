@@ -28,6 +28,29 @@ const UPLOADS_BUCKET = process.env.UPLOADS_BUCKET;
 
 const RESERVED_SLUGS = new Set(["join", "api", "auth", "coaches", "bookings", "find", "welcome", "sign-up", "dashboard", "athlete", "webhooks", "health", "invites"]);
 
+const GROUP_RATES_REQUIRED_BODY = {
+  error:
+    "Set group session pricing on your profile before offering multi-athlete slots. Go to Dashboard → Profile and add group rates under your hourly rate.",
+  code: "GROUP_RATES_REQUIRED" as const,
+};
+
+function coachHasGroupRates(profile: { groupRates: Prisma.JsonValue | null }): boolean {
+  const gr = profile.groupRates;
+  if (gr === null || gr === undefined) return false;
+  if (typeof gr !== "object" || Array.isArray(gr)) return false;
+  return Object.keys(gr as Record<string, unknown>).length > 0;
+}
+
+/** Multi-athlete slots (maxCapacity > 1) require at least one group rate tier on the coach profile. */
+function groupRatesRequiredResponse(
+  maxCapacity: number,
+  profile: { groupRates: Prisma.JsonValue | null },
+): { status: 400; body: typeof GROUP_RATES_REQUIRED_BODY } | null {
+  if (maxCapacity <= 1) return null;
+  if (!coachHasGroupRates(profile)) return { status: 400, body: GROUP_RATES_REQUIRED_BODY };
+  return null;
+}
+
 function interpolateRate(
   groupSize: number,
   groupRates: Record<string, number> | null | undefined,
@@ -1470,6 +1493,10 @@ router.post("/me/availability", authMiddleware(), async (req, res) => {
     if (!loc) return res.status(400).json({ error: "Location not found or not yours." });
   }
 
+  const clampedCapacity = Math.max(1, Math.min(20, maxCapacity));
+  const grErrSlot = groupRatesRequiredResponse(clampedCapacity, profile);
+  if (grErrSlot) return res.status(grErrSlot.status).json(grErrSlot.body);
+
   const firstStart = new Date(startTime);
   const durationMs = durationMinutes * 60 * 1000;
   const firstEnd = new Date(firstStart.getTime() + durationMs);
@@ -1481,7 +1508,7 @@ router.post("/me/availability", authMiddleware(), async (req, res) => {
       startTime: firstStart,
       endTime: firstEnd,
       recurrence: "none",
-      maxCapacity: Math.max(1, Math.min(20, maxCapacity)),
+      maxCapacity: clampedCapacity,
       allowPrivate,
     },
   });
@@ -1524,6 +1551,8 @@ router.post("/me/availability/rules", authMiddleware(), async (req, res) => {
   const maxEnd = new Date(firstStart.getTime() + MAX_RULE_SPAN_MS);
   const cap = endDateObj > maxEnd ? maxEnd : endDateObj;
   const clampedCapacity = Math.max(1, Math.min(20, maxCapacity));
+  const grErrRule = groupRatesRequiredResponse(clampedCapacity, profile);
+  if (grErrRule) return res.status(grErrRule.status).json(grErrRule.body);
 
   const rule = await prisma.availabilityRule.create({
     data: {
@@ -1606,6 +1635,11 @@ router.post("/me/availability/batch", authMiddleware(), async (req, res) => {
     };
   });
 
+  for (const row of data) {
+    const grErrBatch = groupRatesRequiredResponse(row.maxCapacity, profile);
+    if (grErrBatch) return res.status(grErrBatch.status).json(grErrBatch.body);
+  }
+
   const result = await prisma.availabilitySlot.createMany({ data });
   return res.status(201).json({ created: result.count });
 });
@@ -1630,6 +1664,12 @@ router.post("/me/availability/rules/batch", authMiddleware(), async (req, res) =
   if (locationId) {
     const loc = await prisma.coachLocation.findFirst({ where: { id: locationId, coachId: profile.id } });
     if (!loc) return res.status(400).json({ error: "Location not found or not yours." });
+  }
+
+  for (const r of body.rules!) {
+    const clampedCapacityPre = Math.max(1, Math.min(20, r.maxCapacity ?? 1));
+    const grErrRulesBatch = groupRatesRequiredResponse(clampedCapacityPre, profile);
+    if (grErrRulesBatch) return res.status(grErrRulesBatch.status).json(grErrRulesBatch.body);
   }
 
   let totalSlots = 0;
@@ -1788,6 +1828,13 @@ router.patch("/me/availability/:id", authMiddleware(), async (req, res) => {
   if (Object.keys(data).length === 0) {
     return res.status(400).json({ error: "No fields to update" });
   }
+
+  const effectiveMaxCapacity =
+    body.maxCapacity !== undefined
+      ? Math.max(1, Math.min(20, body.maxCapacity))
+      : slot.maxCapacity;
+  const grErrPatch = groupRatesRequiredResponse(effectiveMaxCapacity, profile);
+  if (grErrPatch) return res.status(grErrPatch.status).json(grErrPatch.body);
 
   const updated = await prisma.availabilitySlot.update({
     where: { id: req.params.id },

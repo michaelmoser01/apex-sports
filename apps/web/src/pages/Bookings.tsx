@@ -25,6 +25,34 @@ interface BookingBase {
   spotsRemaining?: number;
 }
 
+interface CoachSessionParticipant {
+  id: string;
+  athlete: { id: string; name: string | null; email: string };
+  status: string;
+  amountCents: number | null;
+  paymentStatus: string | null;
+  message: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  coachRecap: string | null;
+  review: { rating: number; comment: string; createdAt: string } | null;
+  lockedPrivate: boolean;
+}
+
+interface CoachSession {
+  slotId: string;
+  sessionType: "private" | "group";
+  sessionStatus: string;
+  slot: {
+    id: string;
+    startTime: string;
+    endTime: string;
+    maxCapacity: number;
+    location: { name: string; address: string; notes: string | null } | null;
+  };
+  participants: CoachSessionParticipant[];
+}
+
 interface BookingsData {
   asAthlete: (BookingBase & {
     coach: { id: string; displayName: string; sports: string[] };
@@ -35,6 +63,7 @@ interface BookingsData {
     coachRecap: string | null;
     review?: { rating: number; comment: string } | null;
   })[];
+  coachSessions?: CoachSession[];
 }
 
 type TabId = "athlete" | "coach";
@@ -63,6 +92,7 @@ export default function Bookings() {
   const [confirmAction, setConfirmAction] = useState<{
     type: "cancel" | "complete" | "cancel_request" | "needs_stripe";
     bookingId: string;
+    slotId?: string;
     athleteName?: string;
     paymentStatus?: string | null;
   } | null>(null);
@@ -127,6 +157,7 @@ export default function Bookings() {
       status,
     }: {
       id: string;
+      slotId?: string;
       status: "confirmed" | "cancelled" | "completed";
     }) =>
       api<{ status: string }>(`/bookings/${id}`, {
@@ -137,9 +168,9 @@ export default function Bookings() {
       setUpdateError(null);
       setPendingUpdateId(null);
       setConfirmAction(null);
-      if (data?.status === "completed") {
+      if (data?.status === "completed" && variables.slotId) {
         queryClient.invalidateQueries({ queryKey: ["bookings"] });
-        navigate(`/bookings/${variables.id}`);
+        navigate(`/sessions/${variables.slotId}`);
         return;
       }
       if (data?.status === "cancelled") setSuccessMessage("Booking cancelled.");
@@ -166,6 +197,7 @@ export default function Bookings() {
 
   const asAthlete = data?.asAthlete ?? [];
   const asCoach = data?.asCoach ?? [];
+  const coachSessions = data?.coachSessions ?? [];
 
   const { athleteUpcoming, athleteUnpaid, athletePast } = useMemo(() => {
     const active = asAthlete
@@ -180,31 +212,26 @@ export default function Bookings() {
     return { athleteUpcoming: active, athleteUnpaid: unpaid, athletePast: past };
   }, [asAthlete]);
 
-  const { coachUpcomingSlots, coachUnpaid, coachPastSlots } = useMemo(() => {
-    const active = asCoach
-      .filter((b) => isActive(b.slot.endTime, b.status))
+  const { coachUpcomingSessions, coachUnpaid, coachPastSessions } = useMemo(() => {
+    const isSessionActive = (s: CoachSession) => {
+      if (s.sessionStatus === "cancelled" || s.sessionStatus === "completed") return false;
+      return new Date(s.slot.endTime) >= new Date();
+    };
+
+    const active = coachSessions
+      .filter(isSessionActive)
       .sort((a, b) => new Date(a.slot.startTime).getTime() - new Date(b.slot.startTime).getTime());
+    const past = coachSessions
+      .filter((s) => !isSessionActive(s))
+      .sort((a, b) => new Date(b.slot.startTime).getTime() - new Date(a.slot.startTime).getTime());
+
     const unpaid = asCoach.filter(
       (b) => b.status === "completed" &&
              (b.paymentStatus === "deferred" || b.paymentStatus === "payment_link_sent")
     );
-    const unpaidIds = new Set(unpaid.map((b) => b.id));
-    const past = asCoach.filter((b) => !isActive(b.slot.endTime, b.status) && !unpaidIds.has(b.id));
 
-    const groupBySlot = (bookings: typeof asCoach) => {
-      const groups = new Map<string, typeof asCoach>();
-      for (const b of bookings) {
-        const key = b.slot.id;
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key)!.push(b);
-      }
-      return Array.from(groups.values()).sort(
-        (a, b) => new Date(a[0].slot.startTime).getTime() - new Date(b[0].slot.startTime).getTime()
-      );
-    };
-
-    return { coachUpcomingSlots: groupBySlot(active), coachUnpaid: unpaid, coachPastSlots: groupBySlot(past) };
-  }, [asCoach]);
+    return { coachUpcomingSessions: active, coachUnpaid: unpaid, coachPastSessions: past };
+  }, [coachSessions, asCoach]);
 
   const tabs: { id: TabId; label: string }[] = hasCoachProfile
     ? [
@@ -530,21 +557,23 @@ export default function Bookings() {
               {updateError}
             </div>
           )}
-          {coachUpcomingSlots.length === 0 ? (
+          {coachUpcomingSessions.length === 0 ? (
             <p className="text-slate-500">No active bookings or pending requests.</p>
           ) : (
             <div className="space-y-5 sm:space-y-4">
-              {coachUpcomingSlots.map((slotBookings) => {
-                const slot = slotBookings[0].slot;
-                const pendingCount = slotBookings.filter((b) => b.status === "pending").length;
-                const confirmedCount = slotBookings.filter((b) => b.status === "confirmed").length;
-                const isMulti = slot.maxCapacity != null && slot.maxCapacity > 1;
+              {coachUpcomingSessions.map((session) => {
+                const slot = session.slot;
+                const activeParticipants = session.participants.filter((p) => p.status !== "cancelled");
+                const pendingCount = activeParticipants.filter((p) => p.status === "pending").length;
+                const confirmedCount = activeParticipants.filter((p) => p.status === "confirmed").length;
+                const isGroup = session.sessionType === "group";
                 const hasPending = pendingCount > 0;
+                const linkTo = `/sessions/${session.slotId}`;
 
                 return (
                   <Link
-                    key={slot.id}
-                    to={`/bookings/${slotBookings[0].id}`}
+                    key={session.slotId}
+                    to={linkTo}
                     className="block group p-5 sm:p-5 bg-white rounded-2xl border border-slate-200 border-l-4 border-l-brand-500 shadow-sm hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200"
                   >
                     <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
@@ -564,10 +593,10 @@ export default function Bookings() {
                           <p className="text-slate-500 text-sm mt-1 ml-6">{slot.location.name}</p>
                         )}
                         <div className="mt-2 ml-6">
-                          {isMulti ? (
+                          {isGroup ? (
                             <p className="text-sm text-slate-700 flex items-center gap-1.5">
                               <Users className="w-4 h-4 text-indigo-500" />
-                              <span className="font-medium">{slotBookings.length} athlete{slotBookings.length !== 1 ? "s" : ""}</span>
+                              <span className="font-medium">{activeParticipants.length} athlete{activeParticipants.length !== 1 ? "s" : ""}</span>
                               <span className="text-slate-400">—</span>
                               {pendingCount > 0 && (
                                 <span className="text-amber-600 font-medium">{pendingCount} pending</span>
@@ -581,28 +610,30 @@ export default function Bookings() {
                             </p>
                           ) : (
                             <p className="text-sm text-slate-700">
-                              {slotBookings[0].athlete.name ?? slotBookings[0].athlete.email}
+                              {session.participants[0]?.athlete.name ?? session.participants[0]?.athlete.email}
                             </p>
                           )}
-                          <div className="flex flex-wrap gap-1.5 mt-2">
-                            {slotBookings.map((b) => (
-                              <span
-                                key={b.id}
-                                className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${
-                                  b.status === "confirmed"
-                                    ? "bg-success-50 text-success-700"
-                                    : b.status === "pending"
-                                    ? "bg-amber-50 text-amber-700"
-                                    : "bg-slate-100 text-slate-600"
-                                }`}
-                              >
-                                <span className={`w-1.5 h-1.5 rounded-full ${
-                                  b.status === "confirmed" ? "bg-success-500" : b.status === "pending" ? "bg-amber-500" : "bg-slate-400"
-                                }`} />
-                                {b.athlete.name ?? b.athlete.email}
-                              </span>
-                            ))}
-                          </div>
+                          {isGroup && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {activeParticipants.map((p) => (
+                                <span
+                                  key={p.id}
+                                  className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${
+                                    p.status === "confirmed"
+                                      ? "bg-success-50 text-success-700"
+                                      : p.status === "pending"
+                                      ? "bg-amber-50 text-amber-700"
+                                      : "bg-slate-100 text-slate-600"
+                                  }`}
+                                >
+                                  <span className={`w-1.5 h-1.5 rounded-full ${
+                                    p.status === "confirmed" ? "bg-success-500" : p.status === "pending" ? "bg-amber-500" : "bg-slate-400"
+                                  }`} />
+                                  {p.athlete.name ?? p.athlete.email}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="shrink-0">
@@ -695,7 +726,7 @@ export default function Bookings() {
             </div>
           )}
 
-          {coachPastSlots.length > 0 && (
+          {coachPastSessions.length > 0 && (
             <div className="mt-8">
               <button
                 type="button"
@@ -703,7 +734,7 @@ export default function Bookings() {
                 className="flex items-center gap-2 text-slate-600 hover:text-slate-900 font-medium text-sm mb-4"
               >
                 <span>
-                  {showPastCoach ? "Hide" : "Show"} past or closed ({coachPastSlots.length})
+                  {showPastCoach ? "Hide" : "Show"} past or closed ({coachPastSessions.length})
                 </span>
                 <ChevronDown className={`w-4 h-4 transition-transform ${showPastCoach ? "rotate-180" : ""}`} />
               </button>
@@ -712,17 +743,18 @@ export default function Bookings() {
                   <p className="text-slate-500 text-sm mb-1">
                     Slots that have already passed or are completed/cancelled. Pending here means the session date passed before it was confirmed or completed.
                   </p>
-                  {coachPastSlots.map((slotBookings) => {
-                    const slot = slotBookings[0].slot;
-                    const isMulti = slot.maxCapacity != null && slot.maxCapacity > 1;
-                    const completedCount = slotBookings.filter((b) => b.status === "completed").length;
-                    const cancelledCount = slotBookings.filter((b) => b.status === "cancelled").length;
-                    const hasRecap = slotBookings.some((b) => b.coachRecap);
+                  {coachPastSessions.map((session) => {
+                    const slot = session.slot;
+                    const isGroup = session.sessionType === "group";
+                    const completedCount = session.participants.filter((p) => p.status === "completed").length;
+                    const cancelledCount = session.participants.filter((p) => p.status === "cancelled").length;
+                    const hasRecap = session.participants.some((p) => p.coachRecap);
+                    const linkTo = `/sessions/${session.slotId}`;
 
                     return (
                       <Link
-                        key={slot.id}
-                        to={`/bookings/${slotBookings[0].id}`}
+                        key={session.slotId}
+                        to={linkTo}
                         className="block p-5 sm:p-4 bg-white rounded-2xl border border-slate-200 border-l-4 border-l-slate-300 opacity-90 hover:opacity-100 transition-opacity"
                       >
                         <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
@@ -742,15 +774,15 @@ export default function Bookings() {
                               <p className="text-slate-500 text-sm mt-1 ml-6">{slot.location.name}</p>
                             )}
                             <div className="mt-2 ml-6">
-                              {isMulti ? (
+                              {isGroup ? (
                                 <p className="text-sm text-slate-600">
-                                  {slotBookings.length} athlete{slotBookings.length !== 1 ? "s" : ""}
+                                  {session.participants.length} athlete{session.participants.length !== 1 ? "s" : ""}
                                   {completedCount > 0 && <span className="text-slate-500"> · {completedCount} completed</span>}
                                   {cancelledCount > 0 && <span className="text-slate-400"> · {cancelledCount} cancelled</span>}
                                 </p>
                               ) : (
                                 <p className="text-sm text-slate-600">
-                                  {slotBookings[0].athlete.name ?? slotBookings[0].athlete.email}
+                                  {session.participants[0]?.athlete.name ?? session.participants[0]?.athlete.email}
                                 </p>
                               )}
                             </div>
@@ -760,13 +792,13 @@ export default function Bookings() {
                               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ring-1 ${
                                 completedCount > 0
                                   ? "bg-slate-100 text-slate-700 ring-slate-600/10"
-                                  : cancelledCount === slotBookings.length
+                                  : cancelledCount === session.participants.length
                                   ? "bg-danger-100 text-danger-700 ring-danger-600/10"
                                   : "bg-amber-100 text-amber-700 ring-amber-600/10"
                               }`}
                             >
                               {completedCount > 0 && <CheckCircle className="w-3.5 h-3.5" />}
-                              {completedCount > 0 ? "completed" : cancelledCount === slotBookings.length ? "cancelled" : "expired"}
+                              {completedCount > 0 ? "completed" : cancelledCount === session.participants.length ? "cancelled" : "expired"}
                             </span>
                             {completedCount > 0 && (
                               <span className="text-brand-600 text-sm font-medium">
@@ -840,7 +872,7 @@ export default function Bookings() {
                 onClick={() => {
                   const status = confirmAction.type === "complete" ? "completed" : "cancelled";
                   setPendingUpdateId(confirmAction.bookingId);
-                  updateMutation.mutate({ id: confirmAction.bookingId, status });
+                  updateMutation.mutate({ id: confirmAction.bookingId, slotId: confirmAction.slotId, status });
                 }}
                 disabled={updateMutation.isPending}
                 className={

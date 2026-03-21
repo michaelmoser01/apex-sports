@@ -867,3 +867,72 @@ export async function sendPriceDropNotification(params: PriceDropNotificationPar
     );
   }
 }
+
+export interface AthleteCancelledToCoachParams {
+  coachEmail: string;
+  coachPhone?: string | null;
+  athleteName: string | null;
+  slotStart: string;
+  slotEnd: string;
+  previousStatus: string;
+  bookingId: string;
+}
+
+export async function sendAthleteCancelledToCoach(params: AthleteCancelledToCoachParams): Promise<void> {
+  const { coachEmail, coachPhone, athleteName, slotStart, slotEnd, previousStatus, bookingId } = params;
+  const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
+  const athlete = athleteName?.trim() || "An athlete";
+  const ctaUrl = bookingId && appUrl ? `${appUrl}/bookings/${bookingId}` : myBookingsUrl;
+  const action = previousStatus === "confirmed" ? "cancelled their confirmed booking" : "withdrew their booking request";
+
+  const subject = `${athlete} cancelled their booking`;
+  const bodyText = [
+    `${athlete} ${action} for ${slotStr}.`,
+    "",
+    "The spot is now available for other athletes to book.",
+    ctaUrl ? `View booking: ${ctaUrl}` : null,
+  ].filter(Boolean).join("\n");
+
+  const bodyHtml = htmlEmail(
+    [
+      `<p style="margin: 0 0 16px;">${escapeHtml(athlete)} ${action} for ${escapeHtml(slotStr)}.</p>`,
+      `<p style="margin: 0 0 0;">The spot is now available for other athletes to book.</p>`,
+    ].join("\n"),
+    "View booking",
+    ctaUrl
+  );
+
+  try {
+    await ses.send(
+      new SendEmailCommand({
+        Source: fromEmail,
+        Destination: { ToAddresses: [coachEmail] },
+        Message: {
+          Subject: { Data: subject, Charset: "UTF-8" },
+          Body: {
+            Text: { Data: bodyText, Charset: "UTF-8" },
+            Html: { Data: bodyHtml, Charset: "UTF-8" },
+          },
+        },
+      })
+    );
+  } catch (err) {
+    const sesErr = err as { name?: string; message?: string; Code?: string };
+    console.error("[notifications] sendAthleteCancelledToCoach failed:", sesErr?.name ?? sesErr?.Code, sesErr?.message ?? err);
+  }
+
+  if (sendSms && coachPhone?.trim()) {
+    try {
+      const phone = normalizePhone(coachPhone.trim());
+      await sns.send(
+        new PublishCommand({
+          PhoneNumber: phone,
+          Message: `ApexSports: ${athlete} cancelled their booking for ${formatSlotTime(slotStart)}. The spot is now open.`,
+          MessageAttributes: { "AWS.SNS.SMS.SMSType": { DataType: "String", StringValue: "Transactional" } },
+        })
+      );
+    } catch (err) {
+      console.error("[notifications] sendAthleteCancelledToCoach SMS failed:", err);
+    }
+  }
+}

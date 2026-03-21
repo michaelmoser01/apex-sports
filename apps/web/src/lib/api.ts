@@ -2,6 +2,18 @@ import { getCurrentUser, fetchAuthSession } from "aws-amplify/auth";
 
 const DEV_USER_KEY = "dev-user-id";
 
+/** Thrown when the API returns a non-2xx JSON body; includes optional `code` (e.g. GROUP_RATES_REQUIRED). */
+export class ApiRequestError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 const getBaseUrl = () => {
   const url = import.meta.env.VITE_API_URL;
   if (url) return url;
@@ -66,7 +78,8 @@ export async function api<T>(
           : typeof raw === "object" && raw !== null && typeof (raw as { message?: unknown }).message === "string"
             ? (raw as { message: string }).message
             : "Request failed";
-      throw new Error(message);
+      const code = typeof (err as { code?: unknown }).code === "string" ? (err as { code: string }).code : undefined;
+      throw new ApiRequestError(message, res.status, code);
     }
     const text = await res.text();
     if (text.trimStart().startsWith("<")) {

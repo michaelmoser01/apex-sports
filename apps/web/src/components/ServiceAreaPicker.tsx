@@ -192,13 +192,18 @@ export default function ServiceAreaPicker({
   label,
   helperText,
 }: ServiceAreaPickerProps) {
+  // Google Autocomplete is only attached once; its listener must not close over a stale `areas`
+  // array or every new pick would replace the list with a single item.
+  const areasRef = useRef(areas);
+  areasRef.current = areas;
+
   const handleAdd = useCallback((newArea: Omit<ServiceAreaItem, "id">) => {
     if (single) {
       onChange([newArea]);
     } else {
-      onChange([...areas, newArea]);
+      onChange([...areasRef.current, newArea]);
     }
-  }, [areas, onChange, single]);
+  }, [onChange, single]);
 
   const handleRemove = (index: number) => {
     onChange(areas.filter((_, i) => i !== index));

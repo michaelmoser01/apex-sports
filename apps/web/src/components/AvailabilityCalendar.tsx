@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, useCallback, createContext, useContext } from "react";
+import { Link } from "react-router-dom";
 import { Calendar, dateFnsLocalizer, type EventProps } from "react-big-calendar";
 import { format, getDay, startOfWeek, isWithinInterval, setHours, setMinutes, isSameDay, addDays } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -260,6 +261,28 @@ export function AvailabilityCalendar({
   });
   const [inlineMaxCapacity, setInlineMaxCapacity] = useState(1);
   const [inlineAllowPrivate, setInlineAllowPrivate] = useState(true);
+  const [groupRatesSubmitError, setGroupRatesSubmitError] = useState<string | null>(null);
+
+  const needsGroupRatesForSlot = inlineMaxCapacity > 1 && !hasGroupRates;
+
+  useEffect(() => {
+    if (inlineMaxCapacity <= 1 || hasGroupRates) setGroupRatesSubmitError(null);
+  }, [inlineMaxCapacity, hasGroupRates]);
+
+  useEffect(() => {
+    setGroupRatesSubmitError(null);
+  }, [inlineAddSlot]);
+
+  const groupRatesHintBlock =
+    needsGroupRatesForSlot ? (
+      <p className="text-xs text-amber-600 mt-1">
+        Group session pricing is required for multi-athlete slots.{" "}
+        <Link to="/dashboard/profile#group-pricing" className="font-medium underline hover:text-amber-800">
+          Add group rates
+        </Link>{" "}
+        under your hourly rate on Profile.
+      </p>
+    ) : null;
 
   const handleSelectSlot = (slotInfo: { start: Date }) => {
     const start = slotInfo.start;
@@ -279,6 +302,11 @@ export function AvailabilityCalendar({
   const handleInlineSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!baseDate || (!onAddOneOff && !onAddRecurring)) return;
+    if (needsGroupRatesForSlot) {
+      setGroupRatesSubmitError("Add group session pricing on your Profile before creating multi-athlete slots.");
+      return;
+    }
+    setGroupRatesSubmitError(null);
     const start = setMinutes(setHours(baseDate, inlineTime.hour), inlineTime.minute);
     const startIso = start.toISOString();
     const duration = inlineDuration;
@@ -295,6 +323,11 @@ export function AvailabilityCalendar({
   const handleQuickFillSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!baseDate || qfFromHour >= qfToHour) return;
+    if (needsGroupRatesForSlot) {
+      setGroupRatesSubmitError("Add group session pricing on your Profile before creating multi-athlete slots.");
+      return;
+    }
+    setGroupRatesSubmitError(null);
     const duration = inlineDuration;
     const locationId = inlineLocationId || undefined;
     const capacity = inlineMaxCapacity > 1 ? inlineMaxCapacity : undefined;
@@ -446,9 +479,7 @@ export function AvailabilityCalendar({
                         <option value={1}>1 athlete</option>
                         {[2,3,4,5,6,7,8].map((n) => (<option key={n} value={n}>Up to {n} athletes</option>))}
                       </select>
-                      {inlineMaxCapacity > 1 && !hasGroupRates && (
-                        <p className="text-xs text-amber-600 mt-1">Set up group pricing on your dashboard so athletes see discounted rates.</p>
-                      )}
+                      {groupRatesHintBlock}
                     </div>
                     {inlineMaxCapacity > 1 && (
                       <div className="flex items-center gap-2">
@@ -466,9 +497,15 @@ export function AvailabilityCalendar({
                         <input type="date" value={inlineEndDate} onChange={(e) => setInlineEndDate(e.target.value)} className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800" />
                       </div>
                     )}
-                    {addError && <p className="text-sm text-danger-600">{addError}</p>}
+                    {(addError || groupRatesSubmitError) && (
+                      <p className="text-sm text-danger-600">{addError ?? groupRatesSubmitError}</p>
+                    )}
                     <div className="flex gap-2">
-                      <button type="submit" disabled={isAddSubmitting} className="flex-1 rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50">
+                      <button
+                        type="submit"
+                        disabled={isAddSubmitting || needsGroupRatesForSlot}
+                        className="flex-1 rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+                      >
                         {isAddSubmitting ? "Adding…" : "Add"}
                       </button>
                       <button type="button" onClick={onCloseInlineAdd} className="px-4 py-2.5 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
@@ -512,6 +549,7 @@ export function AvailabilityCalendar({
                         <option value={1}>1 athlete</option>
                         {[2,3,4,5,6,7,8].map((n) => (<option key={n} value={n}>Up to {n} athletes</option>))}
                       </select>
+                      {groupRatesHintBlock}
                     </div>
                     {inlineMaxCapacity > 1 && (
                       <div className="flex items-center gap-2">
@@ -534,9 +572,15 @@ export function AvailabilityCalendar({
                         This will create {qfSlotCount} slot{qfSlotCount !== 1 ? "s" : ""}{inlineRecurring ? " each week" : ""}
                       </p>
                     )}
-                    {addError && <p className="text-sm text-danger-600">{addError}</p>}
+                    {(addError || groupRatesSubmitError) && (
+                      <p className="text-sm text-danger-600">{addError ?? groupRatesSubmitError}</p>
+                    )}
                     <div className="flex gap-2">
-                      <button type="submit" disabled={isAddSubmitting || qfSlotCount === 0} className="flex-1 rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50">
+                      <button
+                        type="submit"
+                        disabled={isAddSubmitting || qfSlotCount === 0 || needsGroupRatesForSlot}
+                        className="flex-1 rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+                      >
                         {isAddSubmitting ? "Adding…" : `Add ${qfSlotCount} slot${qfSlotCount !== 1 ? "s" : ""}`}
                       </button>
                       <button type="button" onClick={onCloseInlineAdd} className="px-4 py-2.5 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
@@ -669,6 +713,7 @@ export function AvailabilityCalendar({
                       <option value={1}>1 athlete</option>
                       {[2,3,4,5,6,7,8].map((n) => (<option key={n} value={n}>Up to {n} athletes</option>))}
                     </select>
+                    {groupRatesHintBlock}
                   </div>
                   {inlineMaxCapacity > 1 && (
                     <label className="flex items-center gap-2 min-h-[44px] cursor-pointer">
@@ -686,9 +731,15 @@ export function AvailabilityCalendar({
                       <input type="date" value={inlineEndDate} onChange={(e) => setInlineEndDate(e.target.value)} className="flex-1 min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-800 touch-manipulation" />
                     </div>
                   )}
-                  {addError && <p className="text-sm text-danger-600">{addError}</p>}
+                  {(addError || groupRatesSubmitError) && (
+                    <p className="text-sm text-danger-600">{addError ?? groupRatesSubmitError}</p>
+                  )}
                   <div className="flex gap-3">
-                    <button type="submit" disabled={isAddSubmitting} className="flex-1 min-h-[48px] rounded-lg bg-brand-500 px-4 py-3 text-base font-medium text-white hover:bg-brand-600 disabled:opacity-50 touch-manipulation">
+                    <button
+                      type="submit"
+                      disabled={isAddSubmitting || needsGroupRatesForSlot}
+                      className="flex-1 min-h-[48px] rounded-lg bg-brand-500 px-4 py-3 text-base font-medium text-white hover:bg-brand-600 disabled:opacity-50 touch-manipulation"
+                    >
                       {isAddSubmitting ? "Adding…" : "Add"}
                     </button>
                     <button type="button" onClick={onCloseInlineAdd} className="flex-1 min-h-[48px] rounded-lg border border-slate-300 bg-white px-4 py-3 text-base font-medium text-slate-700 hover:bg-slate-50 touch-manipulation">Cancel</button>
@@ -732,6 +783,7 @@ export function AvailabilityCalendar({
                       <option value={1}>1 athlete</option>
                       {[2,3,4,5,6,7,8].map((n) => (<option key={n} value={n}>Up to {n} athletes</option>))}
                     </select>
+                    {groupRatesHintBlock}
                   </div>
                   {inlineMaxCapacity > 1 && (
                     <label className="flex items-center gap-2 min-h-[44px] cursor-pointer">
@@ -754,9 +806,15 @@ export function AvailabilityCalendar({
                       This will create {qfSlotCount} slot{qfSlotCount !== 1 ? "s" : ""}{inlineRecurring ? " each week" : ""}
                     </p>
                   )}
-                  {addError && <p className="text-sm text-danger-600">{addError}</p>}
+                  {(addError || groupRatesSubmitError) && (
+                    <p className="text-sm text-danger-600">{addError ?? groupRatesSubmitError}</p>
+                  )}
                   <div className="flex gap-3">
-                    <button type="submit" disabled={isAddSubmitting || qfSlotCount === 0} className="flex-1 min-h-[48px] rounded-lg bg-brand-500 px-4 py-3 text-base font-medium text-white hover:bg-brand-600 disabled:opacity-50 touch-manipulation">
+                    <button
+                      type="submit"
+                      disabled={isAddSubmitting || qfSlotCount === 0 || needsGroupRatesForSlot}
+                      className="flex-1 min-h-[48px] rounded-lg bg-brand-500 px-4 py-3 text-base font-medium text-white hover:bg-brand-600 disabled:opacity-50 touch-manipulation"
+                    >
                       {isAddSubmitting ? "Adding…" : `Add ${qfSlotCount} slot${qfSlotCount !== 1 ? "s" : ""}`}
                     </button>
                     <button type="button" onClick={onCloseInlineAdd} className="flex-1 min-h-[48px] rounded-lg border border-slate-300 bg-white px-4 py-3 text-base font-medium text-slate-700 hover:bg-slate-50 touch-manipulation">Cancel</button>
