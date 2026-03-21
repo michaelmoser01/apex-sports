@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { consumeDeepLink } from "@/utils/deepLink";
 
 const ASSISTANT_CAPABILITIES = [
   { id: "scheduling", label: "Scheduling" },
@@ -88,7 +89,7 @@ export default function OnboardingAssistant() {
     });
   };
 
-  const handleContinue = () => navigate("/dashboard", { replace: true });
+  const handleContinue = () => navigate(consumeDeepLink() ?? "/dashboard", { replace: true });
 
   const hasNumber = assignedNumber || profile.assistantPhoneNumber;
   const number = assignedNumber ?? profile.assistantPhoneNumber ?? "";

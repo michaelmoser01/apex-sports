@@ -94,6 +94,12 @@ function paymentBadge(paymentStatus: string | null, amountCents: number | null) 
         Paid ${(amountCents / 100).toFixed(2)}
       </span>
     );
+  if (paymentStatus === "paid_offline")
+    return (
+      <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+        Paid (offline) ${(amountCents / 100).toFixed(2)}
+      </span>
+    );
   if (paymentStatus === "deferred" || paymentStatus === "payment_link_sent")
     return (
       <span className="inline-flex items-center rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-medium text-orange-800">

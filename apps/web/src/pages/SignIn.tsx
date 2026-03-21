@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { signIn } from "aws-amplify/auth";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { api } from "@/lib/api";
+import { setDeepLink, consumeDeepLink } from "@/utils/deepLink";
 import { ArrowRight, Eye, EyeOff } from "lucide-react";
 
 interface DevUser {
@@ -16,6 +17,7 @@ interface DevUser {
 function DevSignIn() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const { setDevUser } = useAuth();
   const [users, setUsers] = useState<DevUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,6 +27,12 @@ function DevSignIn() {
   const [signUpError, setSignUpError] = useState("");
   const [signUpLoading, setSignUpLoading] = useState(false);
 
+  const returnTo = searchParams.get("returnTo") ?? (location.state as { returnTo?: string })?.returnTo ?? null;
+
+  useEffect(() => {
+    if (returnTo) setDeepLink(returnTo);
+  }, [returnTo]);
+
   useEffect(() => {
     api<DevUser[]>("/auth/dev-users")
       .then(setUsers)
@@ -32,11 +40,10 @@ function DevSignIn() {
       .finally(() => setLoading(false));
   }, []);
 
-  const returnTo = searchParams.get("returnTo") || "/welcome";
-
   const handleSelect = (user: DevUser) => {
     setDevUser({ ...user, name: user.name ?? "" });
-    navigate(returnTo, { replace: true });
+    const dest = consumeDeepLink() ?? "/welcome";
+    navigate(dest, { replace: true });
   };
 
   const handleSignUp = async (e: React.FormEvent) => {
@@ -132,31 +139,39 @@ function DevSignIn() {
 function CognitoSignIn() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const returnTo = searchParams.get("returnTo") || "/welcome";
+  const returnTo = searchParams.get("returnTo") ?? (location.state as { returnTo?: string })?.returnTo ?? null;
+
+  useEffect(() => {
+    if (returnTo) setDeepLink(returnTo);
+  }, [returnTo]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
+      const dest = consumeDeepLink() ?? "/welcome";
       const { nextStep } = await signIn({ username: email.trim(), password });
       if (nextStep.signInStep === "DONE") {
-        navigate(returnTo, { replace: true });
+        navigate(dest, { replace: true });
       } else if (nextStep.signInStep === "CONFIRM_SIGN_UP") {
+        if (dest !== "/welcome") setDeepLink(dest);
         setError("Please verify your email first. Check your inbox for a verification code.");
       } else {
-        navigate(returnTo, { replace: true });
+        navigate(dest, { replace: true });
       }
     } catch (err: unknown) {
       if (err instanceof Error) {
         if (err.name === "UserAlreadyAuthenticatedException") {
-          navigate(returnTo, { replace: true });
+          const dest = consumeDeepLink() ?? "/welcome";
+          navigate(dest, { replace: true });
           return;
         }
         if (err.name === "NotAuthorizedException") {
@@ -204,7 +219,7 @@ function CognitoSignIn() {
         </form>
         <p className="mt-6 text-center text-sm text-slate-500">
           Don't have an account?{" "}
-          <Link to="/sign-up" className="text-brand-600 font-semibold hover:underline">Sign up</Link>
+          <Link to={returnTo ? `/sign-up?returnTo=${encodeURIComponent(returnTo)}` : "/sign-up"} className="text-brand-600 font-semibold hover:underline">Sign up</Link>
         </p>
       </div>
     </div>
@@ -216,13 +231,28 @@ export default function SignInPage() {
   const { authStatus } = useAuthenticator((ctx) => [ctx.authStatus]);
   const isAuthenticated = isDevMode ? !!devUser : authStatus === "authenticated";
   const { data: currentUser, isLoading } = useCurrentUser(isAuthenticated);
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+
+  const returnTo = searchParams.get("returnTo") ?? (location.state as { returnTo?: string })?.returnTo ?? null;
+  useEffect(() => {
+    if (returnTo) setDeepLink(returnTo);
+  }, [returnTo]);
 
   if (isAuthenticated && !isLoading && currentUser) {
     if (currentUser.signupRole === "coach" || currentUser.coachProfile) {
-      return <Navigate to={currentUser.coachProfile ? "/dashboard" : "/coach/onboarding/basic"} replace />;
+      if (currentUser.coachProfile) {
+        const dest = consumeDeepLink();
+        return <Navigate to={dest ?? "/dashboard"} replace />;
+      }
+      return <Navigate to="/coach/onboarding/basic" replace />;
     }
     if (currentUser.signupRole === "athlete" || currentUser.athleteProfile) {
-      return <Navigate to={currentUser.athleteProfile ? "/athlete" : "/athlete/onboarding"} replace />;
+      if (currentUser.athleteProfile) {
+        const dest = consumeDeepLink();
+        return <Navigate to={dest ?? "/athlete"} replace />;
+      }
+      return <Navigate to="/athlete/onboarding" replace />;
     }
     return <Navigate to="/welcome" replace />;
   }

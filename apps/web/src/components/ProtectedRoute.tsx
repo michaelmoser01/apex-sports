@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { setDeepLink } from "@/utils/deepLink";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -19,6 +20,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   if (!isAuthenticated) {
     const returnTo = location.pathname + location.search;
+    setDeepLink(returnTo);
     return <Navigate to={`/sign-in?returnTo=${encodeURIComponent(returnTo)}`} replace />;
   }
 

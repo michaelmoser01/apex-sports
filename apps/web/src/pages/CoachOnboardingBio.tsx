@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { consumeDeepLink } from "@/utils/deepLink";
 
 const MAX_ABOUT_CHARS = 2600;
 
@@ -41,7 +42,7 @@ export default function CoachOnboardingBio() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
       queryClient.invalidateQueries({ queryKey: ["auth"] });
-      navigate("/dashboard/profile", { replace: true });
+      navigate(consumeDeepLink() ?? "/dashboard/profile", { replace: true });
     },
   });
 

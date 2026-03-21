@@ -4,6 +4,7 @@ import authRoutes from "./routes/auth.js";
 import coachesRoutes from "./routes/coaches.js";
 import athletesRoutes from "./routes/athletes.js";
 import bookingsRoutes from "./routes/bookings.js";
+import sessionsRoutes from "./routes/sessions.js";
 import invitesRoutes from "./routes/invites.js";
 import { stripeWebhookHandler } from "./routes/webhooks.js";
 import { prisma } from "./db.js";
@@ -51,6 +52,7 @@ app.use("/auth", authRoutes);
 app.use("/coaches", coachesRoutes);
 app.use("/athletes", athletesRoutes);
 app.use("/bookings", bookingsRoutes);
+app.use("/sessions", sessionsRoutes);
 app.use("/invites", invitesRoutes);
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

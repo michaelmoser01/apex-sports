@@ -9,7 +9,8 @@ import {
 } from "./Join";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { hasCompletedAthleteOnboarding } from "@/lib/athleteProfile";
-import { Dumbbell, Users, ArrowRight } from "lucide-react";
+import { consumeDeepLink } from "@/utils/deepLink";
+import { Trophy, Users, ArrowRight } from "lucide-react";
 
 export default function Welcome() {
   const navigate = useNavigate();
@@ -54,7 +55,8 @@ export default function Welcome() {
 
   // Coach check first — prevents coaches with dual profiles from hitting athlete flow
   if (currentUser?.signupRole === "coach" || currentUser?.coachProfile) {
-    return <Navigate to="/dashboard" replace />;
+    const dest = consumeDeepLink();
+    return <Navigate to={dest ?? "/dashboard"} replace />;
   }
 
   const isAlreadyAthlete =
@@ -63,13 +65,15 @@ export default function Welcome() {
 
   if (isAlreadyAthlete) {
     if (fromInvite && inviteCoachId && athleteProfileComplete) {
-      return <Navigate to={`/coaches/${inviteCoachId}`} replace />;
+      const dest = consumeDeepLink();
+      return <Navigate to={dest ?? `/coaches/${inviteCoachId}`} replace />;
     }
     if (fromInvite && inviteCoachId && !athleteProfileComplete) {
       return <Navigate to="/athlete/onboarding" replace />;
     }
     if (athleteProfileComplete) {
-      return <Navigate to="/athlete" replace />;
+      const dest = consumeDeepLink();
+      return <Navigate to={dest ?? "/athlete"} replace />;
     }
     return <Navigate to="/athlete/onboarding" replace />;
   }
@@ -127,7 +131,7 @@ export default function Welcome() {
             className="group relative p-8 rounded-2xl border-2 border-slate-200 bg-white hover:border-brand-500 hover:shadow-lg transition-all disabled:opacity-50 text-left"
           >
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-500/10 text-brand-600 mb-4 group-hover:bg-brand-500 group-hover:text-white transition-colors">
-              <Dumbbell className="w-7 h-7" />
+              <Trophy className="w-7 h-7" />
             </div>
             <h2 className="text-xl font-bold text-slate-900 mb-1">I'm a Coach</h2>
             <p className="text-sm text-slate-500">Set up your profile, manage availability, and grow your coaching business.</p>

@@ -3,7 +3,8 @@ import { getNextOnboardingStep } from "@/config/onboarding";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useMemo } from "react";
 import { startOfMonth, endOfMonth, format, isBefore } from "date-fns";
-import { api } from "@/lib/api";
+import { api, ApiRequestError } from "@/lib/api";
+import { hasGroupRatesConfigured } from "@/lib/coachPricing";
 import { ALLOWED_SPORTS } from "@apex-sports/shared";
 import ServiceAreaPicker, { type ServiceAreaItem } from "@/components/ServiceAreaPicker";
 import ReactMarkdown from "react-markdown";
@@ -14,6 +15,7 @@ import {
 } from "@/components/AvailabilityCalendar";
 import { CoachLocationsCompact } from "@/components/CoachLocations";
 import { Avatar } from "@/components/Avatar";
+import SessionPricingEditor from "@/components/SessionPricingEditor";
 import {
   AlertTriangle,
   ShieldCheck,
@@ -66,6 +68,7 @@ interface CoachProfile {
   assistantPhoneNumber?: string | null;
   planId?: string | null;
   billingMode?: string;
+  groupRates?: Record<string, number> | null;
 }
 
 interface AvailabilityRule {
@@ -84,6 +87,8 @@ interface OneOffSlot {
   startTime: string;
   endTime: string;
   status: string;
+  maxCapacity?: number;
+  allowPrivate?: boolean;
 }
 
 interface AvailabilityResponse {
@@ -233,13 +238,14 @@ interface BookingsData {
   asCoach: {
     id: string;
     athlete: { id: string; name: string | null; email: string };
-    slot: { id: string; startTime: string; endTime: string };
+    slot: { id: string; startTime: string; endTime: string; maxCapacity?: number };
     status: string;
     createdAt: string;
     completedAt: string | null;
     review: { rating: number; comment: string; createdAt: string } | null;
     paymentStatus: string | null;
     amountCents: number | null;
+    sessionType?: string;
   }[];
 }
 
@@ -566,7 +572,7 @@ export default function CoachDashboard() {
   });
 
   const addSlotMutation = useMutation({
-    mutationFn: (data: { startTime: string; durationMinutes: number; recurrence: "none" }) =>
+    mutationFn: (data: { startTime: string; durationMinutes: number; recurrence: "none"; maxCapacity?: number }) =>
       api("/coaches/me/availability", {
         method: "POST",
         body: JSON.stringify(data),
@@ -576,13 +582,17 @@ export default function CoachDashboard() {
       setAddOneOffError(null);
       queryClient.invalidateQueries({ queryKey: ["availability"] });
     },
-    onError: (err: Error) => {
-      setAddOneOffError(err.message ?? "Failed to add session");
+    onError: (err: unknown) => {
+      if (err instanceof ApiRequestError && err.code === "GROUP_RATES_REQUIRED") {
+        setAddOneOffError(err.message);
+        return;
+      }
+      setAddOneOffError(err instanceof Error ? err.message : "Failed to add session");
     },
   });
 
   const addRuleMutation = useMutation({
-    mutationFn: (data: { firstStartTime: string; durationMinutes: number; recurrence: "weekly"; endDate: string }) =>
+    mutationFn: (data: { firstStartTime: string; durationMinutes: number; recurrence: "weekly"; endDate: string; maxCapacity?: number }) =>
       api("/coaches/me/availability/rules", {
         method: "POST",
         body: JSON.stringify(data),
@@ -592,31 +602,47 @@ export default function CoachDashboard() {
       setAddOneOffError(null);
       queryClient.invalidateQueries({ queryKey: ["availability"] });
     },
-    onError: (err: Error) => {
-      setAddOneOffError(err.message ?? "Failed to add recurring availability");
+    onError: (err: unknown) => {
+      if (err instanceof ApiRequestError && err.code === "GROUP_RATES_REQUIRED") {
+        setAddOneOffError(err.message);
+        return;
+      }
+      setAddOneOffError(err instanceof Error ? err.message : "Failed to add recurring availability");
     },
   });
 
   const addBatchMutation = useMutation({
-    mutationFn: (slots: { startTime: string; durationMinutes: number; locationId?: string }[]) =>
+    mutationFn: (slots: { startTime: string; durationMinutes: number; locationId?: string; maxCapacity?: number }[]) =>
       api("/coaches/me/availability/batch", { method: "POST", body: JSON.stringify({ slots }) }),
     onSuccess: () => {
       setAddOneOffModalStart(null);
       setAddOneOffError(null);
       queryClient.invalidateQueries({ queryKey: ["availability"] });
     },
-    onError: (err: Error) => { setAddOneOffError(err.message ?? "Failed to add slots"); },
+    onError: (err: unknown) => {
+      if (err instanceof ApiRequestError && err.code === "GROUP_RATES_REQUIRED") {
+        setAddOneOffError(err.message);
+        return;
+      }
+      setAddOneOffError(err instanceof Error ? err.message : "Failed to add slots");
+    },
   });
 
   const addBatchRuleMutation = useMutation({
-    mutationFn: (rules: { firstStartTime: string; durationMinutes: number; endDate: string; locationId?: string }[]) =>
+    mutationFn: (rules: { firstStartTime: string; durationMinutes: number; endDate: string; locationId?: string; maxCapacity?: number }[]) =>
       api("/coaches/me/availability/rules/batch", { method: "POST", body: JSON.stringify({ rules }) }),
     onSuccess: () => {
       setAddOneOffModalStart(null);
       setAddOneOffError(null);
       queryClient.invalidateQueries({ queryKey: ["availability"] });
     },
-    onError: (err: Error) => { setAddOneOffError(err.message ?? "Failed to add recurring slots"); },
+    onError: (err: unknown) => {
+      if (err instanceof ApiRequestError && err.code === "GROUP_RATES_REQUIRED") {
+        setAddOneOffError(err.message);
+        return;
+      }
+      setAddOneOffError(err instanceof Error ? err.message : "Failed to add recurring slots");
+    },
   });
 
   const deleteSlotMutation = useMutation({
@@ -633,6 +659,18 @@ export default function CoachDashboard() {
       api(`/coaches/me/availability/rules/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       setRemoveTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["availability"] });
+    },
+  });
+
+  const updateSlotMutation = useMutation({
+    mutationFn: ({ slotId, data }: { slotId: string; data: { startTime?: string; durationMinutes?: number; locationId?: string | null; maxCapacity?: number } }) =>
+      api(`/coaches/me/availability/${slotId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      setSelectedEvent(null);
       queryClient.invalidateQueries({ queryKey: ["availability"] });
     },
   });
@@ -752,9 +790,27 @@ export default function CoachDashboard() {
     },
   });
 
+  const markPaidMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      await api(`/bookings/${bookingId}/mark-paid`, { method: "POST" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bookings"] });
+    },
+  });
+
   const billingModeMutation = useMutation({
     mutationFn: async (billingMode: "upfront" | "after_session") => {
       await api("/coaches/me", { method: "PUT", body: JSON.stringify({ billingMode }) });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
+    },
+  });
+
+  const groupRatesMutation = useMutation({
+    mutationFn: async (groupRates: Record<string, number>) => {
+      await api("/coaches/me", { method: "PUT", body: JSON.stringify({ groupRates }) });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
@@ -802,6 +858,7 @@ export default function CoachDashboard() {
   const coach = profile as CoachProfile;
   const nextOnboardingStep = getNextOnboardingStep({
     hasProfile: true,
+    hasHourlyRate: !!(coach.hourlyRate && parseFloat(coach.hourlyRate) > 0),
     hasBio: !!(coach.bio?.trim()),
     hasAssistant: !!(coach.assistantPhoneNumber?.trim()),
   });
@@ -998,11 +1055,17 @@ export default function CoachDashboard() {
                       >
                         <div className="min-w-0">
                           <p className="font-medium text-slate-900 text-sm truncate">
-                            {b.athlete.name ?? b.athlete.email}
+                            {b.sessionType === "group"
+                              ? `Session · ${new Date(b.slot.startTime).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+                              : b.athlete.name ?? b.athlete.email}
                           </p>
-                          <p className="text-slate-500 text-xs sm:text-sm">
-                            {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
-                          </p>
+                          {b.sessionType === "group" ? (
+                            <p className="text-slate-500 text-xs sm:text-sm">{b.athlete.name ?? b.athlete.email} wants to join</p>
+                          ) : (
+                            <p className="text-slate-500 text-xs sm:text-sm">
+                              {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                            </p>
+                          )}
                         </div>
                         <div className="flex gap-2 shrink-0">
                           <button
@@ -1028,7 +1091,9 @@ export default function CoachDashboard() {
                       <div key={b.id} className="flex items-center justify-between gap-2 p-3 rounded-lg bg-amber-50/80 border border-amber-100">
                         <div className="min-w-0">
                           <p className="font-medium text-slate-900 text-sm truncate">
-                            {b.athlete.name ?? b.athlete.email} – session done
+                            {b.sessionType === "group"
+                              ? `Session · ${new Date(b.slot.startTime).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+                              : `${b.athlete.name ?? b.athlete.email} – session done`}
                           </p>
                           <p className="text-amber-700 text-xs">Leave a follow-up / review</p>
                         </div>
@@ -1074,14 +1139,18 @@ export default function CoachDashboard() {
                       />
                       <div className="min-w-0">
                         <p className="font-medium text-slate-900 text-sm truncate">
-                          {b.athlete.name ?? b.athlete.email}
+                          {b.sessionType === "group"
+                            ? `Session · ${new Date(b.slot.startTime).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+                            : b.athlete.name ?? b.athlete.email}
                         </p>
                         <p className="text-slate-500 text-xs">
-                          {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                          {b.sessionType === "group"
+                            ? `${b.athlete.name ?? b.athlete.email}`
+                            : new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                         </p>
                       </div>
                     </div>
-                    <Link to={`/bookings/${b.id}`} className="shrink-0 text-brand-600 font-medium text-sm hover:underline touch-manipulation">
+                    <Link to={`/sessions/${b.slot.id}`} className="shrink-0 text-brand-600 font-medium text-sm hover:underline touch-manipulation">
                       View
                     </Link>
                   </li>
@@ -1220,6 +1289,14 @@ export default function CoachDashboard() {
                       }`}>
                         {b.paymentStatus === "payment_link_sent" ? "Link sent" : "Not sent"}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => markPaidMutation.mutate(b.id)}
+                        disabled={markPaidMutation.isPending}
+                        className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 touch-manipulation disabled:opacity-50"
+                      >
+                        Mark as paid
+                      </button>
                       {coach.stripeOnboardingComplete ? (
                         <button
                           type="button"
@@ -1757,27 +1834,31 @@ export default function CoachDashboard() {
                   setAddOneOffModalStart(null);
                   setAddOneOffError(null);
                 }}
-                onAddOneOff={(startTime, durationMinutes, locationId) => {
+                onAddOneOff={(startTime, durationMinutes, locationId, maxCapacity, allowPrivate) => {
                   addSlotMutation.mutate({
                     startTime,
                     durationMinutes,
                     recurrence: "none",
                     ...(locationId && { locationId }),
+                    ...(maxCapacity && maxCapacity > 1 && { maxCapacity }),
+                    ...(allowPrivate !== undefined && { allowPrivate }),
                   });
                 }}
-                onAddRecurring={(firstStartTime, durationMinutes, endDate, locationId) => {
+                onAddRecurring={(firstStartTime, durationMinutes, endDate, locationId, maxCapacity, _allowPrivate) => {
                   addRuleMutation.mutate({
                     firstStartTime,
                     durationMinutes,
                     recurrence: "weekly",
                     endDate,
                     ...(locationId && { locationId }),
+                    ...(maxCapacity && maxCapacity > 1 && { maxCapacity }),
                   });
                 }}
                 onAddBatch={(slots) => addBatchMutation.mutate(slots)}
                 onAddBatchRecurring={(rules) => addBatchRuleMutation.mutate(rules)}
                 isAddSubmitting={addSlotMutation.isPending || addRuleMutation.isPending || addBatchMutation.isPending || addBatchRuleMutation.isPending}
                 addError={addOneOffError}
+                hasGroupRates={hasGroupRatesConfigured(coach.groupRates)}
               />
               {removeTarget && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="remove-availability-title">
@@ -1831,6 +1912,9 @@ export default function CoachDashboard() {
             onClose={() => setSelectedEvent(null)}
             onRemove={() => handleEventRemove(selectedEvent)}
             isRemoving={deleteSlotMutation.isPending || deleteRuleMutation.isPending}
+            onUpdate={(slotId, data) => updateSlotMutation.mutate({ slotId, data })}
+            isUpdating={updateSlotMutation.isPending}
+            locations={coachLocations}
           />
         )}
         <p className="mt-6 text-slate-500 text-sm">
@@ -2075,6 +2159,17 @@ export default function CoachDashboard() {
       </section>
 
       <CredentialsSection coach={coach} />
+
+      {coach.hourlyRate && (
+        <div className="mb-8" id="group-pricing">
+          <SessionPricingEditor
+            groupRates={coach.groupRates ?? null}
+            hourlyRate={coach.hourlyRate}
+            onSave={(rates) => groupRatesMutation.mutate(rates)}
+            saving={groupRatesMutation.isPending}
+          />
+        </div>
+      )}
 
       <section className="mb-12 p-6 bg-white rounded-xl border border-slate-200">
         <div className="flex justify-between items-center mb-4">

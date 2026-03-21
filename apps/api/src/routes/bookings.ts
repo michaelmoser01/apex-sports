@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { authMiddleware } from "../auth.js";
 import { prisma } from "../db.js";
-import { sendBookingRequestedToCoach, sendBookingRequestSubmittedToAthlete, sendBookingStatusToAthlete } from "../notifications.js";
+import { sendBookingRequestedToCoach, sendBookingRequestSubmittedToAthlete, sendBookingStatusToAthlete, sendGroupInviteToAthlete, sendPriceDropNotification, sendAthleteCancelledToCoach } from "../notifications.js";
 import { bookingCreateSchema, bookingUpdateSchema, reviewSchema } from "@apex-sports/shared";
 import {
   stripe,
@@ -29,6 +29,56 @@ function computeAmountCents(slot: { startTime: Date; endTime: Date }, hourlyRate
   return Math.max(50, Math.ceil(hours * hourlyRateDollars * 100)); // Stripe min 50 cents
 }
 
+function getPerPersonRate(
+  groupSize: number,
+  groupRates: Record<string, number> | null | undefined,
+  hourlyRate: number,
+): number {
+  if (!groupRates || typeof groupRates !== "object") return hourlyRate;
+  const exact = groupRates[String(groupSize)];
+  if (typeof exact === "number" && exact > 0) return exact;
+
+  // Interpolate between the nearest defined tiers
+  const defined = Object.entries(groupRates)
+    .map(([k, v]) => ({ size: parseInt(k), rate: v }))
+    .filter((e) => !isNaN(e.size) && typeof e.rate === "number" && e.rate > 0)
+    .sort((a, b) => a.size - b.size);
+  if (defined.length === 0) return hourlyRate;
+
+  // Below the smallest defined tier → use smallest tier's rate
+  if (groupSize <= defined[0].size) return defined[0].rate;
+  // Above the largest defined tier → use largest tier's rate
+  if (groupSize >= defined[defined.length - 1].size) return defined[defined.length - 1].rate;
+
+  // Find surrounding tiers and linearly interpolate
+  let lower = defined[0];
+  let upper = defined[defined.length - 1];
+  for (const d of defined) {
+    if (d.size <= groupSize) lower = d;
+    if (d.size >= groupSize && d.size < upper.size) upper = d;
+  }
+  if (lower.size === upper.size) return lower.rate;
+  const fraction = (groupSize - lower.size) / (upper.size - lower.size);
+  return Math.round(lower.rate + (upper.rate - lower.rate) * fraction);
+}
+
+function computePerPersonAmountCents(
+  slot: { startTime: Date; endTime: Date },
+  groupSize: number,
+  groupRates: Record<string, number> | null | undefined,
+  hourlyRate: number,
+): number {
+  const perPersonRate = getPerPersonRate(groupSize, groupRates, hourlyRate);
+  return computeAmountCents(slot, perPersonRate);
+}
+
+function generateInviteCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  let code = "";
+  for (let i = 0; i < 8; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
 // List own bookings
 router.get("/", auth, async (req, res) => {
   const user = (req as { user?: { id: string } }).user;
@@ -41,7 +91,15 @@ router.get("/", auth, async (req, res) => {
         where: { athleteProfileId },
         include: {
           coach: true,
-          slot: { include: { location: true } },
+          slot: {
+            include: {
+              location: true,
+              bookings: {
+                where: { status: { not: "cancelled" } },
+                select: { id: true, status: true },
+              },
+            },
+          },
           review: true,
         },
         orderBy: { createdAt: "desc" },
@@ -56,66 +114,182 @@ router.get("/", auth, async (req, res) => {
         where: { coachId: coachProfile.id },
         include: {
           athleteProfile: { include: { user: { select: { name: true, email: true } } } },
-          slot: { include: { location: true } },
+          slot: {
+            include: {
+              location: true,
+              bookings: {
+                where: { status: { not: "cancelled" } },
+                select: { id: true, status: true },
+              },
+            },
+          },
           review: true,
         },
         orderBy: { createdAt: "desc" },
       })
     : [];
 
+  // Group coach bookings by slot for group sessions
+  const coachSlotGroups = new Map<string, typeof asCoach>();
+  for (const b of asCoach) {
+    const key = b.slot.id;
+    if (!coachSlotGroups.has(key)) coachSlotGroups.set(key, []);
+    coachSlotGroups.get(key)!.push(b);
+  }
+
+  const coachSessions: Array<{
+    slotId: string;
+    sessionType: string;
+    sessionStatus: string;
+    slot: {
+      id: string;
+      startTime: string;
+      endTime: string;
+      maxCapacity: number;
+      location: { name: string; address: string; notes: string | null } | null;
+    };
+    participants: Array<{
+      id: string;
+      athlete: { id: string; name: string | null; email: string };
+      status: string;
+      amountCents: number | null;
+      paymentStatus: string | null;
+      message: string | null;
+      createdAt: string;
+      completedAt: string | null;
+      coachRecap: string | null;
+      review: { rating: number; comment: string; createdAt: string } | null;
+      lockedPrivate: boolean;
+    }>;
+  }> = [];
+
+  for (const [, bookings] of coachSlotGroups) {
+    const first = bookings[0];
+    const isMultiSession = first.slot.maxCapacity > 1;
+    const slotLockedPrivate = bookings.some((b) => b.lockedPrivate);
+    const sessionType = isMultiSession ? (slotLockedPrivate ? "private" : "group") : "private";
+
+    // Derive session status from slot's new field or fallback to aggregation
+    const activeBookings = first.slot.bookings;
+    let sessionStatus: string;
+    if (activeBookings.length === 0) {
+      sessionStatus = "available";
+    } else if (activeBookings.some((b) => b.status === "completed")) {
+      sessionStatus = "completed";
+    } else if (activeBookings.some((b) => b.status === "confirmed")) {
+      sessionStatus = "confirmed";
+    } else {
+      sessionStatus = "pending";
+    }
+
+    coachSessions.push({
+      slotId: first.slot.id,
+      sessionType,
+      sessionStatus,
+      slot: {
+        id: first.slot.id,
+        startTime: first.slot.startTime.toISOString(),
+        endTime: first.slot.endTime.toISOString(),
+        maxCapacity: first.slot.maxCapacity,
+        location: first.slot.location
+          ? { name: first.slot.location.name, address: first.slot.location.address, notes: first.slot.location.notes ?? null }
+          : null,
+      },
+      participants: bookings.map((b) => ({
+        id: b.id,
+        athlete: {
+          id: b.athleteProfile.id,
+          name: b.athleteProfile.user.name,
+          email: b.athleteProfile.user.email,
+        },
+        status: b.status,
+        amountCents: b.amountCents ?? null,
+        paymentStatus: b.paymentStatus ?? null,
+        message: b.message ?? null,
+        createdAt: b.createdAt.toISOString(),
+        completedAt: b.completedAt?.toISOString() ?? null,
+        coachRecap: b.coachRecap ?? null,
+        review: b.review
+          ? { rating: b.review.rating, comment: b.review.comment, createdAt: b.review.createdAt.toISOString() }
+          : null,
+        lockedPrivate: b.lockedPrivate,
+      })),
+    });
+  }
+
   res.json({
-    asAthlete: asAthlete.map((b) => ({
-      id: b.id,
-      coach: {
-        id: b.coach.id,
-        displayName: b.coach.displayName,
-        sports: b.coach.sports,
-      },
-      slot: {
-        id: b.slot.id,
-        startTime: b.slot.startTime.toISOString(),
-        endTime: b.slot.endTime.toISOString(),
-        location: b.slot.location
-          ? { name: b.slot.location.name, address: b.slot.location.address, notes: b.slot.location.notes ?? null }
+    asAthlete: asAthlete.map((b) => {
+      const participantCount = b.slot.bookings.length;
+      const isMultiSession = b.slot.maxCapacity > 1;
+      return {
+        id: b.id,
+        coach: {
+          id: b.coach.id,
+          displayName: b.coach.displayName,
+          sports: b.coach.sports,
+        },
+        slot: {
+          id: b.slot.id,
+          startTime: b.slot.startTime.toISOString(),
+          endTime: b.slot.endTime.toISOString(),
+          maxCapacity: b.slot.maxCapacity,
+          location: b.slot.location
+            ? { name: b.slot.location.name, address: b.slot.location.address, notes: b.slot.location.notes ?? null }
+            : null,
+        },
+        message: b.message ?? null,
+        status: b.status,
+        amountCents: b.amountCents ?? null,
+        paymentStatus: b.paymentStatus ?? null,
+        createdAt: b.createdAt.toISOString(),
+        completedAt: b.completedAt?.toISOString() ?? null,
+        coachRecap: b.coachRecap ?? null,
+        review: b.review
+          ? { rating: b.review.rating, comment: b.review.comment }
           : null,
-      },
-      message: b.message ?? null,
-      status: b.status,
-      amountCents: b.amountCents ?? null,
-      paymentStatus: b.paymentStatus ?? null,
-      createdAt: b.createdAt.toISOString(),
-      completedAt: b.completedAt?.toISOString() ?? null,
-      coachRecap: b.coachRecap ?? null,
-      review: b.review
-        ? { rating: b.review.rating, comment: b.review.comment }
-        : null,
-    })),
-    asCoach: asCoach.map((b) => ({
-      id: b.id,
-      athlete: {
-        id: b.athleteProfile.id,
-        name: b.athleteProfile.user.name,
-        email: b.athleteProfile.user.email,
-      },
-      slot: {
-        id: b.slot.id,
-        startTime: b.slot.startTime.toISOString(),
-        endTime: b.slot.endTime.toISOString(),
-        location: b.slot.location
-          ? { name: b.slot.location.name, address: b.slot.location.address, notes: b.slot.location.notes ?? null }
+        lockedPrivate: b.lockedPrivate,
+        sessionType: isMultiSession ? (b.lockedPrivate ? "private" : "group") : "private",
+        participantCount: isMultiSession ? participantCount : undefined,
+        spotsRemaining: isMultiSession ? Math.max(0, b.slot.maxCapacity - participantCount) : undefined,
+      };
+    }),
+    coachSessions,
+    // Keep asCoach for backward compat during migration
+    asCoach: asCoach.map((b) => {
+      const participantCount = b.slot.bookings.length;
+      const isMultiSession = b.slot.maxCapacity > 1;
+      return {
+        id: b.id,
+        athlete: {
+          id: b.athleteProfile.id,
+          name: b.athleteProfile.user.name,
+          email: b.athleteProfile.user.email,
+        },
+        slot: {
+          id: b.slot.id,
+          startTime: b.slot.startTime.toISOString(),
+          endTime: b.slot.endTime.toISOString(),
+          maxCapacity: b.slot.maxCapacity,
+          location: b.slot.location
+            ? { name: b.slot.location.name, address: b.slot.location.address, notes: b.slot.location.notes ?? null }
+            : null,
+        },
+        message: b.message ?? null,
+        status: b.status,
+        amountCents: b.amountCents ?? null,
+        paymentStatus: b.paymentStatus ?? null,
+        createdAt: b.createdAt.toISOString(),
+        completedAt: b.completedAt?.toISOString() ?? null,
+        coachRecap: b.coachRecap ?? null,
+        review: b.review
+          ? { rating: b.review.rating, comment: b.review.comment, createdAt: b.review.createdAt.toISOString() }
           : null,
-      },
-      message: b.message ?? null,
-      status: b.status,
-      amountCents: b.amountCents ?? null,
-      paymentStatus: b.paymentStatus ?? null,
-      createdAt: b.createdAt.toISOString(),
-      completedAt: b.completedAt?.toISOString() ?? null,
-      coachRecap: b.coachRecap ?? null,
-      review: b.review
-        ? { rating: b.review.rating, comment: b.review.comment, createdAt: b.review.createdAt.toISOString() }
-        : null,
-    })),
+        lockedPrivate: b.lockedPrivate,
+        sessionType: isMultiSession ? (b.lockedPrivate ? "private" : "group") : "private",
+        participantCount: isMultiSession ? participantCount : undefined,
+        spotsRemaining: isMultiSession ? Math.max(0, b.slot.maxCapacity - participantCount) : undefined,
+      };
+    }),
   });
 });
 
@@ -177,6 +351,9 @@ router.get("/:id", auth, async (req, res) => {
       slot: { include: { location: true } },
       athleteProfile: { include: { user: { select: { id: true, name: true, email: true } } } },
       review: true,
+      groupMembers: {
+        include: { athleteProfile: { include: { user: { select: { name: true } } } } },
+      },
     },
   });
   if (!booking) return res.status(404).json({ error: "Booking not found" });
@@ -187,6 +364,32 @@ router.get("/:id", auth, async (req, res) => {
   const isAthlete = booking.athleteProfile.userId === user.id;
   const isCoach = coachProfile?.id === booking.coachId;
   if (!isAthlete && !isCoach) return res.status(403).json({ error: "Not your booking" });
+
+  // Flexible session model: find all participants on this slot (including cancelled for display)
+  const slotParticipants = booking.slot.maxCapacity > 1
+    ? await prisma.booking.findMany({
+        where: { slotId: booking.slotId },
+        include: { athleteProfile: { include: { user: { select: { name: true } } } } },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
+
+  const activeSlotParticipants = slotParticipants.filter((p) => p.status !== "cancelled");
+  const isSlotLocked = booking.slot.lockedPrivate || activeSlotParticipants.some((p) => p.lockedPrivate) || booking.lockedPrivate;
+
+  const isMultiPersonSession = slotParticipants.length > 1 || booking.slot.maxCapacity > 1;
+
+  // Compute current per-person amount based on live headcount
+  let currentPerPersonAmountCents: number | null = null;
+  if (isMultiPersonSession && activeSlotParticipants.length > 0) {
+    const hourlyRate = booking.coach.hourlyRate ? Number(booking.coach.hourlyRate) : null;
+    if (hourlyRate) {
+      const groupRates = booking.coach.groupRates as Record<string, number> | null;
+      currentPerPersonAmountCents = computePerPersonAmountCents(
+        booking.slot, activeSlotParticipants.length, groupRates, hourlyRate,
+      );
+    }
+  }
 
   res.json({
     id: booking.id,
@@ -202,6 +405,7 @@ router.get("/:id", auth, async (req, res) => {
       id: booking.slot.id,
       startTime: booking.slot.startTime.toISOString(),
       endTime: booking.slot.endTime.toISOString(),
+      maxCapacity: booking.slot.maxCapacity,
       location: booking.slot.location
         ? {
             name: booking.slot.location.name,
@@ -233,6 +437,27 @@ router.get("/:id", auth, async (req, res) => {
           createdAt: booking.review.createdAt.toISOString(),
         }
       : null,
+    attended: booking.attended,
+    lockedPrivate: booking.lockedPrivate,
+    inviteCode: booking.slot.inviteCode ?? booking.inviteCode ?? null,
+    // Flexible session: all participants on this slot
+    slotParticipants: isMultiPersonSession
+      ? slotParticipants.map((p) => ({
+          id: p.id,
+          athleteName: p.athleteProfile.user.name,
+          displayName: p.athleteProfile.displayName,
+          avatarUrl: p.athleteProfile.avatarUrl,
+          status: p.status,
+          attended: p.attended,
+          paymentStatus: p.paymentStatus,
+          amountCents: p.amountCents,
+          isCurrentUser: isAthlete && p.id === booking.id,
+        }))
+      : undefined,
+    spotsRemaining: isMultiPersonSession
+      ? (isSlotLocked ? 0 : Math.max(0, booking.slot.maxCapacity - activeSlotParticipants.length))
+      : undefined,
+    currentPerPersonAmountCents,
   });
 });
 
@@ -433,7 +658,384 @@ router.post("/:id/pay-now/finalize", auth, async (req, res) => {
   }
 });
 
-// Create booking (athlete). If coach has rate + Connect, create auth-hold and return clientSecret.
+// Create group booking (organizer). Reserves slot, generates invite link, optionally sends email invites.
+router.post("/group", auth, async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const body = req.body as {
+    coachId?: string;
+    slotId?: string;
+    groupSize?: number;
+    message?: string;
+    participantEmails?: string[];
+    payment_method?: string;
+  };
+
+  const { coachId, slotId, groupSize, message, participantEmails, payment_method: paymentMethodId } = body;
+  if (!coachId || !slotId) return res.status(400).json({ error: "coachId and slotId are required" });
+  if (!groupSize || groupSize < 2 || groupSize > 20) return res.status(400).json({ error: "groupSize must be between 2 and 20" });
+
+  try {
+    const slot = await prisma.availabilitySlot.findFirst({
+      where: { id: slotId, coachId },
+      include: { coach: { include: { user: { select: { email: true } } } } },
+    });
+    if (!slot) return res.status(404).json({ error: "Slot not found" });
+    if (slot.status !== "available") return res.status(400).json({ error: "Slot is not available" });
+    if (groupSize > slot.maxCapacity) return res.status(400).json({ error: `Group size exceeds slot capacity (max ${slot.maxCapacity})` });
+
+    const athleteProfileId = await getAthleteProfileId(user.id);
+    if (!athleteProfileId) return res.status(400).json({ error: "No athlete profile found" });
+
+    const existingBooking = await prisma.booking.findFirst({
+      where: { slotId, athleteProfileId, status: { not: "cancelled" } },
+    });
+    if (existingBooking) return res.status(409).json({ error: "You already have a booking for this slot" });
+
+    const confirmedCount = await prisma.booking.count({
+      where: { slotId, status: { in: ["confirmed", "pending"] }, groupBookingId: { not: null } },
+    });
+    if (confirmedCount > 0) return res.status(409).json({ error: "Slot already has a group booking" });
+
+    const coach = slot.coach;
+    const hourlyRate = coach.hourlyRate ? Number(coach.hourlyRate) : null;
+    const hasRate = hourlyRate != null && hourlyRate > 0;
+    const groupRates = coach.groupRates as Record<string, number> | null;
+    const perPersonAmountCents = hasRate
+      ? computePerPersonAmountCents(slot, groupSize, groupRates, hourlyRate!)
+      : null;
+
+    const needsPayment =
+      isStripeEnabled() && stripe && hasRate && !!coach.stripeConnectAccountId && coach.billingMode === "upfront";
+
+    if (needsPayment && !paymentMethodId) {
+      return res.status(400).json({ error: "Payment method required", code: "PAYMENT_METHOD_REQUIRED" });
+    }
+
+    const inviteCode = generateInviteCode();
+
+    const booking = await prisma.booking.create({
+      data: {
+        athleteProfileId,
+        coachId,
+        slotId,
+        message: message?.trim() || null,
+        groupSize,
+        inviteCode,
+        isGroupOrganizer: true,
+        amountCents: perPersonAmountCents ?? undefined,
+        currency: "usd",
+        paymentStatus: needsPayment ? "pending_authorization" : (hasRate ? "deferred" : undefined),
+      },
+      include: {
+        coach: { include: { user: { select: { email: true } } } },
+        slot: true,
+        athleteProfile: { include: { user: { select: { email: true, name: true } } } },
+      },
+    });
+
+    let clientSecret: string | null = null;
+
+    if (needsPayment && perPersonAmountCents != null && stripe) {
+      try {
+        const athleteUser = await prisma.user.findUnique({
+          where: { id: user.id },
+          select: { email: true, stripeCustomerId: true },
+        });
+        const customerId = await getOrCreateStripeCustomerId(
+          stripe, user.id, athleteUser?.email ?? "", athleteUser?.stripeCustomerId ?? null,
+        );
+        if (!athleteUser?.stripeCustomerId) {
+          await prisma.user.update({ where: { id: user.id }, data: { stripeCustomerId: customerId } });
+        }
+
+        const { clientSecret: secret, paymentIntentId, status: piStatus } = await createPaymentIntentAuthOnly({
+          amountCents: perPersonAmountCents,
+          currency: "usd",
+          customerId,
+          paymentMethodId: paymentMethodId || undefined,
+          idempotencyKey: `group-${booking.id}`,
+          metadata: { bookingId: booking.id },
+          connectAccountId: coach.stripeConnectAccountId ?? undefined,
+        });
+        clientSecret = piStatus === "requires_action" ? secret : null;
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: {
+            stripePaymentIntentId: paymentIntentId,
+            ...(piStatus === "requires_capture" && { paymentStatus: "authorized" }),
+          },
+        });
+      } catch (err) {
+        console.error("[bookings] group create PaymentIntent failed:", err);
+        await prisma.booking.update({ where: { id: booking.id }, data: { paymentStatus: "failed" } });
+        return res.status(502).json({ error: "Payment setup failed" });
+      }
+    }
+
+    // Send group invite emails to participants if provided
+    if (participantEmails && participantEmails.length > 0) {
+      const frontendUrl = (process.env.APP_URL ?? "http://localhost:5173").replace(/\/$/, "");
+      const inviteUrl = `${frontendUrl}/group/${inviteCode}`;
+      const inviterName = booking.athleteProfile?.user.name ?? null;
+      const groupRates = coach.groupRates as Record<string, number> | null;
+      const hourlyRate = coach.hourlyRate ? Number(coach.hourlyRate) : null;
+      const perPersonRate = hourlyRate
+        ? (groupRates?.[String(groupSize)] ?? hourlyRate)
+        : null;
+      for (const email of participantEmails.slice(0, 20)) {
+        if (typeof email === "string" && email.includes("@")) {
+          await sendGroupInviteToAthlete({
+            athleteEmail: email,
+            inviterName,
+            coachDisplayName: coach.displayName,
+            sport: coach.sports?.[0] ?? null,
+            slotStart: slot.startTime.toISOString(),
+            slotEnd: slot.endTime.toISOString(),
+            perPersonRate,
+            groupSize,
+            spotsRemaining: groupSize - 1,
+            inviteUrl,
+          }).catch((err) => console.error("[bookings] group invite email failed:", err));
+        }
+      }
+    }
+
+    if (booking.coach?.user) {
+      await sendBookingRequestedToCoach({
+        coachEmail: booking.coach.user.email,
+        coachPhone: coach.phone ?? null,
+        athleteName: booking.athleteProfile?.user.name ?? null,
+        slotStart: slot.startTime.toISOString(),
+        slotEnd: slot.endTime.toISOString(),
+        message: booking.message,
+        bookingId: booking.id,
+      }).catch((err) => console.error("[bookings] notify coach (group) failed:", err));
+    }
+
+    const frontendUrl = (process.env.APP_URL ?? "http://localhost:5173").replace(/\/$/, "");
+    const response: Record<string, unknown> = {
+      id: booking.id,
+      inviteCode,
+      inviteUrl: `${frontendUrl}/group/${inviteCode}`,
+      groupSize,
+      perPersonAmountCents,
+      coach: { id: coach.id, displayName: coach.displayName, sports: coach.sports },
+      slot: { id: slot.id, startTime: slot.startTime.toISOString(), endTime: slot.endTime.toISOString() },
+      status: booking.status,
+      paymentStatus: booking.paymentStatus ?? null,
+      createdAt: booking.createdAt.toISOString(),
+    };
+    if (clientSecret) {
+      response.clientSecret = clientSecret;
+      response.requiresAction = true;
+    }
+    res.status(201).json(response);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[bookings] create group booking error:", message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get session info by invite code (public, no auth needed for landing page)
+router.get("/group/:inviteCode", async (req, res) => {
+  const booking = await prisma.booking.findUnique({
+    where: { inviteCode: req.params.inviteCode },
+    include: {
+      coach: true,
+      slot: { include: { location: true } },
+      athleteProfile: { select: { displayName: true, avatarUrl: true } },
+    },
+  });
+  if (!booking) return res.status(404).json({ error: "Session not found" });
+
+  const allBookings = await prisma.booking.findMany({
+    where: { slotId: booking.slotId, status: { not: "cancelled" } },
+    include: { athleteProfile: { select: { displayName: true, avatarUrl: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const maxCapacity = booking.slot.maxCapacity;
+  const joinedCount = allBookings.length;
+  const spotsRemaining = Math.max(0, maxCapacity - joinedCount);
+
+  const hourlyRate = booking.coach.hourlyRate ? Number(booking.coach.hourlyRate) : null;
+  const groupRates = booking.coach.groupRates as Record<string, number> | null;
+  const currentPerPersonRate = hourlyRate ? getPerPersonRate(Math.max(joinedCount, 1), groupRates, hourlyRate) : null;
+  const durationMs = booking.slot.endTime.getTime() - booking.slot.startTime.getTime();
+  const durationMinutes = Math.round(durationMs / 60000);
+
+  res.json({
+    id: booking.id,
+    coach: {
+      id: booking.coach.id,
+      displayName: booking.coach.displayName,
+      sports: booking.coach.sports,
+      avatarUrl: booking.coach.avatarUrl,
+    },
+    slot: {
+      id: booking.slot.id,
+      startTime: booking.slot.startTime.toISOString(),
+      endTime: booking.slot.endTime.toISOString(),
+      durationMinutes,
+      location: booking.slot.location
+        ? { name: booking.slot.location.name, address: booking.slot.location.address }
+        : null,
+    },
+    maxCapacity,
+    joinedCount,
+    spotsRemaining,
+    currentPerPersonRate,
+    hourlyRate,
+    groupRates,
+    status: booking.status,
+    participants: allBookings.map((b) => ({
+      displayName: b.athleteProfile.displayName,
+      avatarUrl: b.athleteProfile.avatarUrl,
+    })),
+  });
+});
+
+// Join a group booking via invite code
+router.post("/group/:inviteCode/join", auth, async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const paymentMethodId = (req.body as { payment_method?: string }).payment_method as string | undefined;
+
+  const organizerBooking = await prisma.booking.findUnique({
+    where: { inviteCode: req.params.inviteCode },
+    include: {
+      coach: { include: { user: { select: { email: true } } } },
+      slot: true,
+      groupMembers: { where: { status: { not: "cancelled" } }, select: { id: true } },
+    },
+  });
+  if (!organizerBooking || !organizerBooking.isGroupOrganizer) {
+    return res.status(404).json({ error: "Group booking not found" });
+  }
+  if (organizerBooking.status === "cancelled") {
+    return res.status(400).json({ error: "This group session has been cancelled" });
+  }
+
+  const joinedCount = organizerBooking.groupMembers.length + 1;
+  if (joinedCount >= organizerBooking.groupSize) {
+    return res.status(409).json({ error: "This group session is full" });
+  }
+
+  const athleteProfileId = await getAthleteProfileId(user.id);
+  if (!athleteProfileId) return res.status(400).json({ error: "No athlete profile found" });
+
+  if (organizerBooking.athleteProfileId === athleteProfileId) {
+    return res.status(409).json({ error: "You are already the organizer of this session" });
+  }
+
+  const existingJoin = await prisma.booking.findFirst({
+    where: { groupBookingId: organizerBooking.id, athleteProfileId, status: { not: "cancelled" } },
+  });
+  if (existingJoin) return res.status(409).json({ error: "You have already joined this session" });
+
+  const coach = organizerBooking.coach;
+  const hourlyRate = coach.hourlyRate ? Number(coach.hourlyRate) : null;
+  const hasRate = hourlyRate != null && hourlyRate > 0;
+  const groupRates = coach.groupRates as Record<string, number> | null;
+  const perPersonAmountCents = hasRate
+    ? computePerPersonAmountCents(organizerBooking.slot, organizerBooking.groupSize, groupRates, hourlyRate!)
+    : null;
+
+  const needsPayment =
+    isStripeEnabled() && stripe && hasRate && !!coach.stripeConnectAccountId && coach.billingMode === "upfront";
+
+  if (needsPayment && !paymentMethodId) {
+    return res.status(400).json({ error: "Payment method required", code: "PAYMENT_METHOD_REQUIRED" });
+  }
+
+  const participantBooking = await prisma.booking.create({
+    data: {
+      athleteProfileId,
+      coachId: organizerBooking.coachId,
+      slotId: organizerBooking.slotId,
+      groupSize: organizerBooking.groupSize,
+      isGroupOrganizer: false,
+      groupBookingId: organizerBooking.id,
+      amountCents: perPersonAmountCents ?? undefined,
+      currency: "usd",
+      paymentStatus: needsPayment ? "pending_authorization" : (hasRate ? "deferred" : undefined),
+    },
+  });
+
+  let clientSecret: string | null = null;
+
+  if (needsPayment && perPersonAmountCents != null && stripe) {
+    try {
+      const athleteUser = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { email: true, stripeCustomerId: true },
+      });
+      const customerId = await getOrCreateStripeCustomerId(
+        stripe, user.id, athleteUser?.email ?? "", athleteUser?.stripeCustomerId ?? null,
+      );
+      if (!athleteUser?.stripeCustomerId) {
+        await prisma.user.update({ where: { id: user.id }, data: { stripeCustomerId: customerId } });
+      }
+
+      const { clientSecret: secret, paymentIntentId, status: piStatus } = await createPaymentIntentAuthOnly({
+        amountCents: perPersonAmountCents,
+        currency: "usd",
+        customerId,
+        paymentMethodId: paymentMethodId || undefined,
+        idempotencyKey: `group-join-${participantBooking.id}`,
+        metadata: { bookingId: participantBooking.id },
+        connectAccountId: coach.stripeConnectAccountId ?? undefined,
+      });
+      clientSecret = piStatus === "requires_action" ? secret : null;
+      await prisma.booking.update({
+        where: { id: participantBooking.id },
+        data: {
+          stripePaymentIntentId: paymentIntentId,
+          ...(piStatus === "requires_capture" && { paymentStatus: "authorized" }),
+        },
+      });
+    } catch (err) {
+      console.error("[bookings] group join PaymentIntent failed:", err);
+      await prisma.booking.update({ where: { id: participantBooking.id }, data: { paymentStatus: "failed" } });
+      return res.status(502).json({ error: "Payment setup failed" });
+    }
+  }
+
+  // Notify the coach that a new participant has joined and needs confirmation
+  const joiningAthlete = await prisma.athleteProfile.findUnique({
+    where: { id: athleteProfileId },
+    select: { displayName: true },
+  });
+  await sendBookingRequestedToCoach({
+    coachEmail: coach.user.email,
+    coachPhone: coach.phone,
+    athleteName: joiningAthlete?.displayName ?? null,
+    slotStart: organizerBooking.slot.startTime.toISOString(),
+    slotEnd: organizerBooking.slot.endTime.toISOString(),
+    message: `Joined your group session (${organizerBooking.groupMembers.length + 2} of ${organizerBooking.groupSize} spots filled)`,
+    bookingId: organizerBooking.id,
+  }).catch((err) => console.error("[bookings] group join coach notification failed:", err));
+
+  const response: Record<string, unknown> = {
+    id: participantBooking.id,
+    groupBookingId: organizerBooking.id,
+    perPersonAmountCents,
+    status: participantBooking.status,
+    paymentStatus: participantBooking.paymentStatus ?? null,
+  };
+  if (clientSecret) {
+    response.clientSecret = clientSecret;
+    response.requiresAction = true;
+  }
+  res.status(201).json(response);
+});
+
+// Create booking (athlete). Supports flexible sessions: multi-booking per slot,
+// dynamic pricing by headcount, and lockPrivate option to guarantee 1:1.
 router.post("/", auth, async (req, res) => {
   const user = (req as { user?: { id: string } }).user;
   if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -444,16 +1046,25 @@ router.post("/", auth, async (req, res) => {
   }
   const { coachId, slotId, message } = parsed.data;
   const paymentMethodId = (req.body as { payment_method?: string }).payment_method as string | undefined;
+  const lockPrivate = (req.body as { lockPrivate?: boolean }).lockPrivate === true;
 
   try {
     const slot = await prisma.availabilitySlot.findFirst({
       where: { id: slotId, coachId },
-      include: { coach: { include: { user: { select: { email: true } } } } },
+      include: {
+        coach: { include: { user: { select: { email: true } } } },
+        bookings: {
+          where: { status: { not: "cancelled" } },
+          select: { id: true, status: true, lockedPrivate: true, athleteProfileId: true },
+        },
+      },
     });
     if (!slot)
       return res.status(404).json({ error: "Slot not found" });
     if (slot.status !== "available")
       return res.status(400).json({ error: "Slot is not available" });
+    if (slot.sessionStatus === "completed" || slot.sessionStatus === "cancelled")
+      return res.status(400).json({ error: "This session is already " + slot.sessionStatus });
     if (!slot.coach?.user) {
       console.error("[bookings] create booking: coach has no user record", { coachId: slot.coach?.id });
       return res.status(503).json({ error: "Coach account is not set up correctly. Please try again later." });
@@ -462,17 +1073,27 @@ router.post("/", auth, async (req, res) => {
     const createAthleteProfileId = await getAthleteProfileId(user.id);
     if (!createAthleteProfileId) return res.status(400).json({ error: "No athlete profile found. Complete your athlete profile first." });
 
-    const myExisting = await prisma.booking.findFirst({
-      where: { slotId, athleteProfileId: createAthleteProfileId, status: { not: "cancelled" } },
-    });
+    const myExisting = slot.bookings.find((b) => b.athleteProfileId === createAthleteProfileId);
     if (myExisting)
       return res.status(409).json({ error: "You already have a pending request for this slot", code: "PENDING_REQUEST" });
 
-    const confirmedBooking = await prisma.booking.findFirst({
-      where: { slotId, status: "confirmed" },
-    });
-    if (confirmedBooking)
+    const activeBookings = slot.bookings;
+    const confirmedCount = activeBookings.filter((b) => b.status === "confirmed" || b.status === "completed").length;
+    const anyLocked = slot.lockedPrivate || activeBookings.some((b) => b.lockedPrivate);
+
+    // Enforce capacity limits
+    if (slot.maxCapacity === 1 && activeBookings.length > 0) {
       return res.status(409).json({ error: "Slot is already booked" });
+    }
+    if (anyLocked) {
+      return res.status(409).json({ error: "This session is locked as a private session" });
+    }
+    if (lockPrivate && !slot.allowPrivate) {
+      return res.status(400).json({ error: "Private booking is not allowed for this session" });
+    }
+    if (confirmedCount >= slot.maxCapacity) {
+      return res.status(409).json({ error: "This session is full" });
+    }
 
     const athleteUser = await prisma.user.findUnique({
       where: { id: user.id },
@@ -483,14 +1104,22 @@ router.post("/", auth, async (req, res) => {
     const coach = slot.coach;
     const hourlyRate = coach.hourlyRate ? Number(coach.hourlyRate) : null;
     const hasRate = hourlyRate != null && hourlyRate > 0;
+    const groupRates = coach.groupRates as Record<string, number> | null;
+
+    // Dynamic pricing: headcount = current confirmed + this booking
+    const headcount = lockPrivate ? 1 : confirmedCount + 1;
+    const amountCents = hasRate
+      ? (slot.maxCapacity > 1 && !lockPrivate
+          ? computePerPersonAmountCents(slot, headcount, groupRates, hourlyRate!)
+          : computeAmountCents(slot, hourlyRate!))
+      : null;
+
     const needsPayment =
       isStripeEnabled() &&
       stripe &&
       hasRate &&
       !!coach.stripeConnectAccountId &&
       coach.billingMode === "upfront";
-
-    const amountCents = hasRate ? computeAmountCents(slot, hourlyRate!) : null;
     const currency = "usd";
 
     if (needsPayment && !paymentMethodId) {
@@ -500,6 +1129,14 @@ router.post("/", auth, async (req, res) => {
       });
     }
 
+    const bookingInviteCode = generateInviteCode();
+
+    // Update slot session fields
+    const slotUpdate: Record<string, unknown> = { sessionStatus: "pending" };
+    if (!slot.inviteCode) slotUpdate.inviteCode = bookingInviteCode;
+    if (lockPrivate) slotUpdate.lockedPrivate = true;
+    await prisma.availabilitySlot.update({ where: { id: slotId }, data: slotUpdate });
+
     const booking = await prisma.booking.create({
       data: {
         athleteProfileId: createAthleteProfileId,
@@ -508,6 +1145,9 @@ router.post("/", auth, async (req, res) => {
         message: message?.trim() || null,
         amountCents: amountCents ?? undefined,
         currency,
+        groupSize: headcount,
+        lockedPrivate: lockPrivate,
+        inviteCode: bookingInviteCode,
         paymentStatus: needsPayment ? "pending_authorization" : (hasRate ? "deferred" : undefined),
       },
       include: {
@@ -542,7 +1182,6 @@ router.post("/", auth, async (req, res) => {
           metadata: { bookingId: booking.id },
           connectAccountId: booking.coach.stripeConnectAccountId ?? undefined,
         });
-        // When we had a payment method, we confirmed on the server: requires_capture = done; requires_action = 3DS on client.
         clientSecret = piStatus === "requires_action" ? secret : null;
         await prisma.booking.update({
           where: { id: booking.id },
@@ -564,7 +1203,7 @@ router.post("/", auth, async (req, res) => {
     }
 
     if (booking.coach?.user) {
-      sendBookingRequestedToCoach({
+      await sendBookingRequestedToCoach({
         coachEmail: booking.coach.user.email,
         coachPhone: booking.coach.phone ?? null,
         athleteName: booking.athleteProfile?.user.name ?? null,
@@ -572,13 +1211,14 @@ router.post("/", auth, async (req, res) => {
         slotEnd: booking.slot.endTime.toISOString(),
         message: booking.message,
         bookingId: booking.id,
+        lockedPrivate: booking.lockedPrivate,
       }).catch((err) => console.error("[bookings] notify coach failed:", err));
     } else {
       console.error("[bookings] create booking: skipping coach notification (no coach.user)", { bookingId: booking.id });
     }
 
     if (booking.athleteProfile?.user) {
-      sendBookingRequestSubmittedToAthlete({
+      await sendBookingRequestSubmittedToAthlete({
         athleteEmail: booking.athleteProfile.user.email,
         athleteName: booking.athleteProfile.user.name ?? null,
         coachDisplayName: booking.coach.displayName,
@@ -588,6 +1228,30 @@ router.post("/", auth, async (req, res) => {
       }).catch((err) => console.error("[bookings] notify athlete (request submitted) failed:", err));
     } else {
       console.error("[bookings] create booking: skipping athlete notification (no athlete)", { bookingId: booking.id });
+    }
+
+    // Notify existing athletes on this slot about the price drop
+    if (slot.maxCapacity > 1 && !lockPrivate && confirmedCount > 0 && hasRate) {
+      const newHeadcount = confirmedCount + 1;
+      const newPerPersonRate = getPerPersonRate(newHeadcount, groupRates, hourlyRate!);
+      const existingBookings = await prisma.booking.findMany({
+        where: { slotId, status: { not: "cancelled" }, id: { not: booking.id } },
+        include: { athleteProfile: { include: { user: { select: { email: true, name: true } } } } },
+      });
+      for (const eb of existingBookings) {
+        if (eb.athleteProfile?.user?.email) {
+          await sendPriceDropNotification({
+            athleteEmail: eb.athleteProfile.user.email,
+            athleteName: eb.athleteProfile.user.name ?? null,
+            coachDisplayName: coach.displayName,
+            slotStart: slot.startTime.toISOString(),
+            slotEnd: slot.endTime.toISOString(),
+            newPerPersonRate,
+            headcount: newHeadcount,
+            bookingId: eb.id,
+          }).catch((err) => console.error("[bookings] price drop notification failed:", err));
+        }
+      }
     }
 
     const response: Record<string, unknown> = {
@@ -606,6 +1270,7 @@ router.post("/", auth, async (req, res) => {
       amountCents: booking.amountCents ?? null,
       paymentStatus: booking.paymentStatus ?? null,
       createdAt: booking.createdAt.toISOString(),
+      lockedPrivate: booking.lockedPrivate,
     };
     if (clientSecret) {
       (response as { clientSecret: string }).clientSecret = clientSecret;
@@ -635,9 +1300,17 @@ router.patch("/:id", auth, async (req, res) => {
   }
   const { status } = parsed.data;
 
+  const attendance = (req.body as { attendance?: { bookingId: string; attended: boolean }[] }).attendance;
+  const adjustedGroupSize = (req.body as { adjustedGroupSize?: number }).adjustedGroupSize;
+
   const booking = await prisma.booking.findUnique({
     where: { id: req.params.id },
-    include: { coach: true, slot: true, athleteProfile: { select: { userId: true } } },
+    include: {
+      coach: true,
+      slot: true,
+      athleteProfile: { select: { userId: true } },
+      groupMembers: { where: { status: { not: "cancelled" } } },
+    },
   });
   if (!booking) return res.status(404).json({ error: "Booking not found" });
 
@@ -648,14 +1321,18 @@ router.patch("/:id", auth, async (req, res) => {
   const isCoach = patchCoachProfile?.id === booking.coachId;
   const isAthlete = user.id === booking.athleteProfile.userId;
 
+  if (booking.status === "cancelled" && status !== "cancelled") {
+    return res.status(400).json({ error: "Cannot update a cancelled booking" });
+  }
+
   if (status === "confirmed") {
     if (!isCoach)
       return res.status(403).json({ error: "Only the coach can accept/decline" });
   } else if (status === "cancelled") {
     if (isCoach) {
       // Coach can always cancel (accept/decline flow).
-    } else if (isAthlete && booking.status === "pending") {
-      // Athlete can cancel their own pending request (e.g. after card auth failed so slot is released).
+    } else if (isAthlete && (booking.status === "pending" || booking.status === "confirmed")) {
+      // Athlete can cancel their own pending or confirmed booking.
     } else {
       return res.status(403).json({ error: "Only the coach can cancel this booking" });
     }
@@ -670,6 +1347,183 @@ router.patch("/:id", auth, async (req, res) => {
       await cancelPaymentIntent(booking.stripePaymentIntentId);
     } catch (err) {
       console.error("[bookings] cancel PaymentIntent failed:", err);
+    }
+  }
+
+  // On cancel for group organizer: also cancel all group member bookings
+  if (status === "cancelled" && booking.isGroupOrganizer && booking.groupMembers.length > 0) {
+    for (const member of booking.groupMembers) {
+      if (member.stripePaymentIntentId) {
+        try { await cancelPaymentIntent(member.stripePaymentIntentId); } catch {}
+      }
+      await prisma.booking.update({
+        where: { id: member.id },
+        data: { status: "cancelled", ...(member.stripePaymentIntentId && { paymentStatus: "canceled" }) },
+      });
+    }
+  }
+
+  // Handle flexible session: reprice remaining bookings when someone is cancelled
+  if (status === "cancelled" && booking.slot.maxCapacity > 1) {
+    const remainingBookings = await prisma.booking.findMany({
+      where: { slotId: booking.slotId, status: { not: "cancelled" }, id: { not: booking.id } },
+      include: { athleteProfile: { select: { user: { select: { email: true, name: true } } } } },
+    });
+    if (remainingBookings.length > 0) {
+      const hourlyRate = booking.coach.hourlyRate ? Number(booking.coach.hourlyRate) : null;
+      if (hourlyRate) {
+        const groupRates = booking.coach.groupRates as Record<string, number> | null;
+        const newHeadcount = remainingBookings.length;
+        const newPerPerson = computePerPersonAmountCents(booking.slot, newHeadcount, groupRates, hourlyRate);
+        for (const rb of remainingBookings) {
+          if (rb.amountCents !== newPerPerson) {
+            await prisma.booking.update({
+              where: { id: rb.id },
+              data: { amountCents: newPerPerson, groupSize: newHeadcount },
+            });
+          }
+          rb.amountCents = newPerPerson;
+        }
+      }
+    }
+
+    // Sync slot sessionStatus: if no active bookings remain, set back to available
+    if (remainingBookings.length === 0) {
+      await prisma.availabilitySlot.update({
+        where: { id: booking.slotId },
+        data: { sessionStatus: "available", lockedPrivate: false },
+      });
+    }
+  } else if (status === "cancelled" && booking.slot.maxCapacity <= 1) {
+    // Single-capacity slot: check if any active bookings remain
+    const remaining = await prisma.booking.count({
+      where: { slotId: booking.slotId, status: { not: "cancelled" }, id: { not: booking.id } },
+    });
+    if (remaining === 0) {
+      await prisma.availabilitySlot.update({
+        where: { id: booking.slotId },
+        data: { sessionStatus: "available", lockedPrivate: false },
+      });
+    }
+  }
+
+  // Sync slot sessionStatus on confirm
+  if (status === "confirmed") {
+    const currentSlot = await prisma.availabilitySlot.findUnique({ where: { id: booking.slotId } });
+    if (currentSlot && (currentSlot.sessionStatus === "pending" || currentSlot.sessionStatus === "available")) {
+      await prisma.availabilitySlot.update({
+        where: { id: booking.slotId },
+        data: { sessionStatus: "confirmed" },
+      });
+    }
+  }
+
+  // Handle flexible session: reprice all bookings on the slot by final headcount
+  if (status === "completed") {
+    // Find ALL non-cancelled bookings on this slot (not just group members)
+    const slotBookings = await prisma.booking.findMany({
+      where: { slotId: booking.slotId, status: { not: "cancelled" }, id: { not: booking.id } },
+      include: { athleteProfile: { select: { user: { select: { email: true, name: true } } } } },
+    });
+
+    const allSlotBookings = [booking, ...slotBookings];
+    const attendedBookings = allSlotBookings.filter((b) => {
+      const att = attendance?.find((a) => a.bookingId === b.id);
+      return att ? att.attended : b.attended;
+    });
+    const finalHeadcount = attendedBookings.length;
+
+    // Reprice all bookings based on final headcount (only if multi-person slot)
+    if (booking.slot.maxCapacity > 1 && finalHeadcount > 0) {
+      const hourlyRate = booking.coach.hourlyRate ? Number(booking.coach.hourlyRate) : null;
+      if (hourlyRate) {
+        const groupRates = booking.coach.groupRates as Record<string, number> | null;
+        const newPerPerson = computePerPersonAmountCents(booking.slot, finalHeadcount, groupRates, hourlyRate);
+        for (const sb of allSlotBookings) {
+          if (sb.amountCents !== newPerPerson) {
+            await prisma.booking.update({ where: { id: sb.id }, data: { amountCents: newPerPerson, groupSize: finalHeadcount } });
+          }
+          sb.amountCents = newPerPerson;
+        }
+      }
+    }
+
+    // Update attendance
+    if (attendance && Array.isArray(attendance)) {
+      for (const entry of attendance) {
+        if (entry.bookingId && typeof entry.attended === "boolean") {
+          await prisma.booking.update({ where: { id: entry.bookingId }, data: { attended: entry.attended } });
+          if (!entry.attended) {
+            const noShowBooking = slotBookings.find((m) => m.id === entry.bookingId) ??
+              (entry.bookingId === booking.id ? booking : null);
+            if (noShowBooking?.stripePaymentIntentId) {
+              try { await cancelPaymentIntent(noShowBooking.stripePaymentIntentId); } catch {}
+              await prisma.booking.update({ where: { id: entry.bookingId }, data: { paymentStatus: "canceled" } });
+            }
+          }
+        }
+      }
+    }
+
+    // Complete all other bookings on the slot who attended
+    for (const member of slotBookings) {
+      const memberAttendance = attendance?.find((a) => a.bookingId === member.id);
+      const didAttend = memberAttendance ? memberAttendance.attended : member.attended;
+      if (didAttend) {
+        let memberPaymentOk = false;
+        if (member.stripePaymentIntentId && member.amountCents != null && booking.coach.stripeConnectAccountId && stripe) {
+          try {
+            const pi = await stripe.paymentIntents.retrieve(member.stripePaymentIntentId);
+            if (pi.status === "requires_capture") {
+              await capturePaymentIntent(member.stripePaymentIntentId);
+              const isDestCharge = !!pi.transfer_data?.destination;
+              if (!isDestCharge && booking.coach.stripeConnectAccountId) {
+                await transferToConnectAccount({
+                  amountCents: member.amountCents,
+                  currency: member.currency ?? "usd",
+                  connectAccountId: booking.coach.stripeConnectAccountId,
+                  transferGroup: member.id,
+                });
+              }
+              memberPaymentOk = true;
+            } else if (pi.status === "succeeded") {
+              memberPaymentOk = true;
+            }
+          } catch (err) {
+            console.error("[bookings] slot member capture failed:", err);
+          }
+        }
+        await prisma.booking.update({
+          where: { id: member.id },
+          data: {
+            status: "completed",
+            completedAt: new Date(),
+            ...(memberPaymentOk && { paymentStatus: "succeeded" }),
+          },
+        });
+        if (
+          booking.coach.billingMode === "after_session" &&
+          member.paymentStatus === "deferred" &&
+          member.amountCents != null &&
+          booking.coach.stripeConnectAccountId
+        ) {
+          const frontendUrl = (process.env.APP_URL ?? "http://localhost:5173").replace(/\/$/, "");
+          if (member.athleteProfile?.user?.email) {
+            await prisma.booking.update({ where: { id: member.id }, data: { paymentStatus: "payment_link_sent" } });
+            await sendPaymentLinkToAthlete({
+              athleteEmail: member.athleteProfile.user.email,
+              athleteName: member.athleteProfile.user.name ?? undefined,
+              coachDisplayName: booking.coach.displayName,
+              amountCents: member.amountCents,
+              currency: member.currency ?? "usd",
+              paymentUrl: `${frontendUrl}/bookings/${member.id}`,
+              slotStart: booking.slot.startTime.toISOString(),
+              slotEnd: booking.slot.endTime.toISOString(),
+              sessionCompleted: true,
+            }).catch((err) => console.error("[bookings] slot member payment link failed:", err));
+          }
+        }
+      }
     }
   }
 
@@ -728,7 +1582,7 @@ router.patch("/:id", auth, async (req, res) => {
       ...(status === "cancelled" && booking.stripePaymentIntentId != null && { paymentStatus: "canceled" as const }),
     },
     include: {
-      coach: true,
+      coach: { include: { user: { select: { email: true } } } },
       slot: true,
       athleteProfile: { include: { user: { select: { email: true, name: true } } } },
     },
@@ -743,7 +1597,7 @@ router.patch("/:id", auth, async (req, res) => {
     updated.coach.stripeConnectAccountId;
 
   if ((status === "confirmed" || status === "cancelled" || status === "completed") && !isDeferredCompleted) {
-    sendBookingStatusToAthlete({
+    await sendBookingStatusToAthlete({
       athleteEmail: updated.athleteProfile.user.email,
       athleteName: updated.athleteProfile.user.name ?? undefined,
       coachDisplayName: updated.coach.displayName,
@@ -752,6 +1606,18 @@ router.patch("/:id", auth, async (req, res) => {
       slotEnd: updated.slot.endTime.toISOString(),
       bookingId: updated.id,
     }).catch((err) => console.error("[bookings] notify athlete failed:", err));
+  }
+
+  if (status === "cancelled" && isAthlete && updated.coach.user) {
+    await sendAthleteCancelledToCoach({
+      coachEmail: updated.coach.user.email,
+      coachPhone: updated.coach.phone ?? null,
+      athleteName: updated.athleteProfile.user.name ?? null,
+      slotStart: updated.slot.startTime.toISOString(),
+      slotEnd: updated.slot.endTime.toISOString(),
+      previousStatus: booking.status,
+      bookingId: updated.id,
+    }).catch((err) => console.error("[bookings] notify coach of athlete cancel failed:", err));
   }
 
   if (isDeferredCompleted) {
@@ -763,7 +1629,7 @@ router.patch("/:id", auth, async (req, res) => {
       });
       updated.paymentStatus = "payment_link_sent";
       if (updated.athleteProfile.user.email) {
-        sendPaymentLinkToAthlete({
+        await sendPaymentLinkToAthlete({
           athleteEmail: updated.athleteProfile.user.email,
           athleteName: updated.athleteProfile.user.name ?? undefined,
           coachDisplayName: updated.coach.displayName,
@@ -839,7 +1705,7 @@ router.post("/:id/payment-request", auth, async (req, res) => {
   });
 
   if (booking.athleteProfile.user.email) {
-    sendPaymentLinkToAthlete({
+    await sendPaymentLinkToAthlete({
       athleteEmail: booking.athleteProfile.user.email,
       athleteName: booking.athleteProfile.user.name ?? undefined,
       coachDisplayName: booking.coach.displayName,
@@ -852,6 +1718,37 @@ router.post("/:id/payment-request", auth, async (req, res) => {
   }
 
   res.json({ paymentStatus: "payment_link_sent", paymentUrl });
+});
+
+// Mark payment as received offline (coach only, for deferred bookings)
+router.post("/:id/mark-paid", auth, async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: req.params.id },
+    include: { coach: true },
+  });
+  if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+  const coachProfile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
+  if (!coachProfile || coachProfile.id !== booking.coachId) {
+    return res.status(403).json({ error: "Only the coach can mark payment as received" });
+  }
+
+  if (booking.status !== "completed") {
+    return res.status(400).json({ error: "Booking must be completed first" });
+  }
+  if (booking.paymentStatus !== "deferred" && booking.paymentStatus !== "payment_link_sent") {
+    return res.status(400).json({ error: "Payment is not outstanding" });
+  }
+
+  const updated = await prisma.booking.update({
+    where: { id: req.params.id },
+    data: { paymentStatus: "paid_offline" },
+  });
+
+  res.json({ id: updated.id, paymentStatus: updated.paymentStatus });
 });
 
 // Add review (athlete, only for completed bookings)

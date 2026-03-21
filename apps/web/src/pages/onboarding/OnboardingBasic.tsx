@@ -17,13 +17,12 @@ export default function OnboardingBasic() {
     retry: (_, err) => (err?.message?.toLowerCase().includes("not found") ? false : true),
   });
   useEffect(() => {
-    if (existingProfile?.id) navigate(`${ONBOARDING_BASE}/credentials`, { replace: true });
+    if (existingProfile?.id) navigate(`${ONBOARDING_BASE}/pricing`, { replace: true });
   }, [existingProfile?.id, navigate]);
 
   const [displayName, setDisplayName] = useState("");
   const [sports, setSports] = useState<string[]>([]);
   const [serviceAreas, setServiceAreas] = useState<ServiceAreaItem[]>([]);
-  const [hourlyRate, setHourlyRate] = useState("");
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [newPhotoUrl, setNewPhotoUrl] = useState("");
@@ -52,7 +51,7 @@ export default function OnboardingBasic() {
     e.preventDefault();
     setSubmitError(null);
     const trimmed = displayName.trim();
-    if (!trimmed || sports.length === 0 || serviceAreas.length === 0 || !hourlyRate || parseFloat(hourlyRate) <= 0) return;
+    if (!trimmed || sports.length === 0 || serviceAreas.length === 0) return;
     setSubmitting(true);
     try {
       await api("/coaches/me", {
@@ -62,7 +61,6 @@ export default function OnboardingBasic() {
           sports,
           serviceCities: serviceAreas.map((a) => a.label),
           bio: "",
-          hourlyRate: parseFloat(hourlyRate),
         }),
       });
 
@@ -111,7 +109,7 @@ export default function OnboardingBasic() {
 
       queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
       queryClient.invalidateQueries({ queryKey: ["auth"] });
-      navigate(`${ONBOARDING_BASE}/credentials`, { replace: true });
+      navigate(`${ONBOARDING_BASE}/pricing`, { replace: true });
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -128,7 +126,7 @@ export default function OnboardingBasic() {
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
       <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 mb-1">Basic info</h1>
       <p className="text-slate-500 text-sm mb-6">
-        Sports, rate, and where you coach. We've pre-filled your name from sign-up—you can change it below. Optionally add a profile photo; the first one will be your main photo.
+        Tell us about yourself and where you coach. We've pre-filled your name from sign-up—you can change it below. Optionally add a profile photo; the first one will be your main photo.
       </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -164,19 +162,6 @@ export default function OnboardingBasic() {
           label="Service areas (at least one)"
           helperText="Search for a city and set how far you're willing to travel from there."
         />
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Hourly rate ($) <span className="text-danger-500">*</span></label>
-          <input
-            type="number"
-            min={1}
-            step="any"
-            value={hourlyRate}
-            onChange={(e) => setHourlyRate(e.target.value)}
-            required
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-            placeholder="75"
-          />
-        </div>
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Profile photo (optional)</label>
           <p className="text-slate-500 text-xs mb-2">The first photo you add will be your main profile photo.</p>
@@ -257,7 +242,7 @@ export default function OnboardingBasic() {
         )}
         <button
           type="submit"
-          disabled={submitting || !displayName.trim() || sports.length === 0 || serviceAreas.length === 0 || !hourlyRate || parseFloat(hourlyRate) <= 0}
+          disabled={submitting || !displayName.trim() || sports.length === 0 || serviceAreas.length === 0}
           className="w-full py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 hover:shadow-glow-brand disabled:opacity-50 transition-all"
         >
           {submitting ? "Saving…" : "Continue"}

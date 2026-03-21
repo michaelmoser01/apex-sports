@@ -5,11 +5,21 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 export default function OnboardingLayout() {
   const { pathname } = useLocation();
-  const { data: currentUser, isLoading } = useCurrentUser(true);
+  const { data: currentUser, isLoading, isFetching } = useCurrentUser(true);
 
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [pathname]);
+
+  // After sign-up, /auth/me can be stale for one frame until refetch completes. Don't send
+  // coaches to /welcome (legacy role picker) while we're still fetching their role.
+  if (!isLoading && currentUser && isFetching && currentUser.signupRole == null && !currentUser.coachProfile) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center">
+        <p className="text-slate-500 text-sm">Loading…</p>
+      </div>
+    );
+  }
 
   if (!isLoading && currentUser) {
     const isCoach = currentUser.signupRole === "coach" || !!currentUser.coachProfile;

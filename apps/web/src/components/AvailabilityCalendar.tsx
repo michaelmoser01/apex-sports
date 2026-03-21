@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, useCallback, createContext, useContext } from "react";
+import { Link } from "react-router-dom";
 import { Calendar, dateFnsLocalizer, type EventProps } from "react-big-calendar";
 import { format, getDay, startOfWeek, isWithinInterval, setHours, setMinutes, isSameDay, addDays } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -62,6 +63,8 @@ export interface OneOffSlot {
   startTime: string;
   endTime: string;
   status: string;
+  maxCapacity?: number;
+  allowPrivate?: boolean;
   locationId?: string;
   location?: { id: string; name: string } | null;
 }
@@ -78,6 +81,9 @@ export interface CalendarEvent {
     ruleEndDate?: string;
     bookingCount?: number;
     locationName?: string;
+    locationId?: string | null;
+    maxCapacity?: number;
+    allowPrivate?: boolean;
   };
 }
 
@@ -114,6 +120,7 @@ function expandRulesForRange(
             ruleEndDate: rule.endDate,
             bookingCount: rule.bookingCount,
             locationName: rule.location?.name,
+            locationId: rule.locationId ?? null,
           },
         });
       }
@@ -137,7 +144,7 @@ function oneOffSlotsToEvents(slots: OneOffSlot[], rangeStart: Date, rangeEnd: Da
         title: eventTitle(start, end),
         start,
         end,
-        resource: { type: "one-off" as const, slotId: s.id, locationName: s.location?.name },
+        resource: { type: "one-off" as const, slotId: s.id, locationName: s.location?.name, locationId: s.locationId ?? null, maxCapacity: s.maxCapacity ?? 1, allowPrivate: s.allowPrivate !== false },
       };
     });
 }
@@ -161,14 +168,16 @@ interface AvailabilityCalendarProps {
   /** When set, show inline add form below the calendar for this slot date */
   inlineAddSlot?: Date | null;
   onCloseInlineAdd?: () => void;
-  onAddOneOff?: (startTime: string, durationMinutes: number, locationId?: string | null) => void;
-  onAddRecurring?: (firstStartTime: string, durationMinutes: number, endDate: string, locationId?: string | null) => void;
-  onAddBatch?: (slots: { startTime: string; durationMinutes: number; locationId?: string }[]) => void;
-  onAddBatchRecurring?: (rules: { firstStartTime: string; durationMinutes: number; endDate: string; locationId?: string }[]) => void;
+  onAddOneOff?: (startTime: string, durationMinutes: number, locationId?: string | null, maxCapacity?: number, allowPrivate?: boolean) => void;
+  onAddRecurring?: (firstStartTime: string, durationMinutes: number, endDate: string, locationId?: string | null, maxCapacity?: number, allowPrivate?: boolean) => void;
+  onAddBatch?: (slots: { startTime: string; durationMinutes: number; locationId?: string; maxCapacity?: number; allowPrivate?: boolean }[]) => void;
+  onAddBatchRecurring?: (rules: { firstStartTime: string; durationMinutes: number; endDate: string; locationId?: string; maxCapacity?: number }[]) => void;
   isAddSubmitting?: boolean;
   addError?: string | null;
   /** Slot IDs with confirmed or completed bookings – show "Booked" indicator */
   bookedSlotIds?: Set<string> | ReadonlySet<string>;
+  /** Whether the coach has configured group pricing rates */
+  hasGroupRates?: boolean;
 }
 
 const HOUR_OPTIONS = Array.from({ length: 14 }, (_, i) => i + 7); // 7–20
@@ -192,6 +201,7 @@ export function AvailabilityCalendar({
   isAddSubmitting = false,
   addError,
   bookedSlotIds,
+  hasGroupRates = false,
 }: AvailabilityCalendarProps) {
   const isMobile = useIsMobile();
   const events = useMemo(() => {
@@ -204,6 +214,11 @@ export function AvailabilityCalendar({
 
   useEffect(() => {
     setDateOverride(null);
+    if (inlineAddSlot) {
+      const h = inlineAddSlot.getHours();
+      const m = inlineAddSlot.getMinutes();
+      if (h !== 0 || m !== 0) setInlineTime({ hour: h, minute: m });
+    }
   }, [inlineAddSlot]);
 
   const baseDate = (() => {
@@ -244,6 +259,30 @@ export function AvailabilityCalendar({
     d.setMonth(d.getMonth() + 2);
     return format(d, "yyyy-MM-dd");
   });
+  const [inlineMaxCapacity, setInlineMaxCapacity] = useState(1);
+  const [inlineAllowPrivate, setInlineAllowPrivate] = useState(true);
+  const [groupRatesSubmitError, setGroupRatesSubmitError] = useState<string | null>(null);
+
+  const needsGroupRatesForSlot = inlineMaxCapacity > 1 && !hasGroupRates;
+
+  useEffect(() => {
+    if (inlineMaxCapacity <= 1 || hasGroupRates) setGroupRatesSubmitError(null);
+  }, [inlineMaxCapacity, hasGroupRates]);
+
+  useEffect(() => {
+    setGroupRatesSubmitError(null);
+  }, [inlineAddSlot]);
+
+  const groupRatesHintBlock =
+    needsGroupRatesForSlot ? (
+      <p className="text-xs text-amber-600 mt-1">
+        Group session pricing is required for multi-athlete slots.{" "}
+        <Link to="/dashboard/profile#group-pricing" className="font-medium underline hover:text-amber-800">
+          Add group rates
+        </Link>{" "}
+        under your hourly rate on Profile.
+      </p>
+    ) : null;
 
   const handleSelectSlot = (slotInfo: { start: Date }) => {
     const start = slotInfo.start;
@@ -263,32 +302,46 @@ export function AvailabilityCalendar({
   const handleInlineSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!baseDate || (!onAddOneOff && !onAddRecurring)) return;
+    if (needsGroupRatesForSlot) {
+      setGroupRatesSubmitError("Add group session pricing on your Profile before creating multi-athlete slots.");
+      return;
+    }
+    setGroupRatesSubmitError(null);
     const start = setMinutes(setHours(baseDate, inlineTime.hour), inlineTime.minute);
     const startIso = start.toISOString();
     const duration = inlineDuration;
     const locationId = inlineLocationId || undefined;
+    const capacity = inlineMaxCapacity > 1 ? inlineMaxCapacity : undefined;
+    const privAllowed = inlineMaxCapacity > 1 ? inlineAllowPrivate : undefined;
     if (inlineRecurring && onAddRecurring) {
-      onAddRecurring(startIso, duration, inlineEndDate, locationId);
+      onAddRecurring(startIso, duration, inlineEndDate, locationId, capacity, privAllowed);
     } else if (onAddOneOff) {
-      onAddOneOff(startIso, duration, locationId);
+      onAddOneOff(startIso, duration, locationId, capacity, privAllowed);
     }
   };
 
   const handleQuickFillSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!baseDate || qfFromHour >= qfToHour) return;
+    if (needsGroupRatesForSlot) {
+      setGroupRatesSubmitError("Add group session pricing on your Profile before creating multi-athlete slots.");
+      return;
+    }
+    setGroupRatesSubmitError(null);
     const duration = inlineDuration;
     const locationId = inlineLocationId || undefined;
-    const slotsToCreate: { startTime: string; durationMinutes: number; locationId?: string }[] = [];
+    const capacity = inlineMaxCapacity > 1 ? inlineMaxCapacity : undefined;
+    const privAllowed = inlineMaxCapacity > 1 ? inlineAllowPrivate : undefined;
+    const slotsToCreate: { startTime: string; durationMinutes: number; locationId?: string; maxCapacity?: number; allowPrivate?: boolean }[] = [];
     let hour = qfFromHour;
     while (hour + duration / 60 <= qfToHour) {
       const start = setMinutes(setHours(baseDate, hour), 0);
-      slotsToCreate.push({ startTime: start.toISOString(), durationMinutes: duration, ...(locationId && { locationId }) });
+      slotsToCreate.push({ startTime: start.toISOString(), durationMinutes: duration, ...(locationId && { locationId }), ...(capacity && { maxCapacity: capacity }), ...(privAllowed !== undefined && { allowPrivate: privAllowed }) });
       hour += duration / 60;
     }
     if (slotsToCreate.length === 0) return;
     if (inlineRecurring && onAddBatchRecurring) {
-      onAddBatchRecurring(slotsToCreate.map((s) => ({ firstStartTime: s.startTime, durationMinutes: s.durationMinutes, endDate: inlineEndDate, ...(s.locationId && { locationId: s.locationId }) })));
+      onAddBatchRecurring(slotsToCreate.map((s) => ({ firstStartTime: s.startTime, durationMinutes: s.durationMinutes, endDate: inlineEndDate, ...(s.locationId && { locationId: s.locationId }), ...(s.maxCapacity && { maxCapacity: s.maxCapacity }) })));
     } else if (onAddBatch) {
       onAddBatch(slotsToCreate);
     }
@@ -420,6 +473,20 @@ export function AvailabilityCalendar({
                         </select>
                       </div>
                     )}
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Session capacity</label>
+                      <select value={inlineMaxCapacity} onChange={(e) => setInlineMaxCapacity(Number(e.target.value))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800">
+                        <option value={1}>1 athlete</option>
+                        {[2,3,4,5,6,7,8].map((n) => (<option key={n} value={n}>Up to {n} athletes</option>))}
+                      </select>
+                      {groupRatesHintBlock}
+                    </div>
+                    {inlineMaxCapacity > 1 && (
+                      <div className="flex items-center gap-2">
+                        <input type="checkbox" id="desktop-inline-allow-private" checked={inlineAllowPrivate} onChange={(e) => setInlineAllowPrivate(e.target.checked)} className="rounded border-slate-300" />
+                        <label htmlFor="desktop-inline-allow-private" className="text-sm text-slate-700">Allow private booking</label>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2">
                       <input type="checkbox" id="desktop-inline-recurring" checked={inlineRecurring} onChange={(e) => setInlineRecurring(e.target.checked)} className="rounded border-slate-300" />
                       <label htmlFor="desktop-inline-recurring" className="text-sm text-slate-700">Repeat weekly</label>
@@ -430,9 +497,15 @@ export function AvailabilityCalendar({
                         <input type="date" value={inlineEndDate} onChange={(e) => setInlineEndDate(e.target.value)} className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800" />
                       </div>
                     )}
-                    {addError && <p className="text-sm text-danger-600">{addError}</p>}
+                    {(addError || groupRatesSubmitError) && (
+                      <p className="text-sm text-danger-600">{addError ?? groupRatesSubmitError}</p>
+                    )}
                     <div className="flex gap-2">
-                      <button type="submit" disabled={isAddSubmitting} className="flex-1 rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50">
+                      <button
+                        type="submit"
+                        disabled={isAddSubmitting || needsGroupRatesForSlot}
+                        className="flex-1 rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+                      >
                         {isAddSubmitting ? "Adding…" : "Add"}
                       </button>
                       <button type="button" onClick={onCloseInlineAdd} className="px-4 py-2.5 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
@@ -470,6 +543,20 @@ export function AvailabilityCalendar({
                         </select>
                       </div>
                     )}
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Session capacity</label>
+                      <select value={inlineMaxCapacity} onChange={(e) => setInlineMaxCapacity(Number(e.target.value))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800">
+                        <option value={1}>1 athlete</option>
+                        {[2,3,4,5,6,7,8].map((n) => (<option key={n} value={n}>Up to {n} athletes</option>))}
+                      </select>
+                      {groupRatesHintBlock}
+                    </div>
+                    {inlineMaxCapacity > 1 && (
+                      <div className="flex items-center gap-2">
+                        <input type="checkbox" id="desktop-qf-allow-private" checked={inlineAllowPrivate} onChange={(e) => setInlineAllowPrivate(e.target.checked)} className="rounded border-slate-300" />
+                        <label htmlFor="desktop-qf-allow-private" className="text-sm text-slate-700">Allow private booking</label>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2">
                       <input type="checkbox" id="desktop-qf-recurring" checked={inlineRecurring} onChange={(e) => setInlineRecurring(e.target.checked)} className="rounded border-slate-300" />
                       <label htmlFor="desktop-qf-recurring" className="text-sm text-slate-700">Repeat weekly</label>
@@ -485,9 +572,15 @@ export function AvailabilityCalendar({
                         This will create {qfSlotCount} slot{qfSlotCount !== 1 ? "s" : ""}{inlineRecurring ? " each week" : ""}
                       </p>
                     )}
-                    {addError && <p className="text-sm text-danger-600">{addError}</p>}
+                    {(addError || groupRatesSubmitError) && (
+                      <p className="text-sm text-danger-600">{addError ?? groupRatesSubmitError}</p>
+                    )}
                     <div className="flex gap-2">
-                      <button type="submit" disabled={isAddSubmitting || qfSlotCount === 0} className="flex-1 rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50">
+                      <button
+                        type="submit"
+                        disabled={isAddSubmitting || qfSlotCount === 0 || needsGroupRatesForSlot}
+                        className="flex-1 rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+                      >
                         {isAddSubmitting ? "Adding…" : `Add ${qfSlotCount} slot${qfSlotCount !== 1 ? "s" : ""}`}
                       </button>
                       <button type="button" onClick={onCloseInlineAdd} className="px-4 py-2.5 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
@@ -614,6 +707,20 @@ export function AvailabilityCalendar({
                       </select>
                     </div>
                   )}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Session capacity</label>
+                    <select value={inlineMaxCapacity} onChange={(e) => setInlineMaxCapacity(Number(e.target.value))} className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-800 touch-manipulation">
+                      <option value={1}>1 athlete</option>
+                      {[2,3,4,5,6,7,8].map((n) => (<option key={n} value={n}>Up to {n} athletes</option>))}
+                    </select>
+                    {groupRatesHintBlock}
+                  </div>
+                  {inlineMaxCapacity > 1 && (
+                    <label className="flex items-center gap-2 min-h-[44px] cursor-pointer">
+                      <input type="checkbox" checked={inlineAllowPrivate} onChange={(e) => setInlineAllowPrivate(e.target.checked)} className="w-5 h-5 rounded border-slate-300 touch-manipulation" />
+                      <span className="text-base text-slate-700">Allow private booking</span>
+                    </label>
+                  )}
                   <label className="flex items-center gap-2 min-h-[44px] cursor-pointer">
                     <input type="checkbox" checked={inlineRecurring} onChange={(e) => setInlineRecurring(e.target.checked)} className="w-5 h-5 rounded border-slate-300 touch-manipulation" />
                     <span className="text-base text-slate-700">Repeat weekly</span>
@@ -624,9 +731,15 @@ export function AvailabilityCalendar({
                       <input type="date" value={inlineEndDate} onChange={(e) => setInlineEndDate(e.target.value)} className="flex-1 min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-800 touch-manipulation" />
                     </div>
                   )}
-                  {addError && <p className="text-sm text-danger-600">{addError}</p>}
+                  {(addError || groupRatesSubmitError) && (
+                    <p className="text-sm text-danger-600">{addError ?? groupRatesSubmitError}</p>
+                  )}
                   <div className="flex gap-3">
-                    <button type="submit" disabled={isAddSubmitting} className="flex-1 min-h-[48px] rounded-lg bg-brand-500 px-4 py-3 text-base font-medium text-white hover:bg-brand-600 disabled:opacity-50 touch-manipulation">
+                    <button
+                      type="submit"
+                      disabled={isAddSubmitting || needsGroupRatesForSlot}
+                      className="flex-1 min-h-[48px] rounded-lg bg-brand-500 px-4 py-3 text-base font-medium text-white hover:bg-brand-600 disabled:opacity-50 touch-manipulation"
+                    >
                       {isAddSubmitting ? "Adding…" : "Add"}
                     </button>
                     <button type="button" onClick={onCloseInlineAdd} className="flex-1 min-h-[48px] rounded-lg border border-slate-300 bg-white px-4 py-3 text-base font-medium text-slate-700 hover:bg-slate-50 touch-manipulation">Cancel</button>
@@ -664,6 +777,20 @@ export function AvailabilityCalendar({
                       </select>
                     </div>
                   )}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Session capacity</label>
+                    <select value={inlineMaxCapacity} onChange={(e) => setInlineMaxCapacity(Number(e.target.value))} className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-800 touch-manipulation">
+                      <option value={1}>1 athlete</option>
+                      {[2,3,4,5,6,7,8].map((n) => (<option key={n} value={n}>Up to {n} athletes</option>))}
+                    </select>
+                    {groupRatesHintBlock}
+                  </div>
+                  {inlineMaxCapacity > 1 && (
+                    <label className="flex items-center gap-2 min-h-[44px] cursor-pointer">
+                      <input type="checkbox" checked={inlineAllowPrivate} onChange={(e) => setInlineAllowPrivate(e.target.checked)} className="w-5 h-5 rounded border-slate-300 touch-manipulation" />
+                      <span className="text-base text-slate-700">Allow private booking</span>
+                    </label>
+                  )}
                   <label className="flex items-center gap-2 min-h-[44px] cursor-pointer">
                     <input type="checkbox" checked={inlineRecurring} onChange={(e) => setInlineRecurring(e.target.checked)} className="w-5 h-5 rounded border-slate-300 touch-manipulation" />
                     <span className="text-base text-slate-700">Repeat weekly</span>
@@ -679,9 +806,15 @@ export function AvailabilityCalendar({
                       This will create {qfSlotCount} slot{qfSlotCount !== 1 ? "s" : ""}{inlineRecurring ? " each week" : ""}
                     </p>
                   )}
-                  {addError && <p className="text-sm text-danger-600">{addError}</p>}
+                  {(addError || groupRatesSubmitError) && (
+                    <p className="text-sm text-danger-600">{addError ?? groupRatesSubmitError}</p>
+                  )}
                   <div className="flex gap-3">
-                    <button type="submit" disabled={isAddSubmitting || qfSlotCount === 0} className="flex-1 min-h-[48px] rounded-lg bg-brand-500 px-4 py-3 text-base font-medium text-white hover:bg-brand-600 disabled:opacity-50 touch-manipulation">
+                    <button
+                      type="submit"
+                      disabled={isAddSubmitting || qfSlotCount === 0 || needsGroupRatesForSlot}
+                      className="flex-1 min-h-[48px] rounded-lg bg-brand-500 px-4 py-3 text-base font-medium text-white hover:bg-brand-600 disabled:opacity-50 touch-manipulation"
+                    >
                       {isAddSubmitting ? "Adding…" : `Add ${qfSlotCount} slot${qfSlotCount !== 1 ? "s" : ""}`}
                     </button>
                     <button type="button" onClick={onCloseInlineAdd} className="flex-1 min-h-[48px] rounded-lg border border-slate-300 bg-white px-4 py-3 text-base font-medium text-slate-700 hover:bg-slate-50 touch-manipulation">Cancel</button>
@@ -817,49 +950,190 @@ export function AddOneOffModal({
   );
 }
 
-// --- Event detail / delete modal ---
+// --- Event detail / edit / delete modal ---
 export interface EventDetailModalProps {
   event: CalendarEvent | null;
   onClose: () => void;
   onRemove: () => void;
   isRemoving: boolean;
+  onUpdate?: (slotId: string, data: { startTime?: string; durationMinutes?: number; locationId?: string | null; maxCapacity?: number; allowPrivate?: boolean }) => void;
+  isUpdating?: boolean;
+  locations?: CoachLocationOption[];
 }
 
-export function EventDetailModal({ event, onClose, onRemove, isRemoving }: EventDetailModalProps) {
+export function EventDetailModal({ event, onClose, onRemove, isRemoving, onUpdate, isUpdating, locations }: EventDetailModalProps) {
+  const isOneOff = event?.resource?.type === "one-off";
+  const isRecurring = event?.resource?.type === "recurring";
+
+  const [editHour, setEditHour] = useState(0);
+  const [editMinute, setEditMinute] = useState(0);
+  const [editDuration, setEditDuration] = useState(60);
+  const [editLocationId, setEditLocationId] = useState<string>("");
+  const [editCapacity, setEditCapacity] = useState(1);
+  const [editAllowPrivate, setEditAllowPrivate] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+
+  useEffect(() => {
+    if (event) {
+      setEditHour(event.start.getHours());
+      setEditMinute(event.start.getMinutes());
+      setEditDuration(Math.round((event.end.getTime() - event.start.getTime()) / 60000));
+      setEditLocationId(event.resource?.locationId ?? "");
+      setEditCapacity(event.resource?.maxCapacity ?? 1);
+      setEditAllowPrivate(event.resource?.allowPrivate !== false);
+      setIsEditing(false);
+    }
+  }, [event]);
+
   if (!event) return null;
 
-  const isRecurring = event.resource?.type === "recurring";
   const timeRange = `${format(event.start, "PPp")} – ${format(event.end, "p")}`;
+  const slotId = event.resource?.slotId;
+
+  const handleSave = () => {
+    if (!slotId || !onUpdate) return;
+    const newStart = new Date(event.start);
+    newStart.setHours(editHour, editMinute, 0, 0);
+    onUpdate(slotId, {
+      startTime: newStart.toISOString(),
+      durationMinutes: editDuration,
+      locationId: editLocationId || null,
+      maxCapacity: editCapacity,
+      allowPrivate: editCapacity > 1 ? editAllowPrivate : true,
+    });
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="event-detail-title">
       <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-lg p-6 max-w-md w-full max-h-[85vh] overflow-auto">
         <h3 id="event-detail-title" className="text-lg font-semibold text-slate-900 mb-2">
-          {isRecurring ? "Recurring (weekly)" : "One-off session"}
+          {isRecurring ? "Recurring (weekly)" : "Session slot"}
         </h3>
-        <p className="text-slate-600 text-base sm:text-sm mb-1">{timeRange}</p>
-        {event.resource?.locationName && (
-          <p className="text-slate-600 text-sm mb-1">📍 {event.resource.locationName}</p>
+
+        {isRecurring && (
+          <>
+            <p className="text-slate-600 text-base sm:text-sm mb-1">{timeRange}</p>
+            {event.resource?.locationName && (
+              <p className="text-slate-600 text-sm mb-1 flex items-center gap-1">📍 {event.resource.locationName}</p>
+            )}
+            {event.resource?.ruleEndDate && (
+              <p className="text-slate-500 text-sm mb-4">Until {event.resource.ruleEndDate}</p>
+            )}
+          </>
         )}
-        {isRecurring && event.resource?.ruleEndDate && (
-          <p className="text-slate-500 text-sm mb-4">Until {event.resource.ruleEndDate}</p>
+
+        {isOneOff && !isEditing && (
+          <>
+            <p className="text-slate-600 text-base sm:text-sm mb-1">{timeRange}</p>
+            {event.resource?.locationName && (
+              <p className="text-slate-600 text-sm mb-1 flex items-center gap-1">📍 {event.resource.locationName}</p>
+            )}
+            {(event.resource?.maxCapacity ?? 1) > 1 && (
+              <p className="text-slate-600 text-sm mb-1">Capacity: {event.resource?.maxCapacity} athletes{event.resource?.allowPrivate === false ? " (group only)" : ""}</p>
+            )}
+          </>
         )}
+
+        {isOneOff && isEditing && (
+          <div className="space-y-3 mb-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Time</label>
+              <div className="flex gap-2">
+                <select value={editHour} onChange={(e) => setEditHour(Number(e.target.value))} className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>{h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`}</option>
+                  ))}
+                </select>
+                <select value={editMinute} onChange={(e) => setEditMinute(Number(e.target.value))} className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+                  {[0, 15, 30, 45].map((m) => (
+                    <option key={m} value={m}>{m.toString().padStart(2, "0")}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Duration</label>
+              <select value={editDuration} onChange={(e) => setEditDuration(Number(e.target.value))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+                {DURATION_MINUTES_OPTIONS.map((d) => (
+                  <option key={d} value={d}>{d >= 60 ? `${d / 60}h` : `${d}m`}{d >= 60 && d % 60 > 0 ? ` ${d % 60}m` : ""}</option>
+                ))}
+              </select>
+            </div>
+            {locations && locations.length > 0 && (
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Location</label>
+                <select value={editLocationId} onChange={(e) => setEditLocationId(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+                  <option value="">No location</option>
+                  {locations.map((loc) => (
+                    <option key={loc.id} value={loc.id}>{loc.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Session capacity</label>
+              <select value={editCapacity} onChange={(e) => setEditCapacity(Number(e.target.value))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+                {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>{n} athlete{n !== 1 ? "s" : ""}</option>
+                ))}
+              </select>
+            </div>
+            {editCapacity > 1 && (
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="edit-allow-private" checked={editAllowPrivate} onChange={(e) => setEditAllowPrivate(e.target.checked)} className="rounded border-slate-300" />
+                <label htmlFor="edit-allow-private" className="text-sm text-slate-700">Allow private booking</label>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex gap-3 mt-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 min-h-[48px] rounded-lg border border-slate-300 px-4 py-3 text-base font-medium text-slate-700 hover:bg-slate-50 touch-manipulation"
-          >
-            Close
-          </button>
-          <button
-            type="button"
-            onClick={onRemove}
-            disabled={isRemoving}
-            className="flex-1 min-h-[48px] rounded-lg bg-danger-600 px-4 py-3 text-base font-medium text-white hover:bg-danger-700 disabled:opacity-50 touch-manipulation"
-          >
-            Remove
-          </button>
+          {isOneOff && !isEditing && onUpdate && (
+            <button
+              type="button"
+              onClick={() => setIsEditing(true)}
+              className="flex-1 min-h-[48px] rounded-lg border border-brand-300 px-4 py-3 text-base font-medium text-brand-700 hover:bg-brand-50 touch-manipulation"
+            >
+              Edit
+            </button>
+          )}
+          {isOneOff && isEditing ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setIsEditing(false)}
+                className="flex-1 min-h-[48px] rounded-lg border border-slate-300 px-4 py-3 text-base font-medium text-slate-700 hover:bg-slate-50 touch-manipulation"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isUpdating}
+                className="flex-1 min-h-[48px] rounded-lg bg-brand-500 px-4 py-3 text-base font-medium text-white hover:bg-brand-600 disabled:opacity-50 touch-manipulation"
+              >
+                {isUpdating ? "Saving…" : "Save"}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 min-h-[48px] rounded-lg border border-slate-300 px-4 py-3 text-base font-medium text-slate-700 hover:bg-slate-50 touch-manipulation"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={onRemove}
+                disabled={isRemoving}
+                className="flex-1 min-h-[48px] rounded-lg bg-danger-600 px-4 py-3 text-base font-medium text-white hover:bg-danger-700 disabled:opacity-50 touch-manipulation"
+              >
+                Remove
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

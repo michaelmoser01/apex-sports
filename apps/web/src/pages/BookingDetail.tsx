@@ -1,4 +1,4 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { loadStripe } from "@stripe/stripe-js";
@@ -15,10 +15,25 @@ import {
   Sparkles,
   CheckCircle,
   Clock,
+  Users,
+  Share2,
+  Lock,
 } from "lucide-react";
 
 const stripePk = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
 const stripePromise = stripePk ? loadStripe(stripePk) : null;
+
+interface SlotParticipant {
+  id: string;
+  athleteName: string | null;
+  displayName: string;
+  avatarUrl: string | null;
+  status: string;
+  attended: boolean;
+  paymentStatus: string | null;
+  amountCents: number | null;
+  isCurrentUser?: boolean;
+}
 
 interface BookingDetailData {
   id: string;
@@ -28,6 +43,7 @@ interface BookingDetailData {
     id: string;
     startTime: string;
     endTime: string;
+    maxCapacity?: number;
     location: {
       name: string;
       address: string;
@@ -45,11 +61,19 @@ interface BookingDetailData {
   completedAt: string | null;
   coachRecap: string | null;
   review: { rating: number; comment: string; createdAt: string } | null;
+  attended?: boolean;
+  lockedPrivate?: boolean;
+  inviteCode?: string | null;
+  slotParticipants?: SlotParticipant[];
+  spotsRemaining?: number;
+  currentPerPersonAmountCents?: number | null;
 }
 
 export default function BookingDetail() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const justBooked = searchParams.get("booked") === "group";
 
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentJustCompleted, setPaymentJustCompleted] = useState(false);
@@ -58,7 +82,7 @@ export default function BookingDetail() {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
   const [confirmAction, setConfirmAction] = useState<{
-    type: "cancel" | "complete" | "needs_stripe";
+    type: "cancel" | "complete" | "needs_stripe" | "athlete-cancel";
     athleteName?: string;
     paymentStatus?: string | null;
   } | null>(null);
@@ -70,7 +94,9 @@ export default function BookingDetail() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ status }: { status: "confirmed" | "cancelled" | "completed" }) =>
+    mutationFn: ({ status }: {
+      status: "confirmed" | "cancelled" | "completed";
+    }) =>
       api<{ status: string }>(`/bookings/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ status }),
@@ -114,6 +140,16 @@ export default function BookingDetail() {
     },
   });
 
+  const markPaidMutation = useMutation({
+    mutationFn: () => api(`/bookings/${id}/mark-paid`, { method: "POST" }),
+    onSuccess: () => {
+      setSuccessMessage("Payment marked as received.");
+      setTimeout(() => setSuccessMessage(null), 5000);
+      queryClient.invalidateQueries({ queryKey: ["booking", id] });
+      queryClient.invalidateQueries({ queryKey: ["bookings"] });
+    },
+  });
+
   if (!id || isLoading || !booking) {
     const errorMsg = isError
       ? (error instanceof Error ? error.message : "Booking not found.")
@@ -128,7 +164,7 @@ export default function BookingDetail() {
 
   const isAthlete = booking.viewerRole === "athlete";
   const isCoach = booking.viewerRole === "coach";
-  const isPaid = booking.paymentStatus === "succeeded" || booking.paymentStatus === "authorized";
+  const isPaid = booking.paymentStatus === "succeeded" || booking.paymentStatus === "authorized" || booking.paymentStatus === "paid_offline";
   const paymentLinkSent = booking.paymentStatus === "deferred" || booking.paymentStatus === "payment_link_sent";
   const needsPayment =
     isAthlete &&
@@ -142,7 +178,14 @@ export default function BookingDetail() {
     (booking.amountCents ?? 0) > 0 &&
     (paymentLinkSent || isPaid || paymentJustCompleted);
   const canReview = isAthlete && booking.status === "completed" && !booking.review;
+
+  const hasParticipants = (booking.slotParticipants?.length ?? 0) > 1;
   const isUpcoming = booking.status === "pending" || booking.status === "confirmed";
+  const shareUrl = booking.inviteCode
+    ? `${window.location.origin}/group/${booking.inviteCode}`
+    : booking.coach?.id
+      ? `${window.location.origin}/coaches/${booking.coach.id}/book?slotId=${booking.slot.id}`
+      : null;
 
   const slotTime = `${new Date(booking.slot.startTime).toLocaleString([], {
     dateStyle: "short",
@@ -155,6 +198,49 @@ export default function BookingDetail() {
         <ArrowLeft className="w-4 h-4" /> Back to bookings
       </Link>
 
+      {justBooked && (
+        <div className="mb-5 p-5 rounded-2xl bg-success-50 border border-success-200 shadow-sm">
+          <div className="flex items-start gap-3">
+            <CheckCircle className="w-6 h-6 text-success-600 shrink-0 mt-0.5" />
+            <div className="space-y-2">
+              <h2 className="text-lg font-bold text-success-900">Request sent!</h2>
+              <p className="text-success-800 text-sm">
+                We'll email you when {booking.coach.displayName} responds. Your card won't be charged until the session is complete.
+              </p>
+              {(booking.spotsRemaining ?? 0) > 0 && shareUrl && (
+                <div className="mt-3 pt-3 border-t border-success-200">
+                  <p className="text-success-800 text-sm font-medium mb-2">
+                    <Users className="w-4 h-4 inline-block mr-1 -mt-0.5" />
+                    Share this session to save more! The price drops as more athletes join.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(shareUrl);
+                      setSuccessMessage("Share link copied!");
+                      setTimeout(() => setSuccessMessage(null), 3000);
+                      setSearchParams({}, { replace: true });
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-success-600 text-white text-sm font-semibold rounded-lg hover:bg-success-700 transition-colors"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    Copy share link
+                  </button>
+                </div>
+              )}
+              {!(booking.spotsRemaining ?? 0) && (
+                <button
+                  type="button"
+                  onClick={() => setSearchParams({}, { replace: true })}
+                  className="text-success-700 text-sm font-medium hover:underline mt-1"
+                >
+                  Dismiss
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {successMessage && (
         <div className="mb-4 p-3 rounded-xl bg-success-50 border border-success-200 text-success-800 text-sm flex items-center gap-2" role="status">
           <CheckCircle className="w-4 h-4 text-success-600 shrink-0" />
@@ -168,7 +254,6 @@ export default function BookingDetail() {
       )}
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        {/* Status progress bar */}
         <div className="h-1 bg-slate-100">
           <div
             className={`h-full transition-all duration-500 ${
@@ -183,11 +268,12 @@ export default function BookingDetail() {
           />
         </div>
 
-        {/* Header */}
         <div className="p-6 pb-4">
           <div className="flex flex-wrap items-center gap-2.5 mb-4">
             <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
-              {isAthlete ? booking.coach.displayName : booking.athlete?.name ?? booking.athlete?.email ?? "Athlete"}
+              {isAthlete
+                ? booking.coach.displayName
+                : booking.athlete?.name ?? booking.athlete?.email ?? "Athlete"}
             </h1>
             <span
               className={`px-3 py-1 rounded-full text-xs font-semibold ring-1 ${
@@ -207,9 +293,18 @@ export default function BookingDetail() {
                 Paid
               </span>
             )}
+            {booking.paymentStatus === "paid_offline" && (
+              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-success-100 text-success-700 ring-1 ring-success-600/10">
+                Paid (offline)
+              </span>
+            )}
+            {booking.lockedPrivate && (
+              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-violet-100 text-violet-700 ring-1 ring-violet-600/10">
+                Private
+              </span>
+            )}
           </div>
 
-          {/* Timeline steps */}
           <div className="flex items-center gap-2 mb-5 text-xs font-medium">
             <span className="flex items-center gap-1 text-brand-600">
               <Clock className="w-3.5 h-3.5" /> Requested
@@ -224,7 +319,6 @@ export default function BookingDetail() {
             </span>
           </div>
 
-          {/* Session details */}
           <div className="space-y-3">
             {booking.message && (
               <div className="pb-3 border-b border-slate-100">
@@ -235,12 +329,20 @@ export default function BookingDetail() {
               <Calendar className="w-5 h-5 shrink-0 mt-0.5 text-slate-400" />
               <span>{slotTime}</span>
             </div>
-            {booking.amountCents != null && (
-              <div className="flex items-center gap-3 text-slate-700">
-                <DollarSign className="w-5 h-5 shrink-0 text-slate-400" />
-                <span className="font-semibold">${(booking.amountCents / 100).toFixed(2)}</span>
-              </div>
-            )}
+            {(booking.amountCents != null || booking.currentPerPersonAmountCents != null) && (() => {
+              const displayAmount = hasParticipants && booking.currentPerPersonAmountCents != null
+                ? booking.currentPerPersonAmountCents
+                : booking.amountCents!;
+              return (
+                <div className="flex items-center gap-3 text-slate-700">
+                  <DollarSign className="w-5 h-5 shrink-0 text-slate-400" />
+                  <span className="font-semibold">
+                    ${(displayAmount / 100).toFixed(2)}
+                    {hasParticipants && <span className="text-sm font-normal text-slate-500 ml-1">per person</span>}
+                  </span>
+                </div>
+              );
+            })()}
             {booking.slot.location && (
               <div className="flex items-start gap-3 text-slate-600">
                 <MapPin className="w-5 h-5 shrink-0 mt-0.5 text-slate-400" />
@@ -274,7 +376,7 @@ export default function BookingDetail() {
           </div>
         </div>
 
-        {/* Athlete: Pay (deferred) or Payment confirmed - only when session complete and payment link sent */}
+        {/* Payment section */}
         {showPaymentSection && (
           <div className={`px-6 py-5 ${needsPayment ? "bg-amber-50 border-y border-amber-200" : ""}`}>
             {paymentJustCompleted || isPaid ? (
@@ -313,7 +415,7 @@ export default function BookingDetail() {
           </div>
         )}
 
-        {/* Athlete: Review - inline stars and text */}
+        {/* Review */}
         {canReview && (
           <div className="px-6 py-5 border-t border-slate-200 bg-slate-50/50">
             <h2 className="text-lg font-semibold text-slate-900 mb-3">How was your session?</h2>
@@ -348,7 +450,88 @@ export default function BookingDetail() {
           </div>
         )}
 
-        {/* Coach: Actions */}
+        {/* Private session callout for coach */}
+        {isCoach && booking.lockedPrivate && (
+          <div className="px-6 py-4 border-t border-violet-200 bg-violet-50">
+            <div className="flex items-start gap-3">
+              <Lock className="w-5 h-5 text-violet-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-violet-800">
+                  {booking.status === "pending"
+                    ? "Private session request"
+                    : "Private session"}
+                </p>
+                <p className="text-sm text-violet-700 mt-0.5">
+                  {booking.status === "pending"
+                    ? "This athlete requested a private 1-on-1 session. If you confirm, the slot will be locked and no other athletes can join."
+                    : "This slot is locked as a private 1-on-1 session. No other athletes can join."}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Session Participants (athlete read-only view) */}
+        {isAthlete && booking.slotParticipants && booking.slotParticipants.length > 0 && (
+          <div className="px-6 py-5 border-t border-slate-200">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                <Users className="w-5 h-5 text-slate-400" />
+                Session Participants ({booking.slotParticipants.filter((p) => p.status !== "cancelled").length})
+              </h2>
+              {shareUrl && (booking.spotsRemaining ?? 0) > 0 && booking.status !== "cancelled" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(shareUrl);
+                    setSuccessMessage("Session link copied! Share it to fill this session.");
+                    setTimeout(() => setSuccessMessage(null), 5000);
+                  }}
+                  className="flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 font-medium"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  Share session
+                </button>
+              )}
+            </div>
+            {(booking.spotsRemaining ?? 0) > 0 && booking.status !== "cancelled" && (
+              <p className="text-xs text-brand-600 mb-3">
+                {booking.spotsRemaining} {booking.spotsRemaining === 1 ? "spot" : "spots"} remaining — share to drop the per-person price
+              </p>
+            )}
+            <div className="space-y-2">
+              {booking.slotParticipants.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 bg-slate-50/50"
+                >
+                  <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 text-sm font-medium">
+                    {(p.athleteName || p.displayName)?.[0]?.toUpperCase() || "?"}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800 truncate">
+                      {p.athleteName || p.displayName}
+                      {p.isCurrentUser && (
+                        <span className="ml-1.5 text-xs font-medium text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded">
+                          You
+                        </span>
+                      )}
+                    </p>
+                    <span className={`text-xs ${
+                      p.status === "confirmed" || p.status === "completed"
+                        ? "text-success-600" : p.status === "cancelled"
+                          ? "text-slate-400" : "text-amber-600"
+                    }`}>
+                      {p.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Coach: Actions (individual booking only) */}
         {isCoach && booking.status !== "cancelled" && (
           <div className="px-6 py-5 border-t border-slate-200">
             <h2 className="text-lg font-semibold text-slate-900 mb-3">Actions</h2>
@@ -360,7 +543,7 @@ export default function BookingDetail() {
                     disabled={updateMutation.isPending}
                     className="bg-success-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-success-700 disabled:opacity-50"
                   >
-                    Accept
+                    Confirm
                   </button>
                   <button
                     onClick={() => setConfirmAction({ type: "cancel", athleteName: booking.athlete?.name ?? undefined })}
@@ -399,15 +582,36 @@ export default function BookingDetail() {
               )}
               {booking.status === "completed" &&
                 (booking.paymentStatus === "deferred" || booking.paymentStatus === "payment_link_sent") && (
-                <button
-                  onClick={() => paymentRequestMutation.mutate()}
-                  disabled={paymentRequestMutation.isPending}
-                  className="px-4 py-2 text-sm font-medium text-success-800 bg-success-100 rounded-lg hover:bg-success-200 disabled:opacity-50"
-                >
-                  Resend payment link
-                </button>
+                <>
+                  <button
+                    onClick={() => markPaidMutation.mutate()}
+                    disabled={markPaidMutation.isPending}
+                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Mark as paid
+                  </button>
+                  <button
+                    onClick={() => paymentRequestMutation.mutate()}
+                    disabled={paymentRequestMutation.isPending}
+                    className="px-4 py-2 text-sm font-medium text-success-800 bg-success-100 rounded-lg hover:bg-success-200 disabled:opacity-50"
+                  >
+                    Resend payment link
+                  </button>
+                </>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Athlete: Cancel */}
+        {isAthlete && (booking.status === "pending" || booking.status === "confirmed") && (
+          <div className="px-6 py-5 border-t border-slate-200">
+            <button
+              onClick={() => setConfirmAction({ type: "athlete-cancel" })}
+              className="text-sm font-medium text-danger-600 hover:text-danger-700"
+            >
+              {booking.status === "pending" ? "Cancel request" : "Cancel booking"}
+            </button>
           </div>
         )}
 
@@ -465,7 +669,11 @@ export default function BookingDetail() {
         >
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
             <h2 id="confirm-title" className="text-lg font-semibold text-slate-900 mb-2">
-              {confirmAction.type === "complete" ? "Mark session complete?" : "Cancel booking?"}
+              {confirmAction.type === "complete"
+                ? "Mark session complete?"
+                : confirmAction.type === "athlete-cancel"
+                  ? "Cancel your booking?"
+                  : "Cancel booking?"}
             </h2>
             <p className="text-slate-600 text-sm mb-4">
               {confirmAction.type === "complete"
@@ -474,7 +682,9 @@ export default function BookingDetail() {
                   : confirmAction.paymentStatus === "deferred"
                     ? "This will mark the session as complete and automatically send a payment link to the athlete."
                     : "This will mark the session as complete."
-                : `This will cancel the booking${confirmAction.athleteName ? ` with ${confirmAction.athleteName}` : ""}. Any payment hold will be released.`}
+                : confirmAction.type === "athlete-cancel"
+                  ? "This will cancel your booking and free the spot. Any payment hold will be released."
+                  : `This will cancel the booking${confirmAction.athleteName ? ` with ${confirmAction.athleteName}` : ""}. Any payment hold will be released.`}
             </p>
             <div className="flex gap-3 justify-end">
               <button
@@ -487,8 +697,12 @@ export default function BookingDetail() {
               <button
                 type="button"
                 onClick={() => {
-                  const status = confirmAction.type === "complete" ? "completed" : "cancelled";
-                  updateMutation.mutate({ status });
+                  if (confirmAction.type === "athlete-cancel") {
+                    updateMutation.mutate({ status: "cancelled" });
+                  } else {
+                    const status = confirmAction.type === "complete" ? "completed" : "cancelled";
+                    updateMutation.mutate({ status });
+                  }
                 }}
                 disabled={updateMutation.isPending}
                 className={
@@ -497,7 +711,9 @@ export default function BookingDetail() {
                     : "px-4 py-2 rounded-lg text-sm font-medium bg-danger-600 text-white hover:bg-danger-700 disabled:opacity-50"
                 }
               >
-                {confirmAction.type === "complete" ? "Mark complete" : "Yes, cancel"}
+                {confirmAction.type === "complete"
+                  ? "Mark complete"
+                  : "Yes, cancel"}
               </button>
             </div>
           </div>
@@ -627,7 +843,6 @@ function SessionRecapSection({
     }
   };
 
-  // Athlete view: show saved recap
   if (!isCoach) {
     if (!existingRecap) return null;
     return (
@@ -638,7 +853,6 @@ function SessionRecapSection({
     );
   }
 
-  // Coach view: show saved recap or editor
   if (existingRecap && !editing) {
     return (
       <div className="px-6 py-5 border-t border-slate-200">

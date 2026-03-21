@@ -28,6 +28,55 @@ const UPLOADS_BUCKET = process.env.UPLOADS_BUCKET;
 
 const RESERVED_SLUGS = new Set(["join", "api", "auth", "coaches", "bookings", "find", "welcome", "sign-up", "dashboard", "athlete", "webhooks", "health", "invites"]);
 
+const GROUP_RATES_REQUIRED_BODY = {
+  error:
+    "Set group session pricing on your profile before offering multi-athlete slots. Go to Dashboard → Profile and add group rates under your hourly rate.",
+  code: "GROUP_RATES_REQUIRED" as const,
+};
+
+function coachHasGroupRates(profile: { groupRates: Prisma.JsonValue | null }): boolean {
+  const gr = profile.groupRates;
+  if (gr === null || gr === undefined) return false;
+  if (typeof gr !== "object" || Array.isArray(gr)) return false;
+  return Object.keys(gr as Record<string, unknown>).length > 0;
+}
+
+/** Multi-athlete slots (maxCapacity > 1) require at least one group rate tier on the coach profile. */
+function groupRatesRequiredResponse(
+  maxCapacity: number,
+  profile: { groupRates: Prisma.JsonValue | null },
+): { status: 400; body: typeof GROUP_RATES_REQUIRED_BODY } | null {
+  if (maxCapacity <= 1) return null;
+  if (!coachHasGroupRates(profile)) return { status: 400, body: GROUP_RATES_REQUIRED_BODY };
+  return null;
+}
+
+function interpolateRate(
+  groupSize: number,
+  groupRates: Record<string, number> | null | undefined,
+  hourlyRate: number,
+): number {
+  if (!groupRates || typeof groupRates !== "object") return hourlyRate;
+  const exact = groupRates[String(groupSize)];
+  if (typeof exact === "number" && exact > 0) return exact;
+  const defined = Object.entries(groupRates)
+    .map(([k, v]) => ({ size: parseInt(k), rate: v }))
+    .filter((e) => !isNaN(e.size) && typeof e.rate === "number" && e.rate > 0)
+    .sort((a, b) => a.size - b.size);
+  if (defined.length === 0) return hourlyRate;
+  if (groupSize <= defined[0].size) return defined[0].rate;
+  if (groupSize >= defined[defined.length - 1].size) return defined[defined.length - 1].rate;
+  let lower = defined[0];
+  let upper = defined[defined.length - 1];
+  for (const d of defined) {
+    if (d.size <= groupSize) lower = d;
+    if (d.size >= groupSize && d.size < upper.size) upper = d;
+  }
+  if (lower.size === upper.size) return lower.rate;
+  const fraction = (groupSize - lower.size) / (upper.size - lower.size);
+  return Math.round(lower.rate + (upper.rate - lower.rate) * fraction);
+}
+
 function slugify(displayName: string): string {
   const s = displayName
     .trim()
@@ -114,6 +163,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
     assistantCapabilities: profile.assistantCapabilities ?? null,
     planId: profile.planId ?? null,
     billingMode: profile.billingMode ?? "after_session",
+    groupRates: profile.groupRates ?? null,
   });
 });
 
@@ -612,6 +662,9 @@ router.put("/me", authMiddleware(), async (req, res) => {
   const rawBillingMode = (req.body as { billingMode?: string }).billingMode;
   const billingMode = rawBillingMode === "upfront" || rawBillingMode === "after_session" ? rawBillingMode : undefined;
 
+  const rawGroupRates = (req.body as { groupRates?: Record<string, number> }).groupRates;
+  const groupRates = rawGroupRates && typeof rawGroupRates === "object" ? rawGroupRates : undefined;
+
   const existing = await prisma.coachProfile.findUnique({
     where: { userId: user.id },
   });
@@ -648,6 +701,7 @@ router.put("/me", authMiddleware(), async (req, res) => {
       }),
       ...(data.phone !== undefined && { phone: data.phone?.trim() || null }),
       ...(billingMode !== undefined && { billingMode }),
+      ...(groupRates !== undefined && { groupRates: groupRates as Prisma.InputJsonValue }),
     },
   });
 
@@ -1389,6 +1443,7 @@ router.get("/me/availability", authMiddleware(), async (req, res) => {
       bookingCount: r.slots.reduce((sum, s) => sum + s.bookings.length, 0),
       locationId: r.locationId ?? undefined,
       location: r.location ? { id: r.location.id, name: r.location.name } : null,
+      maxCapacity: r.maxCapacity,
       slots: r.slots.map((s) => ({
         id: s.id,
         startTime: s.startTime.toISOString(),
@@ -1401,6 +1456,8 @@ router.get("/me/availability", authMiddleware(), async (req, res) => {
       status: s.status,
       locationId: s.locationId ?? undefined,
       location: s.location ? { id: s.location.id, name: s.location.name } : null,
+      maxCapacity: s.maxCapacity,
+      allowPrivate: s.allowPrivate,
     })),
     bookedSlotIds,
   });
@@ -1422,6 +1479,8 @@ router.post("/me/availability", authMiddleware(), async (req, res) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
   const { startTime, durationMinutes, recurrence, locationId } = parsed.data;
+  const maxCapacity = (req.body as { maxCapacity?: number }).maxCapacity ?? 1;
+  const allowPrivate = (req.body as { allowPrivate?: boolean }).allowPrivate !== false;
   if (recurrence !== "none") {
     return res.status(400).json({
       error: "Use POST /me/availability/rules for recurring availability.",
@@ -1434,6 +1493,10 @@ router.post("/me/availability", authMiddleware(), async (req, res) => {
     if (!loc) return res.status(400).json({ error: "Location not found or not yours." });
   }
 
+  const clampedCapacity = Math.max(1, Math.min(20, maxCapacity));
+  const grErrSlot = groupRatesRequiredResponse(clampedCapacity, profile);
+  if (grErrSlot) return res.status(grErrSlot.status).json(grErrSlot.body);
+
   const firstStart = new Date(startTime);
   const durationMs = durationMinutes * 60 * 1000;
   const firstEnd = new Date(firstStart.getTime() + durationMs);
@@ -1445,6 +1508,8 @@ router.post("/me/availability", authMiddleware(), async (req, res) => {
       startTime: firstStart,
       endTime: firstEnd,
       recurrence: "none",
+      maxCapacity: clampedCapacity,
+      allowPrivate,
     },
   });
   return res.status(201).json({
@@ -1452,6 +1517,8 @@ router.post("/me/availability", authMiddleware(), async (req, res) => {
     startTime: slot.startTime.toISOString(),
     endTime: slot.endTime.toISOString(),
     status: slot.status,
+    maxCapacity: slot.maxCapacity,
+    allowPrivate: slot.allowPrivate,
   });
 });
 
@@ -1471,6 +1538,7 @@ router.post("/me/availability/rules", authMiddleware(), async (req, res) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
   const { firstStartTime, durationMinutes, endDate, locationId } = parsed.data;
+  const maxCapacity = (req.body as { maxCapacity?: number }).maxCapacity ?? 1;
   if (locationId) {
     const loc = await prisma.coachLocation.findFirst({
       where: { id: locationId, coachId: profile.id },
@@ -1482,6 +1550,9 @@ router.post("/me/availability/rules", authMiddleware(), async (req, res) => {
   const durationMs = durationMinutes * 60 * 1000;
   const maxEnd = new Date(firstStart.getTime() + MAX_RULE_SPAN_MS);
   const cap = endDateObj > maxEnd ? maxEnd : endDateObj;
+  const clampedCapacity = Math.max(1, Math.min(20, maxCapacity));
+  const grErrRule = groupRatesRequiredResponse(clampedCapacity, profile);
+  if (grErrRule) return res.status(grErrRule.status).json(grErrRule.body);
 
   const rule = await prisma.availabilityRule.create({
     data: {
@@ -1491,6 +1562,7 @@ router.post("/me/availability/rules", authMiddleware(), async (req, res) => {
       durationMinutes,
       recurrence: "weekly",
       endDate: cap,
+      maxCapacity: clampedCapacity,
     },
   });
 
@@ -1511,6 +1583,7 @@ router.post("/me/availability/rules", authMiddleware(), async (req, res) => {
       startTime: start,
       endTime: end,
       recurrence: "weekly",
+      maxCapacity: clampedCapacity,
     })),
   });
 
@@ -1522,6 +1595,7 @@ router.post("/me/availability/rules", authMiddleware(), async (req, res) => {
     recurrence: rule.recurrence,
     endDate: rule.endDate.toISOString().slice(0, 10),
     slotCount,
+    maxCapacity: clampedCapacity,
   });
 });
 
@@ -1533,7 +1607,7 @@ router.post("/me/availability/batch", authMiddleware(), async (req, res) => {
   const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
   if (!profile) return res.status(404).json({ error: "Coach profile not found" });
 
-  const body = req.body as { slots?: { startTime: string; durationMinutes: number; locationId?: string }[] };
+  const body = req.body as { slots?: { startTime: string; durationMinutes: number; locationId?: string; maxCapacity?: number; allowPrivate?: boolean }[] };
   if (!Array.isArray(body.slots) || body.slots.length === 0) {
     return res.status(400).json({ error: "slots array is required" });
   }
@@ -1556,8 +1630,15 @@ router.post("/me/availability/batch", authMiddleware(), async (req, res) => {
       startTime: start,
       endTime: end,
       recurrence: "none" as const,
+      maxCapacity: Math.max(1, Math.min(20, s.maxCapacity ?? 1)),
+      allowPrivate: s.allowPrivate !== false,
     };
   });
+
+  for (const row of data) {
+    const grErrBatch = groupRatesRequiredResponse(row.maxCapacity, profile);
+    if (grErrBatch) return res.status(grErrBatch.status).json(grErrBatch.body);
+  }
 
   const result = await prisma.availabilitySlot.createMany({ data });
   return res.status(201).json({ created: result.count });
@@ -1571,7 +1652,7 @@ router.post("/me/availability/rules/batch", authMiddleware(), async (req, res) =
   const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
   if (!profile) return res.status(404).json({ error: "Coach profile not found" });
 
-  const body = req.body as { rules?: { firstStartTime: string; durationMinutes: number; endDate: string; locationId?: string }[] };
+  const body = req.body as { rules?: { firstStartTime: string; durationMinutes: number; endDate: string; locationId?: string; maxCapacity?: number }[] };
   if (!Array.isArray(body.rules) || body.rules.length === 0) {
     return res.status(400).json({ error: "rules array is required" });
   }
@@ -1585,6 +1666,12 @@ router.post("/me/availability/rules/batch", authMiddleware(), async (req, res) =
     if (!loc) return res.status(400).json({ error: "Location not found or not yours." });
   }
 
+  for (const r of body.rules!) {
+    const clampedCapacityPre = Math.max(1, Math.min(20, r.maxCapacity ?? 1));
+    const grErrRulesBatch = groupRatesRequiredResponse(clampedCapacityPre, profile);
+    if (grErrRulesBatch) return res.status(grErrRulesBatch.status).json(grErrRulesBatch.body);
+  }
+
   let totalSlots = 0;
   await prisma.$transaction(async (tx) => {
     for (const r of body.rules!) {
@@ -1593,6 +1680,7 @@ router.post("/me/availability/rules/batch", authMiddleware(), async (req, res) =
       const durationMs = r.durationMinutes * 60 * 1000;
       const maxEnd = new Date(firstStart.getTime() + MAX_RULE_SPAN_MS);
       const cap = endDateObj > maxEnd ? maxEnd : endDateObj;
+      const clampedCapacity = Math.max(1, Math.min(20, r.maxCapacity ?? 1));
 
       const rule = await tx.availabilityRule.create({
         data: {
@@ -1602,6 +1690,7 @@ router.post("/me/availability/rules/batch", authMiddleware(), async (req, res) =
           durationMinutes: r.durationMinutes,
           recurrence: "weekly",
           endDate: cap,
+          maxCapacity: clampedCapacity,
         },
       });
 
@@ -1620,6 +1709,7 @@ router.post("/me/availability/rules/batch", authMiddleware(), async (req, res) =
           startTime: start,
           endTime: end,
           recurrence: "weekly",
+          maxCapacity: clampedCapacity,
         })),
       });
       totalSlots += slotTimes.length;
@@ -1684,6 +1774,86 @@ router.delete("/me/availability/rules/:id", authMiddleware(), async (req, res) =
 });
 
 // Delete a single slot. Cancels non-cancelled bookings and emails athletes, then deletes slot.
+router.patch("/me/availability/:id", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  const slot = await prisma.availabilitySlot.findFirst({
+    where: { id: req.params.id, coachId: profile.id },
+  });
+  if (!slot) return res.status(404).json({ error: "Slot not found" });
+
+  const body = req.body as {
+    startTime?: string;
+    durationMinutes?: number;
+    locationId?: string | null;
+    maxCapacity?: number;
+    allowPrivate?: boolean;
+  };
+
+  const data: Record<string, unknown> = {};
+
+  if (body.startTime) {
+    const newStart = new Date(body.startTime);
+    if (isNaN(newStart.getTime())) return res.status(400).json({ error: "Invalid startTime" });
+    const duration = body.durationMinutes ?? Math.round((slot.endTime.getTime() - slot.startTime.getTime()) / 60000);
+    data.startTime = newStart;
+    data.endTime = new Date(newStart.getTime() + duration * 60000);
+  } else if (body.durationMinutes) {
+    const start = slot.startTime;
+    data.endTime = new Date(start.getTime() + body.durationMinutes * 60000);
+  }
+
+  if (body.locationId !== undefined) {
+    if (body.locationId) {
+      const loc = await prisma.coachLocation.findFirst({ where: { id: body.locationId, coachId: profile.id } });
+      if (!loc) return res.status(400).json({ error: "Location not found or not yours." });
+      data.locationId = body.locationId;
+    } else {
+      data.locationId = null;
+    }
+  }
+
+  if (body.maxCapacity !== undefined) {
+    data.maxCapacity = Math.max(1, Math.min(20, body.maxCapacity));
+  }
+
+  if (body.allowPrivate !== undefined) {
+    data.allowPrivate = body.allowPrivate;
+  }
+
+  if (Object.keys(data).length === 0) {
+    return res.status(400).json({ error: "No fields to update" });
+  }
+
+  const effectiveMaxCapacity =
+    body.maxCapacity !== undefined
+      ? Math.max(1, Math.min(20, body.maxCapacity))
+      : slot.maxCapacity;
+  const grErrPatch = groupRatesRequiredResponse(effectiveMaxCapacity, profile);
+  if (grErrPatch) return res.status(grErrPatch.status).json(grErrPatch.body);
+
+  const updated = await prisma.availabilitySlot.update({
+    where: { id: req.params.id },
+    data,
+    include: { location: { select: { id: true, name: true } } },
+  });
+
+  return res.json({
+    id: updated.id,
+    startTime: updated.startTime.toISOString(),
+    endTime: updated.endTime.toISOString(),
+    status: updated.status,
+    maxCapacity: updated.maxCapacity,
+    allowPrivate: updated.allowPrivate,
+    locationId: updated.locationId,
+    location: updated.location,
+  });
+});
+
 router.delete("/me/availability/:id", authMiddleware(), async (req, res) => {
   const user = (req as { user?: { id: string } }).user;
   if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -1992,8 +2162,8 @@ router.get("/:id", async (req, res) => {
         include: {
           location: true,
           bookings: {
-            where: { status: { in: ["confirmed", "completed"] } },
-            select: { id: true },
+            where: { status: { not: "cancelled" } },
+            select: { id: true, status: true, lockedPrivate: true },
           },
         },
       },
@@ -2025,6 +2195,7 @@ router.get("/:id", async (req, res) => {
     serviceAreas: coach.serviceAreas.map((a) => ({ id: a.id, label: a.label, latitude: Number(a.latitude), longitude: Number(a.longitude), radiusMiles: a.radiusMiles })),
     bio: coach.bio,
     hourlyRate: coach.hourlyRate?.toString(),
+    groupRates: coach.groupRates ?? null,
     verified: coach.verified,
     avatarUrl: coach.avatarUrl,
     credentials: parseCredentials(coach.credentials),
@@ -2037,23 +2208,43 @@ router.get("/:id", async (req, res) => {
       latitude: loc.latitude != null ? Number(loc.latitude) : null,
       longitude: loc.longitude != null ? Number(loc.longitude) : null,
     })),
-    availabilitySlots: coach.availabilitySlots.map((s) => ({
-      id: s.id,
-      startTime: s.startTime.toISOString(),
-      endTime: s.endTime.toISOString(),
-      status: s.bookings.length > 0 ? "booked" : "available",
-      recurrence: s.recurrence ?? "none",
-      location: s.location
-        ? {
-            id: s.location.id,
-            name: s.location.name,
-            address: s.location.address,
-            notes: s.location.notes ?? null,
-            latitude: s.location.latitude != null ? Number(s.location.latitude) : null,
-            longitude: s.location.longitude != null ? Number(s.location.longitude) : null,
-          }
-        : null,
-    })),
+    availabilitySlots: coach.availabilitySlots.map((s) => {
+      const activeBookings = s.bookings.length; // all non-cancelled (pending + confirmed + completed)
+      const confirmedOrCompleted = s.bookings.filter((b) => b.status === "confirmed" || b.status === "completed").length;
+      const isLocked = s.bookings.some((b) => (b as { lockedPrivate?: boolean }).lockedPrivate === true);
+      const spotsRemaining = isLocked ? 0 : s.maxCapacity - activeBookings;
+      const hourlyRate = coach.hourlyRate ? Number(coach.hourlyRate) : 0;
+      const groupRates = coach.groupRates as Record<string, number> | null;
+      const currentHeadcount = activeBookings;
+      const currentPerPersonRate = hourlyRate > 0
+        ? (s.maxCapacity > 1
+            ? interpolateRate(currentHeadcount || 1, groupRates, hourlyRate)
+            : hourlyRate)
+        : null;
+      return {
+        id: s.id,
+        startTime: s.startTime.toISOString(),
+        endTime: s.endTime.toISOString(),
+        status: spotsRemaining <= 0 ? "booked" : "available",
+        recurrence: s.recurrence ?? "none",
+        maxCapacity: s.maxCapacity,
+        allowPrivate: s.allowPrivate,
+        spotsRemaining: Math.max(0, spotsRemaining),
+        currentHeadcount,
+        currentPerPersonRate,
+        isLocked,
+        location: s.location
+          ? {
+              id: s.location.id,
+              name: s.location.name,
+              address: s.location.address,
+              notes: s.location.notes ?? null,
+              latitude: s.location.latitude != null ? Number(s.location.latitude) : null,
+              longitude: s.location.longitude != null ? Number(s.location.longitude) : null,
+            }
+          : null,
+      };
+    }),
     reviews: coach.reviews.map((r) => ({
       id: r.id,
       rating: r.rating,
