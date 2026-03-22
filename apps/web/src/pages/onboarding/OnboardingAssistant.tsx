@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { consumeDeepLink } from "@/utils/deepLink";
+import { isCoachAssistantOnboardingEnabled } from "@/config/onboarding";
 
 const ASSISTANT_CAPABILITIES = [
   { id: "scheduling", label: "Scheduling" },
@@ -70,6 +71,10 @@ export default function OnboardingAssistant() {
   const toggleCapability = (id: string) => {
     setCapabilities((prev) => ({ ...prev, [id]: !prev[id] }));
   };
+
+  if (!isCoachAssistantOnboardingEnabled) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   if (profileLoading || !profile) {
     return (

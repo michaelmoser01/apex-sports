@@ -1,5 +1,5 @@
 import { Link, useLocation, Navigate } from "react-router-dom";
-import { getNextOnboardingStep } from "@/config/onboarding";
+import { getNextOnboardingStep, isCoachAssistantOnboardingEnabled } from "@/config/onboarding";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useMemo } from "react";
 import { startOfMonth, endOfMonth, format, isBefore } from "date-fns";
@@ -856,11 +856,17 @@ export default function CoachDashboard() {
   }
 
   const coach = profile as CoachProfile;
+
+  if (!isCoachAssistantOnboardingEnabled && location.pathname.endsWith("/agent-test")) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   const nextOnboardingStep = getNextOnboardingStep({
     hasProfile: true,
     hasHourlyRate: !!(coach.hourlyRate && parseFloat(coach.hourlyRate) > 0),
     hasBio: !!(coach.bio?.trim()),
-    hasAssistant: !!(coach.assistantPhoneNumber?.trim()),
+    hasAssistant:
+      !isCoachAssistantOnboardingEnabled || !!(coach.assistantPhoneNumber?.trim()),
   });
   if (nextOnboardingStep) {
     return <Navigate to={nextOnboardingStep} replace />;

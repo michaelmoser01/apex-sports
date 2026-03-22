@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { getStoredInviteSlug } from "@/pages/Join";
+import { isCoachAssistantOnboardingEnabled } from "@/config/onboarding";
 import { Menu, X, ChevronRight } from "lucide-react";
 
 function getAvatarInitial(currentUser: { coachProfile?: { displayName: string } | null; athleteProfile?: { displayName: string } | null; name?: string | null } | null | undefined): string {
@@ -90,7 +91,7 @@ function AvatarDropdown({
           View public profile
         </Link>
       )}
-      {config.showCoachDashboard && (
+      {config.showCoachDashboard && isCoachAssistantOnboardingEnabled && (
         <Link
           to="/dashboard/agent-test"
           className="block px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 font-medium"

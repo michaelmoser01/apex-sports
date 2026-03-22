@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { ONBOARDING_BASE } from "@/config/onboarding";
+import { ONBOARDING_BASE, isCoachAssistantOnboardingEnabled } from "@/config/onboarding";
+import { consumeDeepLink } from "@/utils/deepLink";
 
 const MAX_ABOUT_CHARS = 2600;
 
@@ -39,7 +40,11 @@ export default function OnboardingAbout() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
       queryClient.invalidateQueries({ queryKey: ["auth"] });
-      navigate(`${ONBOARDING_BASE}/assistant`, { replace: true });
+      if (isCoachAssistantOnboardingEnabled) {
+        navigate(`${ONBOARDING_BASE}/assistant`, { replace: true });
+      } else {
+        navigate(consumeDeepLink() ?? "/dashboard", { replace: true });
+      }
     },
   });
 
