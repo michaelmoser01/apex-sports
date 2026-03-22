@@ -14,6 +14,7 @@ import {
 import { ALLOWED_SPORTS } from "@apex-sports/shared";
 import { Button } from "@/components/ui";
 import { SectionHeader } from "@/components/ui";
+import { SportBrowseIcon } from "@/components/SportBrowseIcons";
 
 const HERO_IMAGES = [
   "/images/coach-hero.png",
@@ -207,12 +208,8 @@ export default function Home() {
                 to={`/find?sport=${encodeURIComponent(sport)}`}
                 className="group flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/50 p-6 transition-all hover:border-brand-300 hover:shadow-md hover:-translate-y-0.5"
               >
-                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-100 text-brand-600 group-hover:bg-brand-500 group-hover:text-white transition-colors text-2xl">
-                  {sport === "Soccer" && "⚽"}
-                  {sport === "Baseball" && "⚾"}
-                  {sport === "Softball" && "🥎"}
-                  {sport === "Basketball" && "🏀"}
-                  {sport === "Tennis" && "🎾"}
+                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-sm group-hover:shadow-md transition-shadow">
+                  <SportBrowseIcon sport={sport} className="w-10 h-10" />
                 </span>
                 <span className="font-semibold text-slate-900 group-hover:text-brand-700 transition-colors">
                   {sport}

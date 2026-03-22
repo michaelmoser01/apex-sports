@@ -16,7 +16,7 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 import { getBedrockRuntimeClient, BEDROCK_MODEL_ID } from "./bedrock.js";
 import { prisma } from "./db.js";
-import { sendCoachInviteToBookSlot } from "./notifications.js";
+import { queueEmail } from "./emailQueue.js";
 import { isStripeEnabled } from "./stripe.js";
 import {
   DEFAULT_COACH_TIMEZONE,
@@ -355,14 +355,14 @@ export async function createBookingForAthlete(
 
   const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
   const bookingUrl = appUrl ? `${appUrl}/book/${coachId}/${slotId}` : "";
-  sendCoachInviteToBookSlot({
+  queueEmail("coach_invite_to_book", {
     athleteEmail: athleteProfile.user.email,
     athleteName: athleteProfile.user.name ?? null,
     coachDisplayName: coachName,
     slotStart,
     slotEnd,
     bookingUrl,
-  }).catch((err) => console.error("[coachAgent] sendCoachInviteToBookSlot failed:", err));
+  }).catch((err) => console.error("[coachAgent] queueEmail coach_invite_to_book failed:", err));
 
   const start = slotStart.slice(0, 16);
   const end = slotEnd.slice(11, 16);

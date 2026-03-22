@@ -8,7 +8,7 @@ import {
   transferToConnectAccount,
   cancelPaymentIntent,
 } from "../stripe.js";
-import { sendBookingStatusToAthlete, sendPaymentLinkToAthlete } from "../notifications.js";
+import { queueEmail } from "../emailQueue.js";
 
 const router = Router();
 const auth = authMiddleware();
@@ -203,6 +203,17 @@ router.post("/:slotId/complete", auth, async (req, res) => {
     }
   }
 
+  // Guard: block completion if deferred payments exist but Stripe isn't set up (checked after repricing)
+  const hasDeferredNeedingStripe = attendedBookings.some(
+    (b) => b.paymentStatus === "deferred" && (b.amountCents ?? 0) > 0
+  );
+  if (hasDeferredNeedingStripe && !slot.coach.stripeConnectAccountId) {
+    return res.status(400).json({
+      error: "Please set up your payment account before completing sessions with outstanding payments.",
+      code: "STRIPE_SETUP_REQUIRED",
+    });
+  }
+
   // Update attendance
   if (attendance && Array.isArray(attendance)) {
     for (const entry of attendance) {
@@ -267,7 +278,7 @@ router.post("/:slotId/complete", auth, async (req, res) => {
 
     if (isDeferredCompleted && booking.athleteProfile?.user?.email) {
       await prisma.booking.update({ where: { id: booking.id }, data: { paymentStatus: "payment_link_sent" } });
-      await sendPaymentLinkToAthlete({
+      await queueEmail("payment_link", {
         athleteEmail: booking.athleteProfile.user.email,
         athleteName: booking.athleteProfile.user.name ?? undefined,
         coachDisplayName: slot.coach.displayName,
@@ -277,9 +288,9 @@ router.post("/:slotId/complete", auth, async (req, res) => {
         slotStart: slot.startTime.toISOString(),
         slotEnd: slot.endTime.toISOString(),
         sessionCompleted: true,
-      }).catch((err) => console.error("[sessions] payment link email failed:", err));
+      });
     } else if (!isDeferredCompleted && booking.athleteProfile?.user?.email) {
-      await sendBookingStatusToAthlete({
+      await queueEmail("booking_status", {
         athleteEmail: booking.athleteProfile.user.email,
         athleteName: booking.athleteProfile.user.name ?? undefined,
         coachDisplayName: slot.coach.displayName,
@@ -287,7 +298,7 @@ router.post("/:slotId/complete", auth, async (req, res) => {
         slotStart: slot.startTime.toISOString(),
         slotEnd: slot.endTime.toISOString(),
         bookingId: booking.id,
-      }).catch((err) => console.error("[sessions] status email failed:", err));
+      });
     }
   }
 
@@ -298,6 +309,61 @@ router.post("/:slotId/complete", auth, async (req, res) => {
   });
 
   res.json({ sessionStatus: "completed" });
+});
+
+// POST /sessions/:slotId/confirm-all -- confirm all pending participants (coach only)
+router.post("/:slotId/confirm-all", auth, async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const coachProfile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
+  if (!coachProfile) return res.status(403).json({ error: "Not a coach" });
+
+  const slot = await prisma.availabilitySlot.findUnique({
+    where: { id: req.params.slotId },
+    include: {
+      coach: true,
+      bookings: {
+        where: { status: "pending" },
+        include: { athleteProfile: { include: { user: { select: { email: true, name: true } } } } },
+      },
+    },
+  });
+  if (!slot) return res.status(404).json({ error: "Session not found" });
+  if (coachProfile.id !== slot.coachId) return res.status(403).json({ error: "Not your session" });
+
+  const pendingBookings = slot.bookings;
+  if (pendingBookings.length === 0) {
+    return res.status(400).json({ error: "No pending participants to confirm" });
+  }
+
+  await prisma.booking.updateMany({
+    where: { slotId: slot.id, status: "pending" },
+    data: { status: "confirmed" },
+  });
+
+  if (slot.sessionStatus === "pending" || slot.sessionStatus === "available") {
+    await prisma.availabilitySlot.update({
+      where: { id: slot.id },
+      data: { sessionStatus: "confirmed" },
+    });
+  }
+
+  for (const booking of pendingBookings) {
+    if (booking.athleteProfile?.user?.email) {
+      await queueEmail("booking_status", {
+        athleteEmail: booking.athleteProfile.user.email,
+        athleteName: booking.athleteProfile.user.name ?? undefined,
+        coachDisplayName: slot.coach.displayName,
+        newStatus: "confirmed",
+        slotStart: slot.startTime.toISOString(),
+        slotEnd: slot.endTime.toISOString(),
+        bookingId: booking.id,
+      });
+    }
+  }
+
+  res.json({ confirmed: pendingBookings.length });
 });
 
 // POST /sessions/:slotId/cancel -- cancel entire session (coach only)
@@ -335,7 +401,7 @@ router.post("/:slotId/cancel", auth, async (req, res) => {
     });
 
     if (booking.athleteProfile?.user?.email) {
-      await sendBookingStatusToAthlete({
+      await queueEmail("booking_status", {
         athleteEmail: booking.athleteProfile.user.email,
         athleteName: booking.athleteProfile.user.name ?? undefined,
         coachDisplayName: slot.coach.displayName,
@@ -343,7 +409,7 @@ router.post("/:slotId/cancel", auth, async (req, res) => {
         slotStart: slot.startTime.toISOString(),
         slotEnd: slot.endTime.toISOString(),
         bookingId: booking.id,
-      }).catch((err) => console.error("[sessions] cancel notification failed:", err));
+      });
     }
   }
 

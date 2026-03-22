@@ -93,8 +93,13 @@ function PricingLadder({
   return (
     <div className="space-y-1">
       {uniqueTiers.map((tier) => {
-        const isActive = tier.size === currentHeadcount + 1;
-        const isPast = tier.size <= currentHeadcount;
+        const isLastTier = tier === uniqueTiers[uniqueTiers.length - 1];
+        const isActive = tier.size === currentHeadcount + 1
+          || (isLastTier && currentHeadcount + 1 > tier.size);
+        const isPast = tier.size <= currentHeadcount && !isActive;
+        const label = isLastTier && tier.size < maxCapacity
+          ? `${tier.size}+`
+          : String(tier.size);
         return (
           <div
             key={tier.size}
@@ -107,7 +112,7 @@ function PricingLadder({
             }`}
           >
             <span>
-              {tier.size} {tier.size === 1 ? "athlete" : "athletes"}
+              {label} {tier.size === 1 ? "athlete" : "athletes"}
               {isActive && " (you join here)"}
             </span>
             <span className="font-medium">${tier.rate}/hr each</span>

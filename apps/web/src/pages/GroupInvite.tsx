@@ -82,22 +82,26 @@ function PricingLadder({
   return (
     <div className="space-y-1">
       {uniqueTiers.map((tier) => {
-        const isCurrent = tier.size <= currentHeadcount && (tier === uniqueTiers[uniqueTiers.length - 1] || tiers[tier.size]?.rate !== tier.rate);
-        const isNext = tier.size === currentHeadcount + 1;
-        const isPast = tier.size <= currentHeadcount;
+        const isLastTier = tier === uniqueTiers[uniqueTiers.length - 1];
+        const isNext = tier.size === currentHeadcount + 1
+          || (isLastTier && currentHeadcount + 1 > tier.size);
+        const isPast = tier.size <= currentHeadcount && !isNext;
+        const label = isLastTier && tier.size < maxCapacity
+          ? `${tier.size}+`
+          : String(tier.size);
         return (
           <div
             key={tier.size}
             className={`flex items-center justify-between text-sm px-3 py-1.5 rounded-lg ${
               isNext
                 ? "bg-brand-50 border border-brand-200 text-brand-800 font-medium"
-                : isPast || isCurrent
+                : isPast
                   ? "text-slate-400 line-through"
                   : "text-slate-600"
             }`}
           >
             <span>
-              {tier.size} {tier.size === 1 ? "athlete" : "athletes"}
+              {label} {tier.size === 1 ? "athlete" : "athletes"}
               {isNext && " (next to join)"}
             </span>
             <span className="font-medium">${tier.rate}/hr each</span>

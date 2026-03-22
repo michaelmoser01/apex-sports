@@ -2,9 +2,48 @@ import { Router, Request, Response } from "express";
 import Stripe from "stripe";
 import { prisma } from "../db.js";
 import { stripe } from "../stripe.js";
+import { queueEmail } from "../emailQueue.js";
 
 const router = Router();
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+async function queuePaymentConfirmationEmails(bookingId: string): Promise<void> {
+  const b = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      coach: { include: { user: { select: { email: true } } } },
+      slot: true,
+      athleteProfile: { include: { user: { select: { email: true, name: true } } } },
+    },
+  });
+  if (!b || !b.amountCents) return;
+  const athleteEmail = b.athleteProfile?.user?.email;
+  const coachEmail = b.coach?.user?.email;
+  if (athleteEmail) {
+    await queueEmail("payment_confirmed", {
+      athleteEmail,
+      athleteName: b.athleteProfile.user.name,
+      coachDisplayName: b.coach.displayName,
+      amountCents: b.amountCents,
+      currency: b.currency ?? "usd",
+      slotStart: b.slot.startTime.toISOString(),
+      slotEnd: b.slot.endTime.toISOString(),
+      bookingId: b.id,
+    });
+  }
+  if (coachEmail) {
+    await queueEmail("payment_received", {
+      coachEmail,
+      coachDisplayName: b.coach.displayName,
+      athleteName: b.athleteProfile?.user?.name,
+      amountCents: b.amountCents,
+      currency: b.currency ?? "usd",
+      slotStart: b.slot.startTime.toISOString(),
+      slotEnd: b.slot.endTime.toISOString(),
+      bookingId: b.id,
+    });
+  }
+}
 
 /** Process Stripe event (shared by Express and Lambda handler). Awaits DB updates so they complete before response. */
 async function processStripeEvent(event: Stripe.Event): Promise<void> {
@@ -13,6 +52,12 @@ async function processStripeEvent(event: Stripe.Event): Promise<void> {
       const pi = event.data.object as Stripe.PaymentIntent;
       const bookingId = pi.metadata?.bookingId;
       if (bookingId) {
+        const existing = await prisma.booking.findFirst({
+          where: { id: bookingId, stripePaymentIntentId: pi.id },
+          select: { paymentStatus: true },
+        });
+        const wasDeferred = existing?.paymentStatus === "deferred" || existing?.paymentStatus === "payment_link_sent";
+
         const paymentStatus = pi.status === "succeeded" ? "succeeded" : "authorized";
         await prisma.booking
           .updateMany({
@@ -20,6 +65,10 @@ async function processStripeEvent(event: Stripe.Event): Promise<void> {
             data: { paymentStatus },
           })
           .catch((err) => console.error("[webhooks] update booking paymentStatus failed:", err));
+
+        if (wasDeferred && paymentStatus === "succeeded") {
+          await queuePaymentConfirmationEmails(bookingId);
+        }
       }
       break;
     }
@@ -56,12 +105,22 @@ async function processStripeEvent(event: Stripe.Event): Promise<void> {
       if (session.payment_status === "paid") {
         const bookingId = session.metadata?.bookingId as string | undefined;
         if (bookingId && session.id) {
+          const existing = await prisma.booking.findFirst({
+            where: { id: bookingId, stripePaymentIntentId: session.id },
+            select: { paymentStatus: true },
+          });
+          const wasDeferred = existing?.paymentStatus === "deferred" || existing?.paymentStatus === "payment_link_sent";
+
           await prisma.booking
             .updateMany({
               where: { id: bookingId, stripePaymentIntentId: session.id },
               data: { paymentStatus: "succeeded" },
             })
             .catch((err) => console.error("[webhooks] update booking from checkout.session.completed failed:", err));
+
+          if (wasDeferred) {
+            await queuePaymentConfirmationEmails(bookingId);
+          }
         }
       }
       break;

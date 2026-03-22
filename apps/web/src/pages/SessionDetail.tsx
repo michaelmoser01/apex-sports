@@ -69,7 +69,7 @@ export default function SessionDetail() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
-    type: "complete" | "cancel-session";
+    type: "complete" | "cancel-session" | "needs_stripe";
   } | null>(null);
   const [attendanceOverrides, setAttendanceOverrides] = useState<Record<string, boolean>>({});
 
@@ -130,6 +130,18 @@ export default function SessionDetail() {
     },
   });
 
+  const confirmAllMutation = useMutation({
+    mutationFn: () =>
+      api<{ confirmed: number }>(`/sessions/${slotId}/confirm-all`, { method: "POST" }),
+    onSuccess: (data) => {
+      setSuccessMessage(`${data.confirmed} participant${data.confirmed === 1 ? "" : "s"} confirmed.`);
+      setTimeout(() => setSuccessMessage(null), 5000);
+      queryClient.invalidateQueries({ queryKey: ["session", slotId] });
+      queryClient.invalidateQueries({ queryKey: ["bookings"] });
+    },
+    onError: (err: Error) => setUpdateError(err.message ?? "Failed to confirm all"),
+  });
+
   const markPaidMutation = useMutation({
     mutationFn: (bookingId: string) =>
       api(`/bookings/${bookingId}/mark-paid`, { method: "POST" }),
@@ -178,6 +190,7 @@ export default function SessionDetail() {
   }
 
   const activeParticipants = session.participants.filter((p) => p.status !== "cancelled");
+  const pendingParticipants = session.participants.filter((p) => p.status === "pending");
 
   const slotStart = new Date(session.startTime);
   const slotEnd = new Date(session.endTime);
@@ -443,11 +456,29 @@ export default function SessionDetail() {
         {/* Session-level actions */}
         {session.sessionStatus !== "cancelled" && session.sessionStatus !== "available" && session.sessionStatus !== "completed" && (
           <div className="px-6 py-5 border-t border-slate-200">
-            <h2 className="text-lg font-semibold text-slate-900 mb-3">Actions</h2>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-slate-900">Actions</h2>
+              <div className="flex flex-1 flex-wrap gap-3 justify-end min-w-0">
+              {pendingParticipants.length >= 2 && session.viewerRole === "coach" && (
+                <button
+                  type="button"
+                  onClick={() => confirmAllMutation.mutate()}
+                  disabled={confirmAllMutation.isPending}
+                  className="bg-success-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-success-700 disabled:opacity-50"
+                >
+                  Confirm all
+                </button>
+              )}
               {session.sessionStatus === "confirmed" && (
                 <button
-                  onClick={() => setConfirmAction({ type: "complete" })}
+                  onClick={() => {
+                    const hasChargeableParticipant = activeParticipants.some((p) => (p.amountCents ?? 0) > 0);
+                    if (hasChargeableParticipant && !session.coach.stripeOnboardingComplete) {
+                      setConfirmAction({ type: "needs_stripe" });
+                    } else {
+                      setConfirmAction({ type: "complete" });
+                    }
+                  }}
                   disabled={completeMutation.isPending}
                   className="bg-brand-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-600 disabled:opacity-50"
                 >
@@ -462,13 +493,41 @@ export default function SessionDetail() {
                   Cancel session
                 </button>
               )}
+              </div>
             </div>
           </div>
         )}
       </div>
 
+      {/* Needs Stripe modal */}
+      {confirmAction && confirmAction.type === "needs_stripe" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Set up payments first</h2>
+            <p className="text-slate-600 text-sm mb-4">
+              You need to set up your payment account before you can complete sessions. This lets you receive payments from athletes.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setConfirmAction(null)}
+                className="px-4 py-2 rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 font-medium text-sm"
+              >
+                Back
+              </button>
+              <Link
+                to="/coach/setup/get-paid"
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-brand-500 text-white hover:bg-brand-600"
+              >
+                Set up payments
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Confirmation modal */}
-      {confirmAction && (
+      {confirmAction && confirmAction.type !== "needs_stripe" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" role="dialog" aria-modal="true">
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
             <h2 className="text-lg font-semibold text-slate-900 mb-2">
