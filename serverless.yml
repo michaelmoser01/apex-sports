@@ -44,6 +44,9 @@ provider:
             - ses:SendRawEmail
           Resource: "*"
         - Effect: Allow
+          Action: sqs:SendMessage
+          Resource: !GetAtt EmailQueue.Arn
+        - Effect: Allow
           Action: sns:Publish
           Resource: "*"
         - Effect: Allow
@@ -85,6 +88,7 @@ custom:
       - apps/api/src/migrate-handler.ts
       - apps/api/src/seed-handler.ts
       - apps/api/src/acm-validation-handler.ts
+      - apps/api/src/email-worker.ts
     outputWorkFolder: .esbuild
     outputBuildFolder: .serverless
     target: node20
@@ -139,6 +143,7 @@ functions:
       # Bedrock: set BEDROCK_MODEL_ID / BEDROCK_REGION when running serverless deploy to override
       BEDROCK_REGION: ${env:BEDROCK_REGION, 'us-east-1'}
       BEDROCK_MODEL_ID: ${env:BEDROCK_MODEL_ID, 'anthropic.claude-3-haiku-20240307-v1:0'}
+      EMAIL_QUEUE_URL: !Ref EmailQueue
     package:
       patterns:
         # Include Prisma generated client + rhel query engine (required for Lambda)
@@ -212,6 +217,22 @@ functions:
     timeout: 5
     environment:
       REQUIRE_SIGNUP_VERIFICATION: ${env:REQUIRE_SIGNUP_VERIFICATION, 'true'}
+
+  emailWorker:
+    handler: apps/api/src/email-worker.handler
+    description: Processes queued email notifications via SES/SNS
+    memorySize: 256
+    timeout: 60
+    environment:
+      NOTIFICATION_FROM_EMAIL: "Apex Sports <no-reply@getapexsports.com>"
+      APP_URL: https://${self:custom.webDomainName}
+      NOTIFICATION_TIMEZONE: America/Los_Angeles
+      SEND_SMS: ${env:SEND_SMS, 'true'}
+    events:
+      - sqs:
+          arn: !GetAtt EmailQueue.Arn
+          batchSize: 10
+          functionResponseType: ReportBatchItemFailures
 
 resources:
   Conditions:
@@ -397,6 +418,23 @@ resources:
         Name: ${self:service}-${self:provider.stage}-stripe-keys
         Description: Stripe API, webhook, and coach plan price IDs; fill STRIPE_PRICE_* for onboarding plan step
         SecretString: '{"STRIPE_SECRET_KEY":"","STRIPE_WEBHOOK_SECRET":"","STRIPE_PUBLISHABLE_KEY":"","STRIPE_PRICE_STARTER":"","STRIPE_PRICE_PRO":"","STRIPE_PRICE_ELITE":"","GOOGLE_MAPS_API_KEY":""}'
+
+    # SQS email queue
+    EmailQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-email-${self:provider.stage}
+        VisibilityTimeout: 60
+        MessageRetentionPeriod: 86400
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt EmailDLQ.Arn
+          maxReceiveCount: 3
+
+    EmailDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-email-dlq-${self:provider.stage}
+        MessageRetentionPeriod: 1209600
 
     # Aurora Serverless v2
     DbSubnetGroup:

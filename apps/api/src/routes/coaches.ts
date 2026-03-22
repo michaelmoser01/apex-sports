@@ -17,7 +17,7 @@ import { Prisma } from "@prisma/client";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "node:crypto";
-import { sendBookingStatusToAthlete, sendAthleteMessageToCoach } from "../notifications.js";
+import { queueEmail } from "../emailQueue.js";
 import { stripe, isStripeEnabled, createPlanCheckoutSession, createCoachPlanSubscription, getOrCreateStripeCustomerId } from "../stripe.js";
 import { invokeBioDraft, isBedrockConfigured } from "../bedrock.js";
 import { invokeCoachAgent, type AgentChatRole } from "../coachAgent.js";
@@ -1756,7 +1756,7 @@ router.delete("/me/availability/rules/:id", authMiddleware(), async (req, res) =
       where: { id: b.id },
       data: { status: "cancelled" },
     });
-    sendBookingStatusToAthlete({
+    queueEmail("booking_status", {
       athleteEmail: b.athleteProfile.user.email,
       athleteName: b.athleteProfile.user.name ?? undefined,
       coachDisplayName: b.coach.displayName,
@@ -1885,7 +1885,7 @@ router.delete("/me/availability/:id", authMiddleware(), async (req, res) => {
       where: { id: b.id },
       data: { status: "cancelled" },
     });
-    sendBookingStatusToAthlete({
+    queueEmail("booking_status", {
       athleteEmail: b.athleteProfile.user.email,
       athleteName: b.athleteProfile.user.name ?? undefined,
       coachDisplayName: b.coach.displayName,
@@ -2129,7 +2129,7 @@ router.post("/:coachId/contact", authMiddleware(), async (req, res) => {
 
   const athleteEmail = dbUser.email?.trim() || null;
   try {
-    await sendAthleteMessageToCoach({
+    await queueEmail("athlete_message_to_coach", {
       coachEmail,
       athleteEmail,
       athleteDisplayName: athleteProfile.displayName ?? dbUser.name ?? "An athlete",

@@ -42,18 +42,67 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+// ---------------------------------------------------------------------------
+// Visual helpers
+// ---------------------------------------------------------------------------
+
+const BRAND = "#ec741a";
+const BRAND_DARK = "#dd5a10";
+const SLATE_900 = "#0f172a";
+const SLATE_700 = "#334155";
+const SLATE_500 = "#64748b";
+const SLATE_200 = "#e2e8f0";
+const SLATE_100 = "#f1f5f9";
+const SLATE_50 = "#f8fafc";
+
+/** Renders a row inside an info card: emoji + label + value. */
+function iconRow(icon: string, label: string, value: string): string {
+  return `<tr>
+  <td style="padding: 8px 12px; vertical-align: top; width: 28px; font-size: 16px; line-height: 1;">${icon}</td>
+  <td style="padding: 8px 4px 8px 0; vertical-align: top; color: ${SLATE_500}; font-size: 14px; font-weight: 600; white-space: nowrap;">${escapeHtml(label)}</td>
+  <td style="padding: 8px 12px 8px 8px; vertical-align: top; color: ${SLATE_700}; font-size: 14px;">${value}</td>
+</tr>`;
+}
+
+/** Renders a rounded info card with structured label/value rows. */
+function infoCard(rows: string[]): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 20px 0; background: ${SLATE_50}; border: 1px solid ${SLATE_200}; border-radius: 12px; overflow: hidden;">
+${rows.join("\n")}
+</table>`;
+}
+
+const BADGE_STYLES: Record<string, { bg: string; color: string; label: string }> = {
+  confirmed: { bg: "#dcfce7", color: "#166534", label: "Confirmed" },
+  cancelled: { bg: "#fee2e2", color: "#991b1b", label: "Cancelled" },
+  completed: { bg: "#fff7ed", color: "#9a3412", label: "Completed" },
+  pending:   { bg: "#fef3c7", color: "#92400e", label: "Pending" },
+  private:   { bg: "#ede9fe", color: "#5b21b6", label: "Private 1-on-1" },
+};
+
+function statusBadge(status: string): string {
+  const s = BADGE_STYLES[status] ?? BADGE_STYLES.pending;
+  return `<span style="display: inline-block; padding: 4px 12px; font-size: 13px; font-weight: 700; letter-spacing: 0.02em; border-radius: 20px; background: ${s.bg}; color: ${s.color};">${s.label}</span>`;
+}
+
+/** Brand-orange quote block for messages. */
+function quoteBlock(text: string): string {
+  return `<div style="margin: 16px 0; padding: 16px 20px; background: ${SLATE_50}; border-radius: 10px; border-left: 4px solid ${BRAND}; font-size: 15px; line-height: 1.6; color: ${SLATE_700};">${escapeHtml(text).replace(/\n/g, "<br>")}</div>`;
+}
+
 /**
- * Shared HTML email wrapper: Apex Sports branding, content block, optional CTA.
- * Inline styles for email client compatibility.
+ * Shared HTML email wrapper matching the ApexSports website brand.
+ * White header with text logo, orange accent, dark footer.
  */
 function htmlEmail(contentHtml: string, ctaLabel?: string, ctaUrl?: string): string {
   const href = (ctaUrl ?? myBookingsUrl) || "";
   const ctaBlock =
     href && ctaLabel
       ? `
-    <p style="margin: 28px 0 0; text-align: center;">
-      <a href="${escapeHtml(href)}" style="display: inline-block; padding: 12px 24px; background: #0f766e; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 16px; border-radius: 8px;">${escapeHtml(ctaLabel)}</a>
-    </p>`
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 28px 0 0;">
+      <tr><td align="center">
+        <a href="${escapeHtml(href)}" style="display: inline-block; padding: 14px 32px; background: ${BRAND}; color: #ffffff; text-decoration: none; font-weight: 700; font-size: 16px; border-radius: 12px; letter-spacing: -0.01em; mso-padding-alt: 0; text-align: center;">${escapeHtml(ctaLabel)}</a>
+      </td></tr>
+    </table>`
       : "";
 
   return `<!DOCTYPE html>
@@ -62,27 +111,55 @@ function htmlEmail(contentHtml: string, ctaLabel?: string, ctaUrl?: string): str
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Apex Sports</title>
+  <style>@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');</style>
 </head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 16px; line-height: 1.6; color: #334155; background: #f1f5f9;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: #f1f5f9; padding: 32px 16px;">
+<body style="margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 16px; line-height: 1.6; color: ${SLATE_700}; background: ${SLATE_50}; -webkit-font-smoothing: antialiased;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: ${SLATE_50}; padding: 40px 16px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 560px; background: #ffffff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 560px;">
+
+          <!-- Header -->
           <tr>
-            <td style="padding: 28px 32px 24px; background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);">
-              <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #ffffff; letter-spacing: -0.02em;">Apex Sports</h1>
+            <td style="padding: 24px 32px; text-align: left;">
+              <span style="font-size: 22px; font-weight: 800; letter-spacing: -0.03em; text-decoration: none;">
+                <span style="color: ${SLATE_900};">Apex</span><span style="color: ${BRAND};">Sports</span>
+              </span>
             </td>
           </tr>
+
+          <!-- Orange accent line -->
           <tr>
-            <td style="padding: 28px 32px 32px;">
+            <td style="padding: 0 32px;">
+              <div style="height: 3px; background: linear-gradient(90deg, ${BRAND} 0%, ${BRAND_DARK} 100%); border-radius: 2px;"></div>
+            </td>
+          </tr>
+
+          <!-- Content card -->
+          <tr>
+            <td style="padding: 8px 16px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: #ffffff; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04); overflow: hidden;">
+                <tr>
+                  <td style="padding: 32px 32px 36px;">
 ${contentHtml}${ctaBlock}
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
+
+          <!-- Footer -->
           <tr>
-            <td style="padding: 20px 32px; background: #f8fafc; border-top: 1px solid #e2e8f0; font-size: 13px; color: #64748b;">
-              You're receiving this because you have an Apex Sports account.
+            <td style="padding: 32px 32px 16px; text-align: center;">
+              <p style="margin: 0 0 8px; font-size: 13px; color: ${SLATE_500};">
+                You're receiving this because you have an <span style="color: ${SLATE_900}; font-weight: 600;">Apex</span><span style="color: ${BRAND}; font-weight: 600;">Sports</span> account.
+              </p>
+              <p style="margin: 0; font-size: 12px; color: #94a3b8;">
+                &copy; ${new Date().getFullYear()} ApexSports. All rights reserved.
+              </p>
             </td>
           </tr>
+
         </table>
       </td>
     </tr>
@@ -90,6 +167,10 @@ ${contentHtml}${ctaBlock}
 </body>
 </html>`;
 }
+
+// ---------------------------------------------------------------------------
+// Email functions
+// ---------------------------------------------------------------------------
 
 export interface AthleteMessageToCoachParams {
   coachEmail: string;
@@ -103,10 +184,10 @@ export async function sendAthleteMessageToCoach(params: AthleteMessageToCoachPar
   const name = athleteDisplayName?.trim() || "An athlete";
   const body = message?.trim() || "(No message)";
   const replyHint = athleteEmail
-    ? `Reply to this email to respond directly to ${name}.`
-    : "You can reply to this email or log in to Apex Sports to manage your bookings and athletes.";
+    ? `You can reply directly to this email to respond to ${name}.`
+    : "Log in to Apex Sports to view your athletes and respond.";
 
-  const subject = `Message from ${name} on Apex Sports`;
+  const subject = `New message from ${name}`;
   const bodyText = [
     `${name} sent you a message from your Apex Sports profile:`,
     "",
@@ -122,9 +203,10 @@ export async function sendAthleteMessageToCoach(params: AthleteMessageToCoachPar
 
   const bodyHtml = htmlEmail(
     [
-      `<p style="margin: 0 0 16px;">${escapeHtml(name)} sent you a message from your Apex Sports profile:</p>`,
-      `<p style="margin: 0 0 16px; padding: 16px; background: #f8fafc; border-radius: 8px; border-left: 4px solid #0f766e;">${escapeHtml(body).replace(/\n/g, "<br>")}</p>`,
-      `<p style="margin: 0 0 0;">${escapeHtml(replyHint)}</p>`,
+      `<p style="margin: 0 0 4px; font-size: 14px; color: ${SLATE_500};">New message</p>`,
+      `<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">${escapeHtml(name)} sent you a message</p>`,
+      quoteBlock(body),
+      `<p style="margin: 0; font-size: 15px; color: ${SLATE_500};">${escapeHtml(replyHint)}</p>`,
     ].join("\n"),
     "Go to dashboard",
     myBookingsUrl || undefined
@@ -167,7 +249,7 @@ export async function sendNewAthleteConnectedToCoach(params: NewAthleteConnected
   const { coachEmail, athleteDisplayName } = params;
   const name = athleteDisplayName?.trim() || "An athlete";
 
-  const subject = "A new athlete connected with you on Apex Sports";
+  const subject = `${name} just connected with you`;
   const bodyText = [
     "Hi,",
     "",
@@ -181,9 +263,10 @@ export async function sendNewAthleteConnectedToCoach(params: NewAthleteConnected
 
   const bodyHtml = htmlEmail(
     [
-      "<p style=\"margin: 0 0 16px;\">Hi,</p>",
-      `<p style="margin: 0 0 16px;">${escapeHtml(name)} signed up using your invite link and is now connected to you on Apex Sports.</p>`,
-      "<p style=\"margin: 0 0 0;\">They can view your profile and request sessions. You'll see them in your Athletes list.</p>",
+      `<p style="margin: 0 0 4px; font-size: 14px; color: ${SLATE_500};">New connection</p>`,
+      `<p style="margin: 0 0 20px; font-size: 18px; font-weight: 700; color: ${SLATE_900};"><strong>${escapeHtml(name)}</strong> is now connected with you</p>`,
+      `<p style="margin: 0 0 8px; font-size: 15px; color: ${SLATE_700};">They signed up using your invite link and can now view your profile and request sessions.</p>`,
+      `<p style="margin: 0; font-size: 15px; color: ${SLATE_500};">You'll find them in your Athletes list on the dashboard.</p>`,
     ].join("\n"),
     "View your athletes",
     dashboardAthletesUrl || undefined
@@ -243,19 +326,25 @@ export async function sendBookingRequestedToCoach(params: BookingRequestedToCoac
     lockedPrivate ? "Type: Private (1-on-1) — this slot will be locked to this athlete only." : null,
     message?.trim() ? `Message: ${message.trim()}` : null,
     "",
-    "Log in to ApexSports to accept or decline.",
+    "Log in to Apex Sports to accept or decline.",
     ctaUrl ? `View booking: ${ctaUrl}` : null,
   ]
     .filter(Boolean)
     .join("\n");
 
+  const rows = [
+    iconRow("📅", "When", escapeHtml(slotStr)),
+    iconRow("👤", "Athlete", `<strong>${escapeHtml(athlete)}</strong>`),
+  ];
+  if (lockedPrivate) rows.push(iconRow("🔒", "Type", statusBadge("private")));
+
   const bodyHtml = htmlEmail(
     [
-      `<p style="margin: 0 0 16px;">${escapeHtml(athlete)} requested a ${typeLabel} with you.</p>`,
-      `<p style="margin: 0 0 16px;"><strong>Time:</strong> ${escapeHtml(slotStr)}</p>`,
-      lockedPrivate ? `<p style="margin: 0 0 16px;"><strong>Type:</strong> Private (1-on-1) — this slot will be locked to this athlete only.</p>` : "",
-      message?.trim() ? `<p style="margin: 0 0 16px;"><strong>Message:</strong> ${escapeHtml(message.trim())}</p>` : "",
-      `<p style="margin: 0 0 0;">Log in to Apex Sports to accept or decline.</p>`,
+      `<p style="margin: 0 0 4px; font-size: 14px; color: ${SLATE_500};">New ${typeLabel} request</p>`,
+      `<p style="margin: 0 0 6px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">${escapeHtml(athlete)} wants to train with you</p>`,
+      infoCard(rows),
+      message?.trim() ? quoteBlock(message.trim()) : "",
+      `<p style="margin: 0; font-size: 15px; color: ${SLATE_500};">Review and respond from your dashboard.</p>`,
     ].join("\n"),
     "View booking",
     ctaUrl
@@ -320,10 +409,11 @@ export async function sendCoachBookedAthlete(params: CoachBookedAthleteParams): 
   const { athleteEmail, athleteName, coachDisplayName, slotStart, slotEnd } = params;
   const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
   const coach = coachDisplayName?.trim() || "Your coach";
+  const greeting = athleteName?.trim() ? `Hi ${athleteName.trim()},` : "Hi,";
 
   const subject = `${coach} booked you for a session`;
   const bodyText = [
-    athleteName?.trim() ? `Hi ${athleteName.trim()},` : "Hi,",
+    greeting,
     "",
     `${coach} has booked you for a session.`,
     "",
@@ -337,10 +427,14 @@ export async function sendCoachBookedAthlete(params: CoachBookedAthleteParams): 
 
   const bodyHtml = htmlEmail(
     [
-      `<p style="margin: 0 0 16px;">${athleteName?.trim() ? `Hi ${escapeHtml(athleteName.trim())},` : "Hi,"}</p>`,
-      `<p style="margin: 0 0 16px;">${escapeHtml(coach)} has booked you for a session.</p>`,
-      `<p style="margin: 0 0 16px;"><strong>Time:</strong> ${escapeHtml(slotStr)}</p>`,
-      `<p style="margin: 0 0 0;">It's pending until they confirm. You can view it in My Bookings.</p>`,
+      `<p style="margin: 0 0 16px; font-size: 15px; color: ${SLATE_700};">${escapeHtml(greeting)}</p>`,
+      `<p style="margin: 0 0 6px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">${escapeHtml(coach)} booked you for a session</p>`,
+      `<p style="margin: 0 0 4px;">${statusBadge("pending")}</p>`,
+      infoCard([
+        iconRow("📅", "When", escapeHtml(slotStr)),
+        iconRow("🏋️", "Coach", `<strong>${escapeHtml(coach)}</strong>`),
+      ]),
+      `<p style="margin: 0; font-size: 15px; color: ${SLATE_500};">It's pending until they confirm. You can track it from My Bookings.</p>`,
     ].join("\n"),
     "My Bookings"
   );
@@ -386,10 +480,11 @@ export async function sendCoachInviteToBookSlot(params: CoachInviteToBookSlotPar
   const { athleteEmail, athleteName, coachDisplayName, slotStart, slotEnd, bookingUrl } = params;
   const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
   const coach = coachDisplayName?.trim() || "Your coach";
+  const greeting = athleteName?.trim() ? `Hi ${athleteName.trim()},` : "Hi,";
 
-  const subject = `${coach} reserved a time for you – complete your booking`;
+  const subject = `${coach} reserved a time for you — complete your booking`;
   const bodyText = [
-    athleteName?.trim() ? `Hi ${athleteName.trim()},` : "Hi,",
+    greeting,
     "",
     `${coach} has reserved a time for you.`,
     "",
@@ -403,10 +498,13 @@ export async function sendCoachInviteToBookSlot(params: CoachInviteToBookSlotPar
 
   const bodyHtml = htmlEmail(
     [
-      `<p style="margin: 0 0 16px;">${athleteName?.trim() ? `Hi ${escapeHtml(athleteName.trim())},` : "Hi,"}</p>`,
-      `<p style="margin: 0 0 16px;">${escapeHtml(coach)} has reserved a time for you.</p>`,
-      `<p style="margin: 0 0 16px;"><strong>Time:</strong> ${escapeHtml(slotStr)}</p>`,
-      `<p style="margin: 0 0 0;">Complete your booking (including payment) using the link below. The slot is held for you until you finish.</p>`,
+      `<p style="margin: 0 0 16px; font-size: 15px; color: ${SLATE_700};">${escapeHtml(greeting)}</p>`,
+      `<p style="margin: 0 0 6px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">A time has been reserved for you</p>`,
+      infoCard([
+        iconRow("📅", "When", escapeHtml(slotStr)),
+        iconRow("🏋️", "Coach", `<strong>${escapeHtml(coach)}</strong>`),
+      ]),
+      `<p style="margin: 0; font-size: 15px; color: ${SLATE_700};">Complete your booking (including payment) using the button below. The slot is held for you until you finish.</p>`,
     ].join("\n"),
     "Complete booking",
     bookingUrl || myBookingsUrl
@@ -452,16 +550,17 @@ export async function sendBookingRequestSubmittedToAthlete(params: BookingReques
   const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
   const coach = coachDisplayName?.trim() || "your coach";
   const ctaUrl = bookingId && appUrl ? `${appUrl}/bookings/${bookingId}` : myBookingsUrl;
+  const greeting = athleteName?.trim() ? `Hi ${athleteName.trim()},` : "Hi,";
 
-  const subject = "Booking request sent – we'll notify you when they respond";
+  const subject = "Booking request sent — we'll let you know when they respond";
   const bodyText = [
-    athleteName?.trim() ? `Hi ${athleteName.trim()},` : "Hi,",
+    greeting,
     "",
     `Your booking request has been sent to ${coach}.`,
     "",
     `Requested time: ${slotStr}`,
     "",
-    "We'll email you when they accept or decline.",
+    "We'll email you as soon as they accept or decline.",
     ctaUrl ? `View booking: ${ctaUrl}` : null,
   ]
     .filter(Boolean)
@@ -469,10 +568,14 @@ export async function sendBookingRequestSubmittedToAthlete(params: BookingReques
 
   const bodyHtml = htmlEmail(
     [
-      `<p style="margin: 0 0 16px;">${athleteName?.trim() ? `Hi ${escapeHtml(athleteName.trim())},` : "Hi,"}</p>`,
-      `<p style="margin: 0 0 16px;">Your booking request has been sent to ${escapeHtml(coach)}.</p>`,
-      `<p style="margin: 0 0 16px;"><strong>Requested time:</strong> ${escapeHtml(slotStr)}</p>`,
-      `<p style="margin: 0 0 0;">We'll email you when they accept or decline.</p>`,
+      `<p style="margin: 0 0 16px; font-size: 15px; color: ${SLATE_700};">${escapeHtml(greeting)}</p>`,
+      `<p style="margin: 0 0 6px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">Your request is on its way</p>`,
+      `<p style="margin: 0 0 4px;">${statusBadge("pending")}</p>`,
+      infoCard([
+        iconRow("📅", "When", escapeHtml(slotStr)),
+        iconRow("🏋️", "Coach", `<strong>${escapeHtml(coach)}</strong>`),
+      ]),
+      `<p style="margin: 0; font-size: 15px; color: ${SLATE_500};">We'll email you as soon as they accept or decline.</p>`,
     ].join("\n"),
     "View booking",
     ctaUrl
@@ -534,6 +637,7 @@ export async function sendGroupInviteToAthlete(params: GroupInviteToAthleteParam
     `${inviter} invited you to a group training session with ${coach}.`,
     "",
     `When: ${slotStr}`,
+    sport ? `Sport: ${sport}` : null,
     `Group size: ${groupSize} people (${spotsRemaining} spot${spotsRemaining !== 1 ? "s" : ""} left)`,
     perPersonRate != null ? `Per-person rate: $${perPersonRate}/hr` : null,
     "",
@@ -542,16 +646,20 @@ export async function sendGroupInviteToAthlete(params: GroupInviteToAthleteParam
     .filter((l) => l !== null)
     .join("\n");
 
+  const rows = [
+    iconRow("📅", "When", escapeHtml(slotStr)),
+    iconRow("🏋️", "Coach", `<strong>${escapeHtml(coach)}</strong>`),
+  ];
+  if (sport) rows.push(iconRow("⚽", "Sport", escapeHtml(sport)));
+  rows.push(iconRow("👥", "Group", `${groupSize} people &middot; <strong>${spotsRemaining} spot${spotsRemaining !== 1 ? "s" : ""} left</strong>`));
+  if (perPersonRate != null) rows.push(iconRow("💲", "Rate", `<strong>$${perPersonRate}/hr</strong> per person`));
+
   const bodyHtml = htmlEmail(
     [
-      `<p style="margin: 0 0 16px;">Hi,</p>`,
-      `<p style="margin: 0 0 16px;"><strong>${escapeHtml(inviter)}</strong> invited you to a group training session with <strong>${escapeHtml(coach)}</strong>.</p>`,
-      `<p style="margin: 0 0 8px;"><strong>When:</strong> ${escapeHtml(slotStr)}</p>`,
-      `<p style="margin: 0 0 8px;"><strong>Group size:</strong> ${groupSize} people (${spotsRemaining} spot${spotsRemaining !== 1 ? "s" : ""} left)</p>`,
-      perPersonRate != null
-        ? `<p style="margin: 0 0 16px;"><strong>Per-person rate:</strong> $${perPersonRate}/hr</p>`
-        : `<p style="margin: 0 0 16px;"></p>`,
-      `<p style="margin: 0 0 0;">Click below to view the session details and join.</p>`,
+      `<p style="margin: 0 0 4px; font-size: 14px; color: ${SLATE_500};">Group session invite</p>`,
+      `<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">${escapeHtml(inviter)} invited you to train</p>`,
+      infoCard(rows),
+      `<p style="margin: 0; font-size: 15px; color: ${SLATE_700};">Tap below to view the session details and join the group.</p>`,
     ].join("\n"),
     "Join this session",
     inviteUrl
@@ -600,6 +708,12 @@ export async function sendBookingStatusToAthlete(params: BookingStatusToAthleteP
   const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
   const coach = coachDisplayName?.trim() || "Your coach";
   const ctaUrl = bookingId && appUrl ? `${appUrl}/bookings/${bookingId}` : myBookingsUrl;
+  const greeting = athleteName?.trim() ? `Hi ${athleteName.trim()},` : "Hi,";
+
+  const card = infoCard([
+    iconRow("📅", "When", escapeHtml(slotStr)),
+    iconRow("🏋️", "Coach", `<strong>${escapeHtml(coach)}</strong>`),
+  ]);
 
   const statusMessages: Record<
     BookingStatusForAthlete,
@@ -608,66 +722,78 @@ export async function sendBookingStatusToAthlete(params: BookingStatusToAthleteP
     confirmed: {
       subject: `Booking confirmed with ${coach}`,
       body: [
-        `${coach} accepted your booking.`,
+        greeting,
+        "",
+        `Great news! ${coach} accepted your booking.`,
         "",
         `Time: ${slotStr}`,
         "",
-        "See you then!",
+        "You're all set — see you there!",
         ctaUrl ? `View booking: ${ctaUrl}` : null,
       ]
         .filter(Boolean)
         .join("\n"),
       bodyHtml: htmlEmail(
         [
-          `<p style="margin: 0 0 16px;">${escapeHtml(coach)} accepted your booking.</p>`,
-          `<p style="margin: 0 0 16px;"><strong>Time:</strong> ${escapeHtml(slotStr)}</p>`,
-          `<p style="margin: 0 0 0;">See you then!</p>`,
+          `<p style="margin: 0 0 16px; font-size: 15px; color: ${SLATE_700};">${escapeHtml(greeting)}</p>`,
+          `<p style="margin: 0 0 6px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">You're all set!</p>`,
+          `<p style="margin: 0 0 4px;">${statusBadge("confirmed")}</p>`,
+          card,
+          `<p style="margin: 0; font-size: 15px; color: ${SLATE_700};">${escapeHtml(coach)} accepted your booking. See you there!</p>`,
         ].join("\n"),
         "View booking",
         ctaUrl
       ),
     },
     cancelled: {
-      subject: `Booking cancelled – ${coach}`,
+      subject: `Booking cancelled — ${coach}`,
       body: [
-        `${coach} declined or cancelled your booking.`,
+        greeting,
+        "",
+        `Unfortunately, ${coach} declined or cancelled your booking.`,
         "",
         `Time: ${slotStr}`,
         "",
-        "Log in to ApexSports to book another time.",
+        "You can browse availability and book another time.",
         ctaUrl ? `My Bookings: ${ctaUrl}` : null,
       ]
         .filter(Boolean)
         .join("\n"),
       bodyHtml: htmlEmail(
         [
-          `<p style="margin: 0 0 16px;">${escapeHtml(coach)} declined or cancelled your booking.</p>`,
-          `<p style="margin: 0 0 16px;"><strong>Time:</strong> ${escapeHtml(slotStr)}</p>`,
-          `<p style="margin: 0 0 0;">Log in to Apex Sports to book another time.</p>`,
+          `<p style="margin: 0 0 16px; font-size: 15px; color: ${SLATE_700};">${escapeHtml(greeting)}</p>`,
+          `<p style="margin: 0 0 6px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">Booking update</p>`,
+          `<p style="margin: 0 0 4px;">${statusBadge("cancelled")}</p>`,
+          card,
+          `<p style="margin: 0; font-size: 15px; color: ${SLATE_700};">${escapeHtml(coach)} declined or cancelled this booking. You can browse their availability and book another time.</p>`,
         ].join("\n"),
-        "My Bookings",
+        "Browse availability",
         ctaUrl
       ),
     },
     completed: {
       subject: `Session completed with ${coach}`,
       body: [
-        `Your session with ${coach} is marked complete.`,
+        greeting,
+        "",
+        `Your session with ${coach} is complete!`,
         "",
         `Time: ${slotStr}`,
         "",
-        "Thank you for booking with ApexSports! Consider leaving a review.",
+        "Thank you for training with Apex Sports! We'd love to hear how it went — consider leaving a review.",
         ctaUrl ? `View booking: ${ctaUrl}` : null,
       ]
         .filter(Boolean)
         .join("\n"),
       bodyHtml: htmlEmail(
         [
-          `<p style="margin: 0 0 16px;">Your session with ${escapeHtml(coach)} is marked complete.</p>`,
-          `<p style="margin: 0 0 16px;"><strong>Time:</strong> ${escapeHtml(slotStr)}</p>`,
-          `<p style="margin: 0 0 0;">Thank you for booking with Apex Sports! Consider leaving a review.</p>`,
+          `<p style="margin: 0 0 16px; font-size: 15px; color: ${SLATE_700};">${escapeHtml(greeting)}</p>`,
+          `<p style="margin: 0 0 6px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">Great session!</p>`,
+          `<p style="margin: 0 0 4px;">${statusBadge("completed")}</p>`,
+          card,
+          `<p style="margin: 0; font-size: 15px; color: ${SLATE_700};">Thank you for training with Apex Sports! We'd love to hear how it went — consider leaving a review.</p>`,
         ].join("\n"),
-        "View booking",
+        "Leave a review",
         ctaUrl
       ),
     },
@@ -722,53 +848,65 @@ export async function sendPaymentLinkToAthlete(params: PaymentLinkToAthleteParam
   const coach = coachDisplayName.trim();
   const amountStr = `$${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()}`;
   const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
+  const greeting = `Hi ${name},`;
 
   const subject = sessionCompleted
-    ? `Session complete – payment of ${amountStr} due for your session with ${coach}`
-    : `Payment requested for your session with ${coach}`;
+    ? `Your session with ${coach} is complete`
+    : `${coach} sent you a payment request`;
   const bodyText = sessionCompleted
     ? [
-        `Hi ${name},`,
+        greeting,
         "",
         `Your session with ${coach} is complete!`,
         "",
         `Time: ${slotStr}`,
+        `Amount: ${amountStr}`,
         "",
-        `Please complete your payment of ${amountStr} at the link below.`,
-        `Pay now: ${paymentUrl}`,
+        `View details and complete your payment: ${paymentUrl}`,
         "",
         "Thank you,",
         "Apex Sports",
       ].join("\n")
     : [
-        `Hi ${name},`,
+        greeting,
         "",
-        `${coach} has requested payment of ${amountStr} for your coaching session on ${slotStr}.`,
+        `${coach} sent a payment request for your coaching session.`,
         "",
-        `Pay now: ${paymentUrl}`,
+        `Session: ${slotStr}`,
+        `Amount: ${amountStr}`,
+        "",
+        `View details: ${paymentUrl}`,
         "",
         "Thank you,",
         "Apex Sports",
       ].join("\n");
 
+  const card = infoCard([
+    iconRow("📅", "Session", escapeHtml(slotStr)),
+    iconRow("🏋️", "Coach", `<strong>${escapeHtml(coach)}</strong>`),
+    iconRow("💳", "Amount", `<strong style="color: ${SLATE_900}; font-size: 16px;">${escapeHtml(amountStr)}</strong>`),
+  ]);
+
   const bodyHtml = sessionCompleted
     ? htmlEmail(
         [
-          `<p style="margin: 0 0 16px;">Hi ${escapeHtml(name)},</p>`,
-          `<p style="margin: 0 0 16px;">Your session with <strong>${escapeHtml(coach)}</strong> is complete!</p>`,
-          `<p style="margin: 0 0 16px;"><strong>Time:</strong> ${escapeHtml(slotStr)}</p>`,
-          `<p style="margin: 0 0 0;">Please complete your payment of <strong>${escapeHtml(amountStr)}</strong>.</p>`,
+          `<p style="margin: 0 0 16px; font-size: 15px; color: ${SLATE_700};">${escapeHtml(greeting)}</p>`,
+          `<p style="margin: 0 0 6px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">Your session is complete!</p>`,
+          `<p style="margin: 0 0 4px;">${statusBadge("completed")}</p>`,
+          card,
+          `<p style="margin: 0; font-size: 15px; color: ${SLATE_700};">You can complete your payment using the button below.</p>`,
         ].join("\n"),
-        "Pay Now",
+        "View details & pay",
         paymentUrl
       )
     : htmlEmail(
         [
-          `<p style="margin: 0 0 16px;">Hi ${escapeHtml(name)},</p>`,
-          `<p style="margin: 0 0 16px;"><strong>${escapeHtml(coach)}</strong> has requested payment of <strong>${escapeHtml(amountStr)}</strong> for your coaching session.</p>`,
-          `<p style="margin: 0 0 16px;"><strong>Session:</strong> ${escapeHtml(slotStr)}</p>`,
+          `<p style="margin: 0 0 16px; font-size: 15px; color: ${SLATE_700};">${escapeHtml(greeting)}</p>`,
+          `<p style="margin: 0 0 6px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">Your coach sent a payment request</p>`,
+          card,
+          `<p style="margin: 0; font-size: 15px; color: ${SLATE_700};"><strong>${escapeHtml(coach)}</strong> has requested payment for your coaching session.</p>`,
         ].join("\n"),
-        "Pay Now",
+        "View details & pay",
         paymentUrl
       );
 
@@ -817,11 +955,11 @@ export async function sendPriceDropNotification(params: PriceDropNotificationPar
   const rateStr = `$${newPerPersonRate}/hr`;
   const bookingUrl = myBookingsUrl ? `${myBookingsUrl.replace("/bookings", "")}/bookings/${bookingId}` : "";
 
-  const subject = `Your rate just dropped to ${rateStr}`;
+  const subject = `Your rate just dropped to ${rateStr}!`;
   const bodyText = [
     `Hi ${name},`,
     "",
-    `Another athlete joined your session with ${coach}, so your per-person rate dropped!`,
+    `Great news! Another athlete joined your session with ${coach}, so your per-person rate dropped.`,
     "",
     `Session: ${slotStr}`,
     `Athletes: ${headcount}`,
@@ -834,13 +972,20 @@ export async function sendPriceDropNotification(params: PriceDropNotificationPar
 
   const bodyHtml = htmlEmail(
     [
-      `<p style="margin: 0 0 16px;">Hi ${escapeHtml(name)},</p>`,
-      `<p style="margin: 0 0 16px;">Another athlete joined your session with <strong>${escapeHtml(coach)}</strong>, so your per-person rate dropped!</p>`,
-      `<p style="margin: 0 0 8px;"><strong>Session:</strong> ${escapeHtml(slotStr)}</p>`,
-      `<p style="margin: 0 0 8px;"><strong>Athletes:</strong> ${headcount}</p>`,
-      `<p style="margin: 0 0 16px;"><strong>Your new rate:</strong> ${escapeHtml(rateStr)} per person</p>`,
+      `<p style="margin: 0 0 16px; font-size: 15px; color: ${SLATE_700};">Hi ${escapeHtml(name)},</p>`,
+      `<div style="margin: 0 0 20px; padding: 16px 20px; background: #dcfce7; border-radius: 12px; text-align: center;">
+        <p style="margin: 0 0 4px; font-size: 13px; font-weight: 700; color: #166534; text-transform: uppercase; letter-spacing: 0.05em;">Rate dropped</p>
+        <p style="margin: 0; font-size: 28px; font-weight: 800; color: #166534;">${escapeHtml(rateStr)}</p>
+        <p style="margin: 4px 0 0; font-size: 13px; color: #15803d;">per person</p>
+      </div>`,
+      `<p style="margin: 0 0 8px; font-size: 15px; color: ${SLATE_700};">Another athlete joined your session with <strong>${escapeHtml(coach)}</strong>, so everyone pays less!</p>`,
+      infoCard([
+        iconRow("📅", "Session", escapeHtml(slotStr)),
+        iconRow("👥", "Athletes", `<strong>${headcount}</strong>`),
+        iconRow("💲", "New rate", `<strong>${escapeHtml(rateStr)}</strong> per person`),
+      ]),
     ].join("\n"),
-    "View Booking",
+    "View booking",
     bookingUrl
   );
 
@@ -895,8 +1040,14 @@ export async function sendAthleteCancelledToCoach(params: AthleteCancelledToCoac
 
   const bodyHtml = htmlEmail(
     [
-      `<p style="margin: 0 0 16px;">${escapeHtml(athlete)} ${action} for ${escapeHtml(slotStr)}.</p>`,
-      `<p style="margin: 0 0 0;">The spot is now available for other athletes to book.</p>`,
+      `<p style="margin: 0 0 4px; font-size: 14px; color: ${SLATE_500};">Booking update</p>`,
+      `<p style="margin: 0 0 6px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">Booking cancelled</p>`,
+      `<p style="margin: 0 0 4px;">${statusBadge("cancelled")}</p>`,
+      infoCard([
+        iconRow("👤", "Athlete", `<strong>${escapeHtml(athlete)}</strong>`),
+        iconRow("📅", "When", escapeHtml(slotStr)),
+      ]),
+      `<p style="margin: 0; font-size: 15px; color: ${SLATE_700};">${escapeHtml(athlete)} ${escapeHtml(action)}. The spot is now available for other athletes.</p>`,
     ].join("\n"),
     "View booking",
     ctaUrl
@@ -934,5 +1085,168 @@ export async function sendAthleteCancelledToCoach(params: AthleteCancelledToCoac
     } catch (err) {
       console.error("[notifications] sendAthleteCancelledToCoach SMS failed:", err);
     }
+  }
+}
+
+// --- Payment confirmed email (athlete) ---
+
+export interface PaymentConfirmedToAthleteParams {
+  athleteEmail: string;
+  athleteName?: string | null;
+  coachDisplayName: string;
+  amountCents: number;
+  currency: string;
+  slotStart: string;
+  slotEnd: string;
+  bookingId: string;
+}
+
+export async function sendPaymentConfirmedToAthlete(params: PaymentConfirmedToAthleteParams): Promise<void> {
+  const { athleteEmail, athleteName, coachDisplayName, amountCents, currency, slotStart, slotEnd, bookingId } = params;
+  const name = athleteName?.trim() || "there";
+  const coach = coachDisplayName.trim();
+  const amountStr = `$${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()}`;
+  const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
+  const bookingUrl = bookingId && appUrl ? `${appUrl}/bookings/${bookingId}` : myBookingsUrl;
+  const greeting = `Hi ${name},`;
+
+  const subject = `Your session payment with ${coach} is confirmed`;
+  const bodyText = [
+    greeting,
+    "",
+    `Your payment of ${amountStr} for your session with ${coach} has been confirmed.`,
+    "",
+    `Session: ${slotStr}`,
+    `Amount paid: ${amountStr}`,
+    "",
+    bookingUrl ? `View your booking: ${bookingUrl}` : null,
+    "",
+    "Thank you for training with Apex Sports!",
+  ].filter((l) => l !== null).join("\n");
+
+  const bodyHtml = htmlEmail(
+    [
+      `<p style="margin: 0 0 16px; font-size: 15px; color: ${SLATE_700};">${escapeHtml(greeting)}</p>`,
+      `<p style="margin: 0 0 6px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">Payment confirmed</p>`,
+      `<div style="margin: 0 0 20px; padding: 16px 20px; background: #dcfce7; border-radius: 12px; text-align: center;">
+        <p style="margin: 0 0 4px; font-size: 13px; font-weight: 700; color: #166534; text-transform: uppercase; letter-spacing: 0.05em;">Paid</p>
+        <p style="margin: 0; font-size: 28px; font-weight: 800; color: #166534;">${escapeHtml(amountStr)}</p>
+      </div>`,
+      infoCard([
+        iconRow("📅", "Session", escapeHtml(slotStr)),
+        iconRow("🏋️", "Coach", `<strong>${escapeHtml(coach)}</strong>`),
+        iconRow("💳", "Amount", `<strong>${escapeHtml(amountStr)}</strong>`),
+      ]),
+      `<p style="margin: 0; font-size: 15px; color: ${SLATE_700};">Thank you for training with Apex Sports!</p>`,
+    ].join("\n"),
+    "View booking",
+    bookingUrl
+  );
+
+  try {
+    await ses.send(
+      new SendEmailCommand({
+        Source: fromEmail,
+        Destination: { ToAddresses: [athleteEmail] },
+        Message: {
+          Subject: { Data: subject, Charset: "UTF-8" },
+          Body: {
+            Text: { Data: bodyText, Charset: "UTF-8" },
+            Html: { Data: bodyHtml, Charset: "UTF-8" },
+          },
+        },
+      })
+    );
+  } catch (err) {
+    const sesErr = err as { name?: string; message?: string; Code?: string };
+    console.error(
+      "[notifications] sendPaymentConfirmedToAthlete failed:",
+      sesErr?.name ?? sesErr?.Code,
+      sesErr?.message ?? err,
+      "from:",
+      fromEmail
+    );
+  }
+}
+
+// --- Payment received email (coach) ---
+
+export interface PaymentReceivedToCoachParams {
+  coachEmail: string;
+  coachDisplayName: string;
+  athleteName?: string | null;
+  amountCents: number;
+  currency: string;
+  slotStart: string;
+  slotEnd: string;
+  bookingId: string;
+}
+
+export async function sendPaymentReceivedToCoach(params: PaymentReceivedToCoachParams): Promise<void> {
+  const { coachEmail, coachDisplayName, athleteName, amountCents, currency, slotStart, slotEnd, bookingId } = params;
+  const coach = coachDisplayName?.trim() || "Coach";
+  const athlete = athleteName?.trim() || "An athlete";
+  const amountStr = `$${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()}`;
+  const slotStr = `${formatSlotTime(slotStart)} – ${formatSlotTime(slotEnd)}`;
+  const bookingUrl = bookingId && appUrl ? `${appUrl}/bookings/${bookingId}` : myBookingsUrl;
+  const greeting = `Hi ${coach},`;
+
+  const subject = `${athlete} completed their session payment`;
+  const bodyText = [
+    greeting,
+    "",
+    `${athlete} has paid ${amountStr} for your session.`,
+    "",
+    `Session: ${slotStr}`,
+    `Athlete: ${athlete}`,
+    `Amount: ${amountStr}`,
+    "",
+    bookingUrl ? `View booking: ${bookingUrl}` : null,
+    "",
+    "Apex Sports",
+  ].filter((l) => l !== null).join("\n");
+
+  const bodyHtml = htmlEmail(
+    [
+      `<p style="margin: 0 0 16px; font-size: 15px; color: ${SLATE_700};">${escapeHtml(greeting)}</p>`,
+      `<p style="margin: 0 0 6px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">Payment received</p>`,
+      `<div style="margin: 0 0 20px; padding: 16px 20px; background: #dcfce7; border-radius: 12px; text-align: center;">
+        <p style="margin: 0 0 4px; font-size: 13px; font-weight: 700; color: #166534; text-transform: uppercase; letter-spacing: 0.05em;">Received</p>
+        <p style="margin: 0; font-size: 28px; font-weight: 800; color: #166534;">${escapeHtml(amountStr)}</p>
+        <p style="margin: 4px 0 0; font-size: 13px; color: #15803d;">from ${escapeHtml(athlete)}</p>
+      </div>`,
+      infoCard([
+        iconRow("👤", "Athlete", `<strong>${escapeHtml(athlete)}</strong>`),
+        iconRow("📅", "Session", escapeHtml(slotStr)),
+        iconRow("💳", "Amount", `<strong>${escapeHtml(amountStr)}</strong>`),
+      ]),
+    ].join("\n"),
+    "View booking",
+    bookingUrl
+  );
+
+  try {
+    await ses.send(
+      new SendEmailCommand({
+        Source: fromEmail,
+        Destination: { ToAddresses: [coachEmail] },
+        Message: {
+          Subject: { Data: subject, Charset: "UTF-8" },
+          Body: {
+            Text: { Data: bodyText, Charset: "UTF-8" },
+            Html: { Data: bodyHtml, Charset: "UTF-8" },
+          },
+        },
+      })
+    );
+  } catch (err) {
+    const sesErr = err as { name?: string; message?: string; Code?: string };
+    console.error(
+      "[notifications] sendPaymentReceivedToCoach failed:",
+      sesErr?.name ?? sesErr?.Code,
+      sesErr?.message ?? err,
+      "from:",
+      fromEmail
+    );
   }
 }

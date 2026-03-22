@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { authMiddleware } from "../auth.js";
 import { prisma } from "../db.js";
-import { sendBookingRequestedToCoach, sendBookingRequestSubmittedToAthlete, sendBookingStatusToAthlete, sendGroupInviteToAthlete, sendPriceDropNotification, sendAthleteCancelledToCoach } from "../notifications.js";
+import { queueEmail } from "../emailQueue.js";
 import { bookingCreateSchema, bookingUpdateSchema, reviewSchema } from "@apex-sports/shared";
 import {
   stripe,
@@ -13,7 +13,6 @@ import {
   transferToConnectAccount,
   cancelPaymentIntent,
 } from "../stripe.js";
-import { sendPaymentLinkToAthlete } from "../notifications.js";
 
 const router = Router();
 const auth = authMiddleware();
@@ -21,6 +20,44 @@ const auth = authMiddleware();
 async function getAthleteProfileId(userId: string): Promise<string | null> {
   const profile = await prisma.athleteProfile.findFirst({ where: { userId }, select: { id: true } });
   return profile?.id ?? null;
+}
+
+async function queuePaymentConfirmationEmails(bookingId: string): Promise<void> {
+  const b = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      coach: { include: { user: { select: { email: true } } } },
+      slot: true,
+      athleteProfile: { include: { user: { select: { email: true, name: true } } } },
+    },
+  });
+  if (!b || !b.amountCents) return;
+  const athleteEmail = b.athleteProfile?.user?.email;
+  const coachEmail = b.coach?.user?.email;
+  if (athleteEmail) {
+    await queueEmail("payment_confirmed", {
+      athleteEmail,
+      athleteName: b.athleteProfile.user.name,
+      coachDisplayName: b.coach.displayName,
+      amountCents: b.amountCents,
+      currency: b.currency ?? "usd",
+      slotStart: b.slot.startTime.toISOString(),
+      slotEnd: b.slot.endTime.toISOString(),
+      bookingId: b.id,
+    });
+  }
+  if (coachEmail) {
+    await queueEmail("payment_received", {
+      coachEmail,
+      coachDisplayName: b.coach.displayName,
+      athleteName: b.athleteProfile?.user?.name,
+      amountCents: b.amountCents,
+      currency: b.currency ?? "usd",
+      slotStart: b.slot.startTime.toISOString(),
+      slotEnd: b.slot.endTime.toISOString(),
+      bookingId: b.id,
+    });
+  }
 }
 
 function computeAmountCents(slot: { startTime: Date; endTime: Date }, hourlyRateDollars: number): number {
@@ -331,6 +368,7 @@ router.get("/verify-checkout-payment", auth, async (req, res) => {
       where: { id: bookingId },
       data: { paymentStatus: "succeeded" },
     });
+    await queuePaymentConfirmationEmails(bookingId);
     res.json({ paymentStatus: "succeeded" });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -608,6 +646,7 @@ router.post("/:id/pay-now", auth, async (req, res) => {
         where: { id: booking.id },
         data: { paymentStatus: "succeeded" },
       });
+      await queuePaymentConfirmationEmails(booking.id);
       return res.json({ paymentStatus: "succeeded" });
     }
 
@@ -648,6 +687,7 @@ router.post("/:id/pay-now/finalize", auth, async (req, res) => {
         where: { id: req.params.id },
         data: { paymentStatus: "succeeded" },
       });
+      await queuePaymentConfirmationEmails(req.params.id);
       return res.json({ paymentStatus: "succeeded" });
     }
     return res.status(400).json({ error: `Payment not completed (status: ${pi.status})` });
@@ -786,7 +826,7 @@ router.post("/group", auth, async (req, res) => {
         : null;
       for (const email of participantEmails.slice(0, 20)) {
         if (typeof email === "string" && email.includes("@")) {
-          await sendGroupInviteToAthlete({
+          await queueEmail("group_invite", {
             athleteEmail: email,
             inviterName,
             coachDisplayName: coach.displayName,
@@ -803,7 +843,7 @@ router.post("/group", auth, async (req, res) => {
     }
 
     if (booking.coach?.user) {
-      await sendBookingRequestedToCoach({
+      await queueEmail("booking_requested", {
         coachEmail: booking.coach.user.email,
         coachPhone: coach.phone ?? null,
         athleteName: booking.athleteProfile?.user.name ?? null,
@@ -811,7 +851,7 @@ router.post("/group", auth, async (req, res) => {
         slotEnd: slot.endTime.toISOString(),
         message: booking.message,
         bookingId: booking.id,
-      }).catch((err) => console.error("[bookings] notify coach (group) failed:", err));
+      });
     }
 
     const frontendUrl = (process.env.APP_URL ?? "http://localhost:5173").replace(/\/$/, "");
@@ -1010,7 +1050,7 @@ router.post("/group/:inviteCode/join", auth, async (req, res) => {
     where: { id: athleteProfileId },
     select: { displayName: true },
   });
-  await sendBookingRequestedToCoach({
+  await queueEmail("booking_requested", {
     coachEmail: coach.user.email,
     coachPhone: coach.phone,
     athleteName: joiningAthlete?.displayName ?? null,
@@ -1018,7 +1058,7 @@ router.post("/group/:inviteCode/join", auth, async (req, res) => {
     slotEnd: organizerBooking.slot.endTime.toISOString(),
     message: `Joined your group session (${organizerBooking.groupMembers.length + 2} of ${organizerBooking.groupSize} spots filled)`,
     bookingId: organizerBooking.id,
-  }).catch((err) => console.error("[bookings] group join coach notification failed:", err));
+  });
 
   const response: Record<string, unknown> = {
     id: participantBooking.id,
@@ -1203,7 +1243,7 @@ router.post("/", auth, async (req, res) => {
     }
 
     if (booking.coach?.user) {
-      await sendBookingRequestedToCoach({
+      await queueEmail("booking_requested", {
         coachEmail: booking.coach.user.email,
         coachPhone: booking.coach.phone ?? null,
         athleteName: booking.athleteProfile?.user.name ?? null,
@@ -1212,20 +1252,20 @@ router.post("/", auth, async (req, res) => {
         message: booking.message,
         bookingId: booking.id,
         lockedPrivate: booking.lockedPrivate,
-      }).catch((err) => console.error("[bookings] notify coach failed:", err));
+      });
     } else {
       console.error("[bookings] create booking: skipping coach notification (no coach.user)", { bookingId: booking.id });
     }
 
     if (booking.athleteProfile?.user) {
-      await sendBookingRequestSubmittedToAthlete({
+      await queueEmail("booking_submitted", {
         athleteEmail: booking.athleteProfile.user.email,
         athleteName: booking.athleteProfile.user.name ?? null,
         coachDisplayName: booking.coach.displayName,
         slotStart: booking.slot.startTime.toISOString(),
         slotEnd: booking.slot.endTime.toISOString(),
         bookingId: booking.id,
-      }).catch((err) => console.error("[bookings] notify athlete (request submitted) failed:", err));
+      });
     } else {
       console.error("[bookings] create booking: skipping athlete notification (no athlete)", { bookingId: booking.id });
     }
@@ -1240,7 +1280,7 @@ router.post("/", auth, async (req, res) => {
       });
       for (const eb of existingBookings) {
         if (eb.athleteProfile?.user?.email) {
-          await sendPriceDropNotification({
+          await queueEmail("price_drop", {
             athleteEmail: eb.athleteProfile.user.email,
             athleteName: eb.athleteProfile.user.name ?? null,
             coachDisplayName: coach.displayName,
@@ -1249,7 +1289,7 @@ router.post("/", auth, async (req, res) => {
             newPerPersonRate,
             headcount: newHeadcount,
             bookingId: eb.id,
-          }).catch((err) => console.error("[bookings] price drop notification failed:", err));
+          });
         }
       }
     }
@@ -1510,7 +1550,7 @@ router.patch("/:id", auth, async (req, res) => {
           const frontendUrl = (process.env.APP_URL ?? "http://localhost:5173").replace(/\/$/, "");
           if (member.athleteProfile?.user?.email) {
             await prisma.booking.update({ where: { id: member.id }, data: { paymentStatus: "payment_link_sent" } });
-            await sendPaymentLinkToAthlete({
+            await queueEmail("payment_link", {
               athleteEmail: member.athleteProfile.user.email,
               athleteName: member.athleteProfile.user.name ?? undefined,
               coachDisplayName: booking.coach.displayName,
@@ -1520,7 +1560,7 @@ router.patch("/:id", auth, async (req, res) => {
               slotStart: booking.slot.startTime.toISOString(),
               slotEnd: booking.slot.endTime.toISOString(),
               sessionCompleted: true,
-            }).catch((err) => console.error("[bookings] slot member payment link failed:", err));
+            });
           }
         }
       }
@@ -1597,7 +1637,7 @@ router.patch("/:id", auth, async (req, res) => {
     updated.coach.stripeConnectAccountId;
 
   if ((status === "confirmed" || status === "cancelled" || status === "completed") && !isDeferredCompleted) {
-    await sendBookingStatusToAthlete({
+    await queueEmail("booking_status", {
       athleteEmail: updated.athleteProfile.user.email,
       athleteName: updated.athleteProfile.user.name ?? undefined,
       coachDisplayName: updated.coach.displayName,
@@ -1605,11 +1645,11 @@ router.patch("/:id", auth, async (req, res) => {
       slotStart: updated.slot.startTime.toISOString(),
       slotEnd: updated.slot.endTime.toISOString(),
       bookingId: updated.id,
-    }).catch((err) => console.error("[bookings] notify athlete failed:", err));
+    });
   }
 
   if (status === "cancelled" && isAthlete && updated.coach.user) {
-    await sendAthleteCancelledToCoach({
+    await queueEmail("athlete_cancelled", {
       coachEmail: updated.coach.user.email,
       coachPhone: updated.coach.phone ?? null,
       athleteName: updated.athleteProfile.user.name ?? null,
@@ -1617,7 +1657,7 @@ router.patch("/:id", auth, async (req, res) => {
       slotEnd: updated.slot.endTime.toISOString(),
       previousStatus: booking.status,
       bookingId: updated.id,
-    }).catch((err) => console.error("[bookings] notify coach of athlete cancel failed:", err));
+    });
   }
 
   if (isDeferredCompleted) {
@@ -1629,7 +1669,7 @@ router.patch("/:id", auth, async (req, res) => {
       });
       updated.paymentStatus = "payment_link_sent";
       if (updated.athleteProfile.user.email) {
-        await sendPaymentLinkToAthlete({
+        await queueEmail("payment_link", {
           athleteEmail: updated.athleteProfile.user.email,
           athleteName: updated.athleteProfile.user.name ?? undefined,
           coachDisplayName: updated.coach.displayName,
@@ -1639,7 +1679,7 @@ router.patch("/:id", auth, async (req, res) => {
           slotStart: updated.slot.startTime.toISOString(),
           slotEnd: updated.slot.endTime.toISOString(),
           sessionCompleted: true,
-        }).catch((err) => console.error("[bookings] auto-send payment link email failed:", err));
+        });
       }
     } catch (err) {
       console.error("[bookings] auto-send payment link failed:", err);
@@ -1705,7 +1745,7 @@ router.post("/:id/payment-request", auth, async (req, res) => {
   });
 
   if (booking.athleteProfile.user.email) {
-    await sendPaymentLinkToAthlete({
+    await queueEmail("payment_link", {
       athleteEmail: booking.athleteProfile.user.email,
       athleteName: booking.athleteProfile.user.name ?? undefined,
       coachDisplayName: booking.coach.displayName,
@@ -1714,7 +1754,7 @@ router.post("/:id/payment-request", auth, async (req, res) => {
       paymentUrl,
       slotStart: booking.slot.startTime.toISOString(),
       slotEnd: booking.slot.endTime.toISOString(),
-    }).catch((err) => console.error("[bookings] send payment link email failed:", err));
+    });
   }
 
   res.json({ paymentStatus: "payment_link_sent", paymentUrl });

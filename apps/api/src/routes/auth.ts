@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { authMiddleware } from "../auth.js";
 import { prisma } from "../db.js";
-import { sendNewAthleteConnectedToCoach } from "../notifications.js";
+import { queueEmail } from "../emailQueue.js";
 
 const router = Router();
 
@@ -200,10 +200,10 @@ router.patch("/me", authMiddleware(), async (req, res) => {
         ]);
         const coachEmail = coach?.user?.email;
         if (coachEmail?.trim()) {
-          sendNewAthleteConnectedToCoach({
+          queueEmail("new_athlete_connected", {
             coachEmail: coachEmail.trim(),
             athleteDisplayName: athlete?.displayName ?? dbUser.name ?? "An athlete",
-          }).catch((err) => console.error("[auth] sendNewAthleteConnectedToCoach failed:", err));
+          }).catch((err) => console.error("[auth] queueEmail new_athlete_connected failed:", err));
         }
       }
     }
@@ -265,10 +265,10 @@ router.post("/me/connect-invite", authMiddleware(), async (req, res) => {
   });
   const coachEmail = coach?.user?.email;
   if (coachEmail?.trim()) {
-    sendNewAthleteConnectedToCoach({
+    queueEmail("new_athlete_connected", {
       coachEmail: coachEmail.trim(),
       athleteDisplayName: athleteProfile.displayName ?? dbUser.name ?? "An athlete",
-    }).catch((err) => console.error("[auth] sendNewAthleteConnectedToCoach failed:", err));
+    }).catch((err) => console.error("[auth] queueEmail new_athlete_connected failed:", err));
   }
 
   res.json({ linked: true });
