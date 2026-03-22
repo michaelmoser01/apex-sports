@@ -37,7 +37,10 @@ export default function OnboardingAbout() {
   const updateBioMutation = useMutation({
     mutationFn: (bio: string) =>
       api("/coaches/me", { method: "PUT", body: JSON.stringify({ bio }) }),
-    onSuccess: () => {
+    onSuccess: (_, bio) => {
+      queryClient.setQueryData<CoachProfile>(["coachProfile"], (old) =>
+        old ? { ...old, bio } : old
+      );
       queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
       queryClient.invalidateQueries({ queryKey: ["auth"] });
       if (isCoachAssistantOnboardingEnabled) {

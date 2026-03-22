@@ -1,7 +1,7 @@
 import { Link, useLocation, Navigate } from "react-router-dom";
 import { getNextOnboardingStep, isCoachAssistantOnboardingEnabled } from "@/config/onboarding";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, type ReactNode } from "react";
 import { startOfMonth, endOfMonth, format, isBefore } from "date-fns";
 import { api, ApiRequestError } from "@/lib/api";
 import { hasGroupRatesConfigured } from "@/lib/coachPricing";
@@ -18,8 +18,6 @@ import { Avatar } from "@/components/Avatar";
 import SessionPricingEditor from "@/components/SessionPricingEditor";
 import {
   AlertTriangle,
-  ShieldCheck,
-  CreditCard,
   Calendar,
   Users,
   Star,
@@ -28,12 +26,15 @@ import {
   ChevronRight,
   MapPin,
   Check,
+  CheckCircle,
+  Circle,
   Award,
   Clock,
   Medal,
   GraduationCap,
   Pencil,
   Plus,
+  Clipboard,
 } from "lucide-react";
 
 interface CoachPhoto {
@@ -95,6 +96,185 @@ interface AvailabilityResponse {
   rules: AvailabilityRule[];
   oneOffSlots: OneOffSlot[];
   bookedSlotIds?: string[];
+}
+
+function GettingStartedChecklist({
+  coach,
+  hasAvailability,
+  inviteUrl,
+  onVerify,
+}: {
+  coach: { id: string; stripeOnboardingComplete?: boolean; verified: boolean };
+  hasAvailability: boolean;
+  inviteUrl: string | null;
+  onVerify: () => void;
+}) {
+  const sharedLinkKey = `apex:coach:sharedLink:${coach.id}`;
+  const [linkShared, setLinkShared] = useState(() => {
+    try { return localStorage.getItem(sharedLinkKey) === "1"; } catch { return false; }
+  });
+  const [justCopied, setJustCopied] = useState(false);
+
+  const handleCopyLink = () => {
+    if (!inviteUrl) return;
+    navigator.clipboard.writeText(inviteUrl);
+    setJustCopied(true);
+    setTimeout(() => setJustCopied(false), 2500);
+    if (!linkShared) {
+      setLinkShared(true);
+      try { localStorage.setItem(sharedLinkKey, "1"); } catch {}
+    }
+  };
+
+  const allDone =
+    hasAvailability && linkShared && coach.verified && coach.stripeOnboardingComplete;
+  if (allDone) return null;
+
+  return (
+    <section className="mb-6 sm:mb-8 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="px-5 pt-5 pb-1 sm:px-6 sm:pt-6">
+        <h2 className="text-lg font-bold text-slate-900">Getting started</h2>
+        <p className="text-sm text-slate-500 mt-0.5">Complete these steps to start coaching on ApexSports.</p>
+      </div>
+
+      <div className="px-5 pb-5 sm:px-6 sm:pb-6 space-y-5 mt-3">
+        {/* Phase 1: Book your first session */}
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-brand-600 mb-2">Book your first session</p>
+          <div className="space-y-2">
+            <ChecklistItem
+              done={hasAvailability}
+              label="Set up your availability"
+              description="Add times when you're available to coach."
+              action={
+                !hasAvailability ? (
+                  <Link
+                    to="/dashboard/availability"
+                    className="shrink-0 px-3 py-1.5 rounded-lg bg-brand-500 text-white text-sm font-medium hover:bg-brand-600 transition touch-manipulation inline-flex items-center gap-1"
+                  >
+                    Set up <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                ) : undefined
+              }
+            />
+            <ChecklistItem
+              done={linkShared}
+              label="Share your link with athletes"
+              description={
+                <>
+                  Copy your personal link and send it to your athletes. You can find it again anytime under{" "}
+                  <Link to="/dashboard/athletes" className="font-medium text-brand-600 hover:underline">
+                    Athletes
+                  </Link>{" "}
+                  in the nav (or use <span className="font-medium text-slate-700">Invite athlete</span> on your dashboard).
+                </>
+              }
+              hintWhenDone={
+                <>
+                  Need the link again? Open{" "}
+                  <Link to="/dashboard/athletes" className="font-medium text-brand-600 hover:underline">
+                    Athletes
+                  </Link>{" "}
+                  to copy it, or use <span className="font-medium text-slate-600">Invite athlete</span> at the top.
+                </>
+              }
+              action={
+                !linkShared ? (
+                  <button
+                    type="button"
+                    onClick={handleCopyLink}
+                    disabled={!inviteUrl}
+                    className="shrink-0 px-3 py-1.5 rounded-lg bg-brand-500 text-white text-sm font-medium hover:bg-brand-600 transition touch-manipulation inline-flex items-center gap-1 disabled:opacity-50"
+                  >
+                    {justCopied ? (
+                      <><Check className="w-3.5 h-3.5" /> Copied!</>
+                    ) : (
+                      <><Clipboard className="w-3.5 h-3.5" /> Copy link</>
+                    )}
+                  </button>
+                ) : undefined
+              }
+            />
+          </div>
+        </div>
+
+        {/* Phase 2: Get discovered */}
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-sky-600 mb-2">Get discovered</p>
+          <p className="text-xs text-slate-400 mb-2">Appear in Find Coaches so athletes can find you.</p>
+          <ChecklistItem
+            done={coach.verified}
+            label="Complete your background check"
+            description="Required before athletes can discover your profile."
+            action={
+              !coach.verified ? (
+                <button
+                  type="button"
+                  onClick={onVerify}
+                  className="shrink-0 px-3 py-1.5 rounded-lg bg-sky-500 text-white text-sm font-medium hover:bg-sky-600 transition touch-manipulation inline-flex items-center gap-1"
+                >
+                  Start <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              ) : undefined
+            }
+          />
+        </div>
+
+        {/* Phase 3: Get paid */}
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-emerald-600 mb-2">Get paid</p>
+          <p className="text-xs text-slate-400 mb-2">Needed before your first session completes. No rush.</p>
+          <ChecklistItem
+            done={!!coach.stripeOnboardingComplete}
+            label="Connect your payment account"
+            description="Link Stripe so you can collect payments from athletes."
+            action={
+              !coach.stripeOnboardingComplete ? (
+                <Link
+                  to="/coach/setup/get-paid"
+                  className="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 transition touch-manipulation inline-flex items-center gap-1"
+                >
+                  Set up <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              ) : undefined
+            }
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ChecklistItem({
+  done,
+  label,
+  description,
+  hintWhenDone,
+  action,
+}: {
+  done: boolean;
+  label: string;
+  description: ReactNode;
+  hintWhenDone?: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <div className={`flex items-center gap-3 p-3 rounded-xl border transition ${
+      done ? "border-slate-100 bg-slate-50" : "border-slate-200 bg-white"
+    }`}>
+      {done ? (
+        <CheckCircle className="w-5 h-5 text-success-500 shrink-0" />
+      ) : (
+        <Circle className="w-5 h-5 text-slate-300 shrink-0" />
+      )}
+      <div className="flex-1 min-w-0">
+        <p className={`text-sm font-medium ${done ? "text-slate-400 line-through" : "text-slate-900"}`}>{label}</p>
+        {!done && <div className="text-xs text-slate-500 mt-0.5">{description}</div>}
+        {done && hintWhenDone && <div className="text-xs text-slate-500 mt-1 leading-snug">{hintWhenDone}</div>}
+      </div>
+      {!done && action}
+    </div>
+  );
 }
 
 function EditProfileFormInline({
@@ -959,49 +1139,12 @@ export default function CoachDashboard() {
           </div>
         </section>
 
-        {(!coach.stripeOnboardingComplete || !coach.verified) && (
-          <div className="space-y-3 mb-6 sm:mb-8">
-            {!coach.stripeOnboardingComplete && (
-              <section className="p-4 sm:p-5 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-                <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-600 shrink-0 mt-0.5">
-                    <CreditCard className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <p className="text-amber-900 font-semibold text-sm sm:text-base">Set up payments to get paid for your sessions</p>
-                    <p className="text-amber-700 text-sm mt-0.5">Connect your Stripe account so you can collect payments from athletes.</p>
-                  </div>
-                </div>
-                <Link
-                  to="/coach/setup/get-paid"
-                  className="shrink-0 px-4 py-2.5 rounded-xl bg-amber-600 text-white font-semibold text-sm hover:bg-amber-700 transition text-center touch-manipulation inline-flex items-center gap-1.5"
-                >
-                  Set up payments <ArrowRight className="w-4 h-4" />
-                </Link>
-              </section>
-            )}
-            {!coach.verified && (
-              <section className="p-4 sm:p-5 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-                <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-600 shrink-0 mt-0.5">
-                    <ShieldCheck className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <p className="text-amber-900 font-semibold text-sm sm:text-base">Complete your background check to appear in Find Coaches</p>
-                    <p className="text-amber-700 text-sm mt-0.5">Verification is required before athletes can discover your profile.</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowVerifyModal(true)}
-                  className="shrink-0 px-4 py-2.5 rounded-xl bg-amber-600 text-white font-semibold text-sm hover:bg-amber-700 transition text-center touch-manipulation inline-flex items-center gap-1.5"
-                >
-                  Complete verification <ArrowRight className="w-4 h-4" />
-                </button>
-              </section>
-            )}
-          </div>
-        )}
+        <GettingStartedChecklist
+          coach={coach}
+          hasAvailability={(rules.length > 0 || oneOffSlots.length > 0)}
+          inviteUrl={inviteData?.url ?? null}
+          onVerify={() => setShowVerifyModal(true)}
+        />
 
         {coach.stripeOnboardingComplete && (
           <section className="mb-5 sm:mb-6 lg:mb-8 flex items-center gap-3 text-sm">
