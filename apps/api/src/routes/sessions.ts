@@ -2,10 +2,6 @@ import { Router } from "express";
 import { authMiddleware } from "../auth.js";
 import { prisma } from "../db.js";
 import {
-  stripe,
-  isStripeEnabled,
-  capturePaymentIntent,
-  transferToConnectAccount,
   cancelPaymentIntent,
 } from "../stripe.js";
 import { queueEmail } from "../emailQueue.js";
@@ -238,30 +234,6 @@ router.post("/:slotId/complete", auth, async (req, res) => {
     const didAttend = att ? att.attended : booking.attended;
     if (!didAttend) continue;
 
-    let paymentOk = false;
-    if (booking.stripePaymentIntentId && booking.amountCents != null && slot.coach.stripeConnectAccountId && stripe) {
-      try {
-        const pi = await stripe.paymentIntents.retrieve(booking.stripePaymentIntentId);
-        if (pi.status === "requires_capture") {
-          await capturePaymentIntent(booking.stripePaymentIntentId);
-          const isDestCharge = !!pi.transfer_data?.destination;
-          if (!isDestCharge && slot.coach.stripeConnectAccountId) {
-            await transferToConnectAccount({
-              amountCents: booking.amountCents,
-              currency: booking.currency ?? "usd",
-              connectAccountId: slot.coach.stripeConnectAccountId,
-              transferGroup: booking.id,
-            });
-          }
-          paymentOk = true;
-        } else if (pi.status === "succeeded") {
-          paymentOk = true;
-        }
-      } catch (err) {
-        console.error("[sessions] capture failed for booking:", booking.id, err);
-      }
-    }
-
     const isDeferredCompleted =
       booking.paymentStatus === "deferred" &&
       booking.amountCents != null &&
@@ -272,7 +244,6 @@ router.post("/:slotId/complete", auth, async (req, res) => {
       data: {
         status: "completed",
         completedAt: new Date(),
-        ...(paymentOk && { paymentStatus: "succeeded" }),
       },
     });
 

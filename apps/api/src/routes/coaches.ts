@@ -659,9 +659,6 @@ router.put("/me", authMiddleware(), async (req, res) => {
     ? (req.body as { photos: string[] }).photos.filter((u): u is string => typeof u === "string" && u.trim().length > 0)
     : undefined;
 
-  const rawBillingMode = (req.body as { billingMode?: string }).billingMode;
-  const billingMode = rawBillingMode === "upfront" || rawBillingMode === "after_session" ? rawBillingMode : undefined;
-
   const rawGroupRates = (req.body as { groupRates?: Record<string, number> }).groupRates;
   const groupRates = rawGroupRates && typeof rawGroupRates === "object" ? rawGroupRates : undefined;
 
@@ -700,7 +697,6 @@ router.put("/me", authMiddleware(), async (req, res) => {
         hourlyRate: new Prisma.Decimal(data.hourlyRate),
       }),
       ...(data.phone !== undefined && { phone: data.phone?.trim() || null }),
-      ...(billingMode !== undefined && { billingMode }),
       ...(groupRates !== undefined && { groupRates: groupRates as Prisma.InputJsonValue }),
     },
   });
@@ -2254,10 +2250,7 @@ router.get("/:id", async (req, res) => {
     })),
     reviewCount: coach._count.reviews,
     averageRating: avgRating ? Math.round(avgRating * 10) / 10 : null,
-    paymentMode:
-      coach.stripeConnectAccountId && coach.stripeOnboardingComplete && coach.billingMode === "upfront"
-        ? "upfront"
-        : "after_session",
+    paymentMode: "after_session",
   });
 });
 

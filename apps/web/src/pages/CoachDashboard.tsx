@@ -68,7 +68,6 @@ interface CoachProfile {
   assistantDisplayName?: string | null;
   assistantPhoneNumber?: string | null;
   planId?: string | null;
-  billingMode?: string;
   groupRates?: Record<string, number> | null;
 }
 
@@ -979,15 +978,6 @@ export default function CoachDashboard() {
     },
   });
 
-  const billingModeMutation = useMutation({
-    mutationFn: async (billingMode: "upfront" | "after_session") => {
-      await api("/coaches/me", { method: "PUT", body: JSON.stringify({ billingMode }) });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
-    },
-  });
-
   const groupRatesMutation = useMutation({
     mutationFn: async (groupRates: Record<string, number>) => {
       await api("/coaches/me", { method: "PUT", body: JSON.stringify({ groupRates }) });
@@ -1145,36 +1135,6 @@ export default function CoachDashboard() {
           inviteUrl={inviteData?.url ?? null}
           onVerify={() => setShowVerifyModal(true)}
         />
-
-        {coach.stripeOnboardingComplete && (
-          <section className="mb-5 sm:mb-6 lg:mb-8 flex items-center gap-3 text-sm">
-            <span className="text-slate-600 font-medium">Billing:</span>
-            <button
-              type="button"
-              onClick={() => billingModeMutation.mutate("after_session")}
-              disabled={billingModeMutation.isPending}
-              className={`px-3 py-1.5 rounded-lg font-medium transition touch-manipulation ${
-                coach.billingMode !== "upfront"
-                  ? "bg-brand-500 text-white"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              Bill after session
-            </button>
-            <button
-              type="button"
-              onClick={() => billingModeMutation.mutate("upfront")}
-              disabled={billingModeMutation.isPending}
-              className={`px-3 py-1.5 rounded-lg font-medium transition touch-manipulation ${
-                coach.billingMode === "upfront"
-                  ? "bg-brand-500 text-white"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              Collect upfront
-            </button>
-          </section>
-        )}
 
         {/* Grid: 1 col mobile, 2 cols desktop */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">

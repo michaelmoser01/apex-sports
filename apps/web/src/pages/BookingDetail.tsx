@@ -164,7 +164,7 @@ export default function BookingDetail() {
 
   const isAthlete = booking.viewerRole === "athlete";
   const isCoach = booking.viewerRole === "coach";
-  const isPaid = booking.paymentStatus === "succeeded" || booking.paymentStatus === "authorized" || booking.paymentStatus === "paid_offline";
+  const isPaid = booking.paymentStatus === "succeeded" || booking.paymentStatus === "paid_offline";
   const paymentLinkSent = booking.paymentStatus === "deferred" || booking.paymentStatus === "payment_link_sent";
   const needsPayment =
     isAthlete &&
@@ -288,7 +288,7 @@ export default function BookingDetail() {
             >
               {booking.status}
             </span>
-            {(booking.paymentStatus === "succeeded" || booking.paymentStatus === "authorized") && (
+            {booking.paymentStatus === "succeeded" && (
               <span className="px-3 py-1 rounded-full text-xs font-semibold bg-success-100 text-success-700 ring-1 ring-success-600/10">
                 Paid
               </span>
@@ -677,14 +677,12 @@ export default function BookingDetail() {
             </h2>
             <p className="text-slate-600 text-sm mb-4">
               {confirmAction.type === "complete"
-                ? confirmAction.paymentStatus === "authorized" || confirmAction.paymentStatus === "pending_authorization"
-                  ? "This will charge the athlete's card and transfer the session amount to you. This cannot be undone."
-                  : confirmAction.paymentStatus === "deferred"
-                    ? "This will mark the session as complete and automatically send a payment link to the athlete."
-                    : "This will mark the session as complete."
+                ? confirmAction.paymentStatus === "deferred"
+                  ? "This will mark the session as complete and automatically send a payment link to the athlete."
+                  : "This will mark the session as complete."
                 : confirmAction.type === "athlete-cancel"
-                  ? "This will cancel your booking and free the spot. Any payment hold will be released."
-                  : `This will cancel the booking${confirmAction.athleteName ? ` with ${confirmAction.athleteName}` : ""}. Any payment hold will be released.`}
+                  ? "This will cancel your booking and free the spot."
+                  : `This will cancel the booking${confirmAction.athleteName ? ` with ${confirmAction.athleteName}` : ""}.`}
             </p>
             <div className="flex gap-3 justify-end">
               <button

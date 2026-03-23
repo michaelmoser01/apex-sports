@@ -2,18 +2,12 @@ import { useParams, Link, useNavigate, useSearchParams, Navigate } from "react-r
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo, useEffect } from "react";
 import { format } from "date-fns";
-import { loadStripe } from "@stripe/stripe-js";
-import { Elements } from "@stripe/react-stripe-js";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { api } from "@/lib/api";
 import { setDeepLink } from "@/utils/deepLink";
-import { BookingPaymentForm } from "@/components/BookingPaymentForm";
 import { CoachDetailMap } from "@/components/CoachDetailMap";
 import { Users, Lock } from "lucide-react";
-
-const stripePk = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
-const stripePromise = stripePk ? loadStripe(stripePk) : null;
 
 interface SlotLocation {
   id: string;
@@ -29,7 +23,6 @@ interface CoachBookData {
   displayName: string;
   hourlyRate: string | null;
   groupRates?: Record<string, number> | null;
-  paymentMode?: "upfront" | "after_session";
   availabilitySlots: {
     id: string;
     startTime: string;
@@ -204,15 +197,6 @@ export default function CoachBook() {
     return null;
   }, [coach?.availabilitySlots, coach?.id, slotId, existingBooking]);
 
-  const myPendingSlotIds = useMemo(() => {
-    if (!id || !myBookings?.asAthlete) return new Set<string>();
-    return new Set(
-      myBookings.asAthlete
-        .filter((b) => b.coach.id === coach?.id && b.status === "pending")
-        .map((b) => b.slot.id)
-    );
-  }, [id, coach?.id, myBookings]);
-
   const slotMaxCapacity = (slot as { maxCapacity?: number } | null)?.maxCapacity ?? 1;
   const currentHeadcount = (slot as { currentHeadcount?: number } | null)?.currentHeadcount ?? 0;
   const spotsRemaining = (slot as { spotsRemaining?: number } | null)?.spotsRemaining ?? 1;
@@ -240,54 +224,28 @@ export default function CoachBook() {
     return interpolateRate(currentHeadcount + 1, groupRates, baseRate);
   }, [baseRate, groupRates, lockPrivate, isGroupEligible, currentHeadcount]);
 
-  const sessionAmountCents = useMemo(() => {
-    if (!perPersonRate || !slot) return null;
-    const start = new Date(slot.startTime).getTime();
-    const end = new Date(slot.endTime).getTime();
-    const hours = (end - start) / (60 * 60 * 1000);
-    return Math.max(50, Math.ceil(hours * perPersonRate * 100));
-  }, [perPersonRate, slot]);
-
-  const needsPaymentForm =
-    !!coach?.hourlyRate &&
-    coach?.paymentMode === "upfront" &&
-    !!stripePk &&
-    !!slotId &&
-    !!sessionAmountCents &&
-    isAuthenticated &&
-    !myPendingSlotIds.has(slotId);
-
   const bookMutation = useMutation({
     mutationFn: async ({
       coachId,
       slotId: sId,
       message,
-      paymentMethodId,
       lockPrivate: lp,
     }: {
       coachId: string;
       slotId: string;
       message?: string;
-      paymentMethodId?: string;
       lockPrivate?: boolean;
     }) =>
-      api<{ id: string; clientSecret?: string; requiresAction?: boolean }>("/bookings", {
+      api<{ id: string }>("/bookings", {
         method: "POST",
         body: JSON.stringify({
           coachId,
           slotId: sId,
           ...(message?.trim() ? { message: message.trim() } : {}),
-          ...(paymentMethodId ? { payment_method: paymentMethodId } : {}),
           ...(lp ? { lockPrivate: true } : {}),
         }),
       }),
     onSuccess: (data) => {
-      if (data?.clientSecret && !needsPaymentForm) {
-        setBookingError(
-          "This session requires payment. Please refresh the page to see the payment form and enter your card."
-        );
-        return;
-      }
       queryClient.invalidateQueries({ queryKey: ["coach", id] });
       queryClient.invalidateQueries({ queryKey: ["bookings"] });
       if (isGroupEligible && !lockPrivate && data?.id) {
@@ -408,9 +366,7 @@ export default function CoachBook() {
             {!alreadyBooked && perPersonRate != null && (
               <p className="text-slate-500 text-sm mt-0.5">
                 ${perPersonRate}/hr{isGroupEligible && !lockPrivate ? " per person" : ""}
-                {coach.paymentMode === "upfront"
-                  ? " · Your card is only authorized now; you're charged when the coach marks the session complete."
-                  : " · You'll receive a payment link after your session."}
+                {" · You'll receive a payment link after your session."}
               </p>
             )}
           </div>
@@ -622,47 +578,19 @@ export default function CoachBook() {
                   )}
                 </div>
 
-                {needsPaymentForm && stripePromise != null && sessionAmountCents ? (
-                  <Elements stripe={stripePromise}>
-                    <BookingPaymentForm
-                      slotId={slotId}
-                      message={bookingMessage}
-                      amountCents={sessionAmountCents}
-                      createBooking={(body) =>
-                        bookMutation.mutateAsync({
-                          coachId: coach.id,
-                          slotId: body.slotId,
-                          message: body.message,
-                          paymentMethodId: body.paymentMethodId,
-                          lockPrivate,
-                        })
-                      }
-                      cancelBooking={(bookingId) =>
-                        api(`/bookings/${bookingId}`, {
-                          method: "PATCH",
-                          body: JSON.stringify({ status: "cancelled" }),
-                        })
-                      }
-                      onSuccess={() => navigate(`/coaches/${id}/booking/success`, { replace: true })}
-                      onError={(message) => setBookingError(typeof message === "string" ? message : "Something went wrong.")}
-                      disabled={bookMutation.isPending}
-                    />
-                  </Elements>
-                ) : (
-                  <button
-                    onClick={handleBook}
-                    disabled={bookMutation.isPending}
-                    className="w-full bg-brand-500 text-white px-4 py-3 rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50"
-                  >
-                    {bookMutation.isPending
-                      ? "Requesting…"
-                      : lockPrivate
-                        ? "Book private session"
-                        : isGroupEligible
-                          ? "Join this session"
-                          : "Request booking"}
-                  </button>
-                )}
+                <button
+                  onClick={handleBook}
+                  disabled={bookMutation.isPending}
+                  className="w-full bg-brand-500 text-white px-4 py-3 rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50"
+                >
+                  {bookMutation.isPending
+                    ? "Requesting…"
+                    : lockPrivate
+                      ? "Book private session"
+                      : isGroupEligible
+                        ? "Join this session"
+                        : "Request booking"}
+                </button>
 
                 {bookingError && (
                   <p className="text-danger-700 text-sm bg-danger-50 px-3 py-2 rounded-lg border border-danger-200" role="alert">

@@ -5,12 +5,8 @@ import { queueEmail } from "../emailQueue.js";
 import { bookingCreateSchema, bookingUpdateSchema, reviewSchema } from "@apex-sports/shared";
 import {
   stripe,
-  isStripeEnabled,
   getOrCreateStripeCustomerId,
-  createPaymentIntentAuthOnly,
   createDeferredBookingPaymentIntent,
-  capturePaymentIntent,
-  transferToConnectAccount,
   cancelPaymentIntent,
 } from "../stripe.js";
 
@@ -709,10 +705,9 @@ router.post("/group", auth, async (req, res) => {
     groupSize?: number;
     message?: string;
     participantEmails?: string[];
-    payment_method?: string;
   };
 
-  const { coachId, slotId, groupSize, message, participantEmails, payment_method: paymentMethodId } = body;
+  const { coachId, slotId, groupSize, message, participantEmails } = body;
   if (!coachId || !slotId) return res.status(400).json({ error: "coachId and slotId are required" });
   if (!groupSize || groupSize < 2 || groupSize > 20) return res.status(400).json({ error: "groupSize must be between 2 and 20" });
 
@@ -746,13 +741,6 @@ router.post("/group", auth, async (req, res) => {
       ? computePerPersonAmountCents(slot, groupSize, groupRates, hourlyRate!)
       : null;
 
-    const needsPayment =
-      isStripeEnabled() && stripe && hasRate && !!coach.stripeConnectAccountId && coach.billingMode === "upfront";
-
-    if (needsPayment && !paymentMethodId) {
-      return res.status(400).json({ error: "Payment method required", code: "PAYMENT_METHOD_REQUIRED" });
-    }
-
     const inviteCode = generateInviteCode();
 
     const booking = await prisma.booking.create({
@@ -766,7 +754,7 @@ router.post("/group", auth, async (req, res) => {
         isGroupOrganizer: true,
         amountCents: perPersonAmountCents ?? undefined,
         currency: "usd",
-        paymentStatus: needsPayment ? "pending_authorization" : (hasRate ? "deferred" : undefined),
+        paymentStatus: hasRate ? "deferred" : undefined,
       },
       include: {
         coach: { include: { user: { select: { email: true } } } },
@@ -774,45 +762,6 @@ router.post("/group", auth, async (req, res) => {
         athleteProfile: { include: { user: { select: { email: true, name: true } } } },
       },
     });
-
-    let clientSecret: string | null = null;
-
-    if (needsPayment && perPersonAmountCents != null && stripe) {
-      try {
-        const athleteUser = await prisma.user.findUnique({
-          where: { id: user.id },
-          select: { email: true, stripeCustomerId: true },
-        });
-        const customerId = await getOrCreateStripeCustomerId(
-          stripe, user.id, athleteUser?.email ?? "", athleteUser?.stripeCustomerId ?? null,
-        );
-        if (!athleteUser?.stripeCustomerId) {
-          await prisma.user.update({ where: { id: user.id }, data: { stripeCustomerId: customerId } });
-        }
-
-        const { clientSecret: secret, paymentIntentId, status: piStatus } = await createPaymentIntentAuthOnly({
-          amountCents: perPersonAmountCents,
-          currency: "usd",
-          customerId,
-          paymentMethodId: paymentMethodId || undefined,
-          idempotencyKey: `group-${booking.id}`,
-          metadata: { bookingId: booking.id },
-          connectAccountId: coach.stripeConnectAccountId ?? undefined,
-        });
-        clientSecret = piStatus === "requires_action" ? secret : null;
-        await prisma.booking.update({
-          where: { id: booking.id },
-          data: {
-            stripePaymentIntentId: paymentIntentId,
-            ...(piStatus === "requires_capture" && { paymentStatus: "authorized" }),
-          },
-        });
-      } catch (err) {
-        console.error("[bookings] group create PaymentIntent failed:", err);
-        await prisma.booking.update({ where: { id: booking.id }, data: { paymentStatus: "failed" } });
-        return res.status(502).json({ error: "Payment setup failed" });
-      }
-    }
 
     // Send group invite emails to participants if provided
     if (participantEmails && participantEmails.length > 0) {
@@ -855,7 +804,7 @@ router.post("/group", auth, async (req, res) => {
     }
 
     const frontendUrl = (process.env.APP_URL ?? "http://localhost:5173").replace(/\/$/, "");
-    const response: Record<string, unknown> = {
+    res.status(201).json({
       id: booking.id,
       inviteCode,
       inviteUrl: `${frontendUrl}/group/${inviteCode}`,
@@ -866,12 +815,7 @@ router.post("/group", auth, async (req, res) => {
       status: booking.status,
       paymentStatus: booking.paymentStatus ?? null,
       createdAt: booking.createdAt.toISOString(),
-    };
-    if (clientSecret) {
-      response.clientSecret = clientSecret;
-      response.requiresAction = true;
-    }
-    res.status(201).json(response);
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[bookings] create group booking error:", message);
@@ -943,8 +887,6 @@ router.post("/group/:inviteCode/join", auth, async (req, res) => {
   const user = (req as { user?: { id: string } }).user;
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
-  const paymentMethodId = (req.body as { payment_method?: string }).payment_method as string | undefined;
-
   const organizerBooking = await prisma.booking.findUnique({
     where: { inviteCode: req.params.inviteCode },
     include: {
@@ -985,13 +927,6 @@ router.post("/group/:inviteCode/join", auth, async (req, res) => {
     ? computePerPersonAmountCents(organizerBooking.slot, organizerBooking.groupSize, groupRates, hourlyRate!)
     : null;
 
-  const needsPayment =
-    isStripeEnabled() && stripe && hasRate && !!coach.stripeConnectAccountId && coach.billingMode === "upfront";
-
-  if (needsPayment && !paymentMethodId) {
-    return res.status(400).json({ error: "Payment method required", code: "PAYMENT_METHOD_REQUIRED" });
-  }
-
   const participantBooking = await prisma.booking.create({
     data: {
       athleteProfileId,
@@ -1002,48 +937,9 @@ router.post("/group/:inviteCode/join", auth, async (req, res) => {
       groupBookingId: organizerBooking.id,
       amountCents: perPersonAmountCents ?? undefined,
       currency: "usd",
-      paymentStatus: needsPayment ? "pending_authorization" : (hasRate ? "deferred" : undefined),
+      paymentStatus: hasRate ? "deferred" : undefined,
     },
   });
-
-  let clientSecret: string | null = null;
-
-  if (needsPayment && perPersonAmountCents != null && stripe) {
-    try {
-      const athleteUser = await prisma.user.findUnique({
-        where: { id: user.id },
-        select: { email: true, stripeCustomerId: true },
-      });
-      const customerId = await getOrCreateStripeCustomerId(
-        stripe, user.id, athleteUser?.email ?? "", athleteUser?.stripeCustomerId ?? null,
-      );
-      if (!athleteUser?.stripeCustomerId) {
-        await prisma.user.update({ where: { id: user.id }, data: { stripeCustomerId: customerId } });
-      }
-
-      const { clientSecret: secret, paymentIntentId, status: piStatus } = await createPaymentIntentAuthOnly({
-        amountCents: perPersonAmountCents,
-        currency: "usd",
-        customerId,
-        paymentMethodId: paymentMethodId || undefined,
-        idempotencyKey: `group-join-${participantBooking.id}`,
-        metadata: { bookingId: participantBooking.id },
-        connectAccountId: coach.stripeConnectAccountId ?? undefined,
-      });
-      clientSecret = piStatus === "requires_action" ? secret : null;
-      await prisma.booking.update({
-        where: { id: participantBooking.id },
-        data: {
-          stripePaymentIntentId: paymentIntentId,
-          ...(piStatus === "requires_capture" && { paymentStatus: "authorized" }),
-        },
-      });
-    } catch (err) {
-      console.error("[bookings] group join PaymentIntent failed:", err);
-      await prisma.booking.update({ where: { id: participantBooking.id }, data: { paymentStatus: "failed" } });
-      return res.status(502).json({ error: "Payment setup failed" });
-    }
-  }
 
   // Notify the coach that a new participant has joined and needs confirmation
   const joiningAthlete = await prisma.athleteProfile.findUnique({
@@ -1060,18 +956,13 @@ router.post("/group/:inviteCode/join", auth, async (req, res) => {
     bookingId: organizerBooking.id,
   });
 
-  const response: Record<string, unknown> = {
+  res.status(201).json({
     id: participantBooking.id,
     groupBookingId: organizerBooking.id,
     perPersonAmountCents,
     status: participantBooking.status,
     paymentStatus: participantBooking.paymentStatus ?? null,
-  };
-  if (clientSecret) {
-    response.clientSecret = clientSecret;
-    response.requiresAction = true;
-  }
-  res.status(201).json(response);
+  });
 });
 
 // Create booking (athlete). Supports flexible sessions: multi-booking per slot,
@@ -1085,7 +976,6 @@ router.post("/", auth, async (req, res) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
   const { coachId, slotId, message } = parsed.data;
-  const paymentMethodId = (req.body as { payment_method?: string }).payment_method as string | undefined;
   const lockPrivate = (req.body as { lockPrivate?: boolean }).lockPrivate === true;
 
   try {
@@ -1135,12 +1025,6 @@ router.post("/", auth, async (req, res) => {
       return res.status(409).json({ error: "This session is full" });
     }
 
-    const athleteUser = await prisma.user.findUnique({
-      where: { id: user.id },
-      select: { email: true, stripeCustomerId: true },
-    });
-    if (!athleteUser) return res.status(401).json({ error: "User not found" });
-
     const coach = slot.coach;
     const hourlyRate = coach.hourlyRate ? Number(coach.hourlyRate) : null;
     const hasRate = hourlyRate != null && hourlyRate > 0;
@@ -1154,20 +1038,7 @@ router.post("/", auth, async (req, res) => {
           : computeAmountCents(slot, hourlyRate!))
       : null;
 
-    const needsPayment =
-      isStripeEnabled() &&
-      stripe &&
-      hasRate &&
-      !!coach.stripeConnectAccountId &&
-      coach.billingMode === "upfront";
     const currency = "usd";
-
-    if (needsPayment && !paymentMethodId) {
-      return res.status(400).json({
-        error: "Payment method required.",
-        code: "PAYMENT_METHOD_REQUIRED",
-      });
-    }
 
     const bookingInviteCode = generateInviteCode();
 
@@ -1188,7 +1059,7 @@ router.post("/", auth, async (req, res) => {
         groupSize: headcount,
         lockedPrivate: lockPrivate,
         inviteCode: bookingInviteCode,
-        paymentStatus: needsPayment ? "pending_authorization" : (hasRate ? "deferred" : undefined),
+        paymentStatus: hasRate ? "deferred" : undefined,
       },
       include: {
         coach: { include: { user: { select: { email: true } } } },
@@ -1196,51 +1067,6 @@ router.post("/", auth, async (req, res) => {
         athleteProfile: { include: { user: { select: { email: true, name: true } } } },
       },
     });
-
-    let clientSecret: string | null = null;
-
-    if (needsPayment && amountCents != null && stripe) {
-      try {
-        const customerId = await getOrCreateStripeCustomerId(
-          stripe,
-          user.id,
-          athleteUser.email ?? "",
-          athleteUser.stripeCustomerId
-        );
-        if (!athleteUser.stripeCustomerId)
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { stripeCustomerId: customerId },
-          });
-
-        const { clientSecret: secret, paymentIntentId, status: piStatus } = await createPaymentIntentAuthOnly({
-          amountCents,
-          currency,
-          customerId,
-          paymentMethodId: paymentMethodId || undefined,
-          idempotencyKey: booking.id,
-          metadata: { bookingId: booking.id },
-          connectAccountId: booking.coach.stripeConnectAccountId ?? undefined,
-        });
-        clientSecret = piStatus === "requires_action" ? secret : null;
-        await prisma.booking.update({
-          where: { id: booking.id },
-          data: {
-            stripePaymentIntentId: paymentIntentId,
-            ...(piStatus === "requires_capture" && { paymentStatus: "authorized" as const }),
-          },
-        });
-      } catch (err) {
-        console.error("[bookings] create PaymentIntent failed:", err);
-        await prisma.booking.update({
-          where: { id: booking.id },
-          data: { paymentStatus: "failed" },
-        });
-        return res.status(502).json({
-          error: "Payment setup failed. Please try again or use a different card.",
-        });
-      }
-    }
 
     if (booking.coach?.user) {
       await queueEmail("booking_requested", {
@@ -1294,7 +1120,7 @@ router.post("/", auth, async (req, res) => {
       }
     }
 
-    const response: Record<string, unknown> = {
+    res.status(201).json({
       id: booking.id,
       coach: {
         id: booking.coach.id,
@@ -1311,13 +1137,7 @@ router.post("/", auth, async (req, res) => {
       paymentStatus: booking.paymentStatus ?? null,
       createdAt: booking.createdAt.toISOString(),
       lockedPrivate: booking.lockedPrivate,
-    };
-    if (clientSecret) {
-      (response as { clientSecret: string }).clientSecret = clientSecret;
-      (response as { requiresAction: boolean }).requiresAction = true;
-    }
-
-    res.status(201).json(response);
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
@@ -1510,39 +1330,14 @@ router.patch("/:id", auth, async (req, res) => {
       const memberAttendance = attendance?.find((a) => a.bookingId === member.id);
       const didAttend = memberAttendance ? memberAttendance.attended : member.attended;
       if (didAttend) {
-        let memberPaymentOk = false;
-        if (member.stripePaymentIntentId && member.amountCents != null && booking.coach.stripeConnectAccountId && stripe) {
-          try {
-            const pi = await stripe.paymentIntents.retrieve(member.stripePaymentIntentId);
-            if (pi.status === "requires_capture") {
-              await capturePaymentIntent(member.stripePaymentIntentId);
-              const isDestCharge = !!pi.transfer_data?.destination;
-              if (!isDestCharge && booking.coach.stripeConnectAccountId) {
-                await transferToConnectAccount({
-                  amountCents: member.amountCents,
-                  currency: member.currency ?? "usd",
-                  connectAccountId: booking.coach.stripeConnectAccountId,
-                  transferGroup: member.id,
-                });
-              }
-              memberPaymentOk = true;
-            } else if (pi.status === "succeeded") {
-              memberPaymentOk = true;
-            }
-          } catch (err) {
-            console.error("[bookings] slot member capture failed:", err);
-          }
-        }
         await prisma.booking.update({
           where: { id: member.id },
           data: {
             status: "completed",
             completedAt: new Date(),
-            ...(memberPaymentOk && { paymentStatus: "succeeded" }),
           },
         });
         if (
-          booking.coach.billingMode === "after_session" &&
           member.paymentStatus === "deferred" &&
           member.amountCents != null &&
           booking.coach.stripeConnectAccountId
@@ -1567,58 +1362,11 @@ router.patch("/:id", auth, async (req, res) => {
     }
   }
 
-  // On complete: capture payment then transfer to coach (charge happens here, not on accept).
-  // Use Stripe PI status so we capture even if our DB wasn't updated by the webhook (e.g. pending_authorization).
-  let paymentCapturedOrSucceeded = false;
-  if (status === "completed" && booking.stripePaymentIntentId && booking.amountCents != null && booking.coach.stripeConnectAccountId && stripe) {
-    try {
-      const pi = await stripe.paymentIntents.retrieve(booking.stripePaymentIntentId);
-      if (pi.status === "requires_capture") {
-        await capturePaymentIntent(booking.stripePaymentIntentId);
-        // If this was a destination charge, Stripe already splits on capture. Otherwise transfer from platform balance.
-        const isDestinationCharge = !!pi.transfer_data?.destination;
-        if (!isDestinationCharge && booking.coach.stripeConnectAccountId) {
-          await transferToConnectAccount({
-            amountCents: booking.amountCents,
-            currency: booking.currency ?? "usd",
-            connectAccountId: booking.coach.stripeConnectAccountId,
-            transferGroup: booking.id,
-          });
-        }
-        paymentCapturedOrSucceeded = true;
-      } else if (pi.status === "succeeded") {
-        paymentCapturedOrSucceeded = true;
-      } else {
-        return res.status(400).json({
-          error: "Payment cannot be captured yet.",
-          detail: `Payment status is ${pi.status}. The card may not have been authorized.`,
-        });
-      }
-    } catch (err) {
-      console.error("[bookings] capture or transfer failed:", err);
-      const stripeErr = err as { code?: string; message?: string; raw?: { message?: string } };
-      const code = stripeErr?.code ?? stripeErr?.raw?.code;
-      const message = stripeErr?.message ?? stripeErr?.raw?.message ?? "Unknown error";
-      let detail = message;
-      if (code === "balance_insufficient") {
-        detail =
-          "Your Stripe account has insufficient balance to transfer to the coach. In test mode, add balance using the test card 4000000000000077 (see Stripe testing docs).";
-      }
-      return res.status(502).json({
-        error: "Payment capture failed. Please try again.",
-        detail,
-      });
-    }
-  }
-
   const updated = await prisma.booking.update({
     where: { id: req.params.id },
     data: {
       status,
-      ...(status === "completed" && {
-        completedAt: new Date(),
-        ...(paymentCapturedOrSucceeded && { paymentStatus: "succeeded" as const }),
-      }),
+      ...(status === "completed" && { completedAt: new Date() }),
       ...(status === "cancelled" && booking.stripePaymentIntentId != null && { paymentStatus: "canceled" as const }),
     },
     include: {

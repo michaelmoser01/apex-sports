@@ -2,15 +2,9 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { format } from "date-fns";
-import { loadStripe } from "@stripe/stripe-js";
-import { Elements } from "@stripe/react-stripe-js";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { api } from "@/lib/api";
-import { BookingPaymentForm } from "@/components/BookingPaymentForm";
-
-const stripePk = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
-const stripePromise = stripePk ? loadStripe(stripePk) : null;
 
 interface CoachReservedSlot {
   id: string;
@@ -58,54 +52,27 @@ export default function CompleteReservedBooking() {
     );
   }, [coachId, myBookings]);
 
-  const sessionAmountCents = useMemo(() => {
-    if (!coach?.hourlyRate || !slot) return null;
-    const rate = Number(coach.hourlyRate);
-    if (!Number.isFinite(rate) || rate <= 0) return null;
-    const start = new Date(slot.startTime).getTime();
-    const end = new Date(slot.endTime).getTime();
-    const hours = (end - start) / (60 * 60 * 1000);
-    return Math.max(50, Math.ceil(hours * rate * 100));
-  }, [coach?.hourlyRate, slot]);
-
-  const needsPaymentForm =
-    !!coach?.hourlyRate &&
-    !!stripePk &&
-    !!slotId &&
-    !!sessionAmountCents &&
-    isAuthenticated &&
-    !myPendingSlotIds.has(slotId);
-
   const bookMutation = useMutation({
     mutationFn: async ({
       slotId: sId,
       message,
-      paymentMethodId,
     }: {
       slotId: string;
       message?: string;
-      paymentMethodId?: string;
     }) =>
-      api<{ id: string; clientSecret?: string; requiresAction?: boolean }>("/bookings", {
+      api<{ id: string }>("/bookings", {
         method: "POST",
         body: JSON.stringify({
           coachId,
           slotId: sId,
           ...(message?.trim() ? { message: message.trim() } : {}),
-          ...(paymentMethodId ? { payment_method: paymentMethodId } : {}),
         }),
       }),
     onSuccess: (data) => {
-      if (data?.clientSecret && !needsPaymentForm) {
-        setBookingError(
-          "This session requires payment. Please refresh the page to see the payment form and enter your card."
-        );
-        return;
-      }
       completedBookingThisSession.current = true;
       setBookingMessage("");
       setBookingError(null);
-      setBookingSuccess("Request sent! We'll email you when the coach responds. Your card won't be charged until the coach marks the session complete.");
+      setBookingSuccess("Request sent! We'll email you when the coach responds. You'll receive a payment link after your session.");
       queryClient.invalidateQueries({ queryKey: ["coach", coachId] });
       queryClient.invalidateQueries({ queryKey: ["bookings"] });
       if (data?.id) navigate(`/bookings/${data.id}`);
@@ -232,51 +199,16 @@ export default function CompleteReservedBooking() {
                 />
               </div>
 
-              {needsPaymentForm && stripePromise != null && sessionAmountCents ? (
-                <div className="mt-6">
-                  <Elements stripe={stripePromise}>
-                    <BookingPaymentForm
-                      slotId={slotId}
-                      message={bookingMessage}
-                      amountCents={sessionAmountCents}
-                      createBooking={(body) =>
-                        bookMutation.mutateAsync({
-                          slotId: body.slotId,
-                          message: body.message,
-                          paymentMethodId: body.paymentMethodId,
-                        })
-                      }
-                      cancelBooking={(bookingId) =>
-                        api(`/bookings/${bookingId}`, {
-                          method: "PATCH",
-                          body: JSON.stringify({ status: "cancelled" }),
-                        })
-                      }
-                      onSuccess={() => {
-                        completedBookingThisSession.current = true;
-                        setBookingMessage("");
-                        setBookingError(null);
-                        setBookingSuccess("Request sent! We'll email you when the coach responds. Your card won't be charged until the coach marks the session complete.");
-                        queryClient.invalidateQueries({ queryKey: ["coach", coachId] });
-                        queryClient.invalidateQueries({ queryKey: ["bookings"] });
-                      }}
-                      onError={setBookingError}
-                      disabled={bookMutation.isPending}
-                    />
-                  </Elements>
-                </div>
-              ) : !needsPaymentForm ? (
-                <div className="mt-6">
-                  <button
-                    type="button"
-                    onClick={() => bookMutation.mutate({ slotId, message: bookingMessage })}
-                    disabled={bookMutation.isPending}
-                    className="w-full bg-brand-500 text-white px-4 py-3 rounded-xl font-bold hover:bg-brand-600 hover:shadow-glow-brand disabled:opacity-50 transition-all"
-                  >
-                    {bookMutation.isPending ? "Requesting…" : "Complete booking request"}
-                  </button>
-                </div>
-              ) : null}
+              <div className="mt-6">
+                <button
+                  type="button"
+                  onClick={() => bookMutation.mutate({ slotId, message: bookingMessage })}
+                  disabled={bookMutation.isPending}
+                  className="w-full bg-brand-500 text-white px-4 py-3 rounded-xl font-bold hover:bg-brand-600 hover:shadow-glow-brand disabled:opacity-50 transition-all"
+                >
+                  {bookMutation.isPending ? "Requesting…" : "Complete booking request"}
+                </button>
+              </div>
             </>
           )}
 
