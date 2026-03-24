@@ -24,13 +24,6 @@ const HERO_IMAGES = [
 const HERO_ROTATE_MS = 6000;
 const HERO_CROSSFADE_MS = 1500;
 
-const stats = [
-  { label: "Verified Coaches", value: "500+" },
-  { label: "Sessions Booked", value: "10,000+" },
-  { label: "Average Rating", value: "4.9" },
-  { label: "Sports Covered", value: "25+" },
-];
-
 const valueProps = [
   {
     title: "Verified & trusted",
@@ -56,33 +49,9 @@ const valueProps = [
 ];
 
 const forCoaches = [
-  { text: "Reach athletes who are ready to book", icon: Users },
+  { text: "Get discovered by athletes in your area", icon: Users },
   { text: "One calendar, one place to manage availability", icon: CalendarCheck },
-  { text: "Get rated and build your reputation", icon: Trophy },
-];
-
-const testimonials = [
-  {
-    quote:
-      "ApexSports completely changed how I run my coaching business. The scheduling alone saved me hours every week.",
-    name: "Marcus J.",
-    role: "Baseball Coach",
-    rating: 5,
-  },
-  {
-    quote:
-      "Finding a verified hitting coach for my son was so easy. We booked a session the same day we signed up.",
-    name: "Sarah T.",
-    role: "Parent",
-    rating: 5,
-  },
-  {
-    quote:
-      "The AI assistant handles all the texting and scheduling — I just show up and coach. It's incredible.",
-    name: "Devon R.",
-    role: "Basketball Coach",
-    rating: 5,
-  },
+  { text: "Get paid automatically after every session", icon: Trophy },
 ];
 
 function useInView(threshold = 0.15) {
@@ -105,7 +74,6 @@ export default function Home() {
   const [heroIndex, setHeroIndex] = useState(0);
   const valuesIO = useInView();
   const coachesIO = useInView();
-  const testimonialsIO = useInView();
 
   useEffect(() => {
     const t = setInterval(
@@ -172,24 +140,6 @@ export default function Home() {
 
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 animate-bounce">
           <ChevronDown className="w-6 h-6 text-white/50" />
-        </div>
-      </section>
-
-      {/* ── Stats Strip ── */}
-      <section className="bg-slate-900 border-t border-white/5">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 sm:py-14">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 sm:gap-12">
-            {stats.map((s) => (
-              <div key={s.label} className="text-center">
-                <p className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-                  {s.value}
-                </p>
-                <p className="mt-1 text-sm text-slate-400 font-medium">
-                  {s.label}
-                </p>
-              </div>
-            ))}
-          </div>
         </div>
       </section>
 
@@ -320,70 +270,18 @@ export default function Home() {
           >
             <Zap className="w-10 h-10 text-brand-400 mb-4" />
             <p className="font-display text-lg font-semibold text-brand-400">
-              One platform
+              Free to join
             </p>
             <p className="mt-2 text-3xl sm:text-4xl font-display font-extrabold tracking-display leading-tight">
               More bookings.
               <br />
               Less admin.
               <br />
-              Real reviews.
+              No monthly fees.
             </p>
-            <div className="mt-6 flex gap-6 text-sm text-slate-400">
-              <div>
-                <p className="text-2xl font-bold text-white">4.9</p>
-                <p>Avg rating</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-white">93%</p>
-                <p>Rebooking</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Testimonials ── */}
-      <section
-        className="py-20 sm:py-28 bg-white"
-        ref={testimonialsIO.ref}
-      >
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <SectionHeader
-            eyebrow="Testimonials"
-            title="Trusted by coaches and athletes"
-          />
-
-          <div className="mt-14 grid sm:grid-cols-3 gap-8">
-            {testimonials.map((t, i) => (
-              <div
-                key={t.name}
-                className={`rounded-2xl border border-slate-200 bg-slate-50/50 p-8 transition-all duration-500 hover-lift ${
-                  testimonialsIO.visible
-                    ? `animate-fade-in-up stagger-item animate-stagger-${i + 1}`
-                    : "stagger-item"
-                }`}
-                style={testimonialsIO.visible ? { opacity: 1 } : undefined}
-              >
-                <div className="flex gap-0.5 text-brand-500 mb-4">
-                  {Array.from({ length: t.rating }).map((_, j) => (
-                    <Star key={j} className="w-5 h-5 fill-current" />
-                  ))}
-                </div>
-                <p className="text-slate-700 leading-relaxed italic">
-                  "{t.quote}"
-                </p>
-                <div className="mt-6 flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-slate-200 flex items-center justify-center text-sm font-bold text-slate-600">
-                    {t.name[0]}
-                  </div>
-                  <div>
-                    <p className="font-semibold text-slate-900">{t.name}</p>
-                    <p className="text-sm text-slate-500">{t.role}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
+            <p className="mt-4 text-sm text-slate-400">
+              Only pay a small fee when you get paid. Everything else is included.
+            </p>
           </div>
         </div>
       </section>

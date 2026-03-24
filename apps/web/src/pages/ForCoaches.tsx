@@ -1,77 +1,89 @@
 import { Link } from "react-router-dom";
 import {
-  MessageSquare,
   CalendarCheck,
-  Clock,
   CreditCard,
-  Brain,
-  Award,
+  Star,
   ArrowRight,
   Check,
-  Zap,
+  Search,
+  Users,
+  LayoutDashboard,
+  UserPlus,
+  ClipboardList,
 } from "lucide-react";
-import { PRICING_PLANS, PRICING_FOOTNOTES, type PricingPlan } from "@/data/pricing";
 import { Button } from "@/components/ui";
 import { SectionHeader } from "@/components/ui";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 
-function formatAdditionalMessages(plan: PricingPlan): string {
-  return `$${plan.overagePerSms.toFixed(3)} each`;
-}
-
-const HERO_FEATURES = [
+const FEATURES = [
   {
-    title: "Your AI assistant, text-first",
+    title: "Get discovered by athletes",
     description:
-      "One number for parents and athletes. They text like normal; your assistant schedules, confirms, and follows up.",
-    icon: MessageSquare,
+      "Your public profile shows up in sport and location searches. Athletes find you — no outreach needed.",
+    icon: Search,
   },
   {
-    title: "Automatic scheduling",
+    title: "Online scheduling",
     description:
-      "No back-and-forth. Athletes see your availability and book; the assistant manages the details.",
+      "Set your availability once. Athletes see open slots and self-book — no back-and-forth texts.",
     icon: CalendarCheck,
   },
   {
-    title: "Always responsive",
+    title: "Group sessions built in",
     description:
-      "Parents get fast, professional replies — even when you're on the field or off the phone.",
-    icon: Clock,
+      "Run group training for 2–20 athletes with dynamic per-person pricing and invite links to fill spots.",
+    icon: Users,
   },
   {
-    title: "Bookings and payments handled",
-    description: "Simple checkout, secure payments, no chasing invoices.",
+    title: "Get paid automatically",
+    description:
+      "Payment links sent after every session. No invoicing, no chasing — money goes straight to your account.",
     icon: CreditCard,
   },
   {
-    title: "Learns your style",
+    title: "Build your reputation",
     description:
-      "Handles common requests and remembers preferences so you stay in control without the busywork.",
-    icon: Brain,
+      "Athletes leave reviews after every session. Your rating shows on your profile and builds trust.",
+    icon: Star,
   },
   {
-    title: "Professional every time",
+    title: "One dashboard for everything",
     description:
-      "Organized sessions, reminders, and clear communication by default.",
-    icon: Award,
+      "Upcoming sessions, pending requests, athlete roster, and payment tracking — all in one place.",
+    icon: LayoutDashboard,
   },
 ];
 
-const WHY_DIFFERENT = [
+const HOW_IT_WORKS = [
   {
-    title: "Text-first by design",
-    desc: "Parents text like normal — everything stays organized for you.",
+    step: 1,
+    title: "Create your profile",
+    description: "Add your sport, rates, credentials, and photos. Your profile goes live in minutes.",
+    icon: UserPlus,
   },
   {
-    title: "Operations, not just listings",
-    desc: "Scheduling, reminders, and payments included — not bolted on.",
+    step: 2,
+    title: "Set your availability",
+    description: "Weekly recurring or one-off slots. Group or private. You control your schedule.",
+    icon: CalendarCheck,
   },
   {
-    title: "Personalized assistant",
-    desc: "Adapts to how you coach and communicate. Gets smarter over time.",
+    step: 3,
+    title: "Athletes book and pay",
+    description: "They find you, request sessions, and pay after — you just coach.",
+    icon: ClipboardList,
   },
+];
+
+const INCLUDED_FEATURES = [
+  "Profile and discovery",
+  "Online scheduling",
+  "Group sessions",
+  "Payments and invoicing",
+  "Reviews and ratings",
+  "Dashboard and athlete management",
 ];
 
 export default function ForCoaches() {
@@ -85,7 +97,7 @@ export default function ForCoaches() {
   return (
     <div className="min-h-screen bg-white">
       {/* ── Hero ── */}
-      <section className="relative bg-slate-950 text-white overflow-hidden">
+      <section className="relative min-h-[100vh] flex flex-col justify-center bg-slate-950 text-white overflow-hidden">
         <img
           src="/images/coach-valueprop-hero.png"
           alt=""
@@ -95,23 +107,23 @@ export default function ForCoaches() {
         <div className="absolute inset-0 bg-gradient-hero-overlay" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_0%,rgba(236,116,26,0.15),transparent_60%)]" />
 
-        <div className="relative max-w-5xl mx-auto px-4 sm:px-6 py-20 sm:py-28 text-center">
+        <div className="relative max-w-5xl mx-auto w-full px-4 sm:px-6 text-center">
           <p className="text-sm font-bold uppercase tracking-widest text-brand-400 mb-4">
             For coaches
           </p>
-          <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-display leading-[0.95]">
-            Spend your time coaching
+          <h1 className="font-display text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-extrabold tracking-display leading-[0.95]">
+            Coach more.
             <br />
-            <span className="text-gradient-brand">— not texting.</span>
+            <span className="text-gradient-brand">Manage less.</span>
           </h1>
           <p className="mt-6 text-lg sm:text-xl text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            You get your own AI assistant that coordinates with you and your athletes.
-            Text "Book Maceo for 4p on Tuesday" — your assistant handles the rest.
+            The all-in-one platform for independent coaches.
+            Get discovered, manage bookings, and get paid — so you can focus on coaching.
           </p>
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <Link to={coachCtaTo}>
               <Button size="xl" className="w-full sm:w-auto shadow-lg shadow-brand-500/30">
-                {isCoach ? "Go to Dashboard" : "Get started as a Coach"}
+                {isCoach ? "Go to Dashboard" : "Get started free"}
                 <ArrowRight className="w-5 h-5" />
               </Button>
             </Link>
@@ -129,12 +141,12 @@ export default function ForCoaches() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <SectionHeader
             eyebrow="Everything you need"
-            title="Your AI-powered coaching operations"
-            description="From scheduling to payments to follow-ups — all handled by your personal assistant."
+            title="Built to grow your coaching business"
+            description="From scheduling to payments to reviews — everything you need to run your business, in one place."
           />
 
           <div className="mt-16 grid sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
-            {HERO_FEATURES.map(({ title, description, icon: Icon }) => (
+            {FEATURES.map(({ title, description, icon: Icon }) => (
               <div
                 key={title}
                 className="group rounded-2xl border border-slate-200 p-7 transition-all duration-300 hover:border-brand-200 hover:shadow-lg hover:-translate-y-1 bg-gradient-brand-subtle"
@@ -154,49 +166,64 @@ export default function ForCoaches() {
         </div>
       </section>
 
-      {/* ── Why We're Different ── */}
+      {/* ── How It Works + Benefit Card ── */}
       <section className="py-20 sm:py-28 bg-slate-50">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="flex flex-col lg:flex-row lg:items-center gap-16">
             <div className="max-w-xl">
               <SectionHeader
-                eyebrow="Why we're different"
-                title="Not another coaching directory"
+                eyebrow="How it works"
+                title="Up and running in minutes"
                 align="left"
               />
-              <ul className="mt-10 space-y-6">
-                {WHY_DIFFERENT.map(({ title, desc }) => (
-                  <li key={title} className="flex items-start gap-4">
-                    <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-brand-500 text-white shadow-md shadow-brand-500/20 mt-0.5">
-                      <Check className="w-4 h-4" strokeWidth={3} />
+              <ol className="mt-10 space-y-8">
+                {HOW_IT_WORKS.map(({ step, title, description, icon: Icon }) => (
+                  <li key={step} className="flex items-start gap-4">
+                    <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-brand-500 text-white font-bold text-lg shadow-md shadow-brand-500/20">
+                      {step}
                     </span>
                     <div>
-                      <p className="font-semibold text-slate-900">{title}</p>
-                      <p className="mt-1 text-slate-600 text-sm">{desc}</p>
+                      <p className="font-semibold text-slate-900 flex items-center gap-2">
+                        <Icon className="w-4 h-4 text-brand-500" />
+                        {title}
+                      </p>
+                      <p className="mt-1 text-slate-600 text-sm">{description}</p>
                     </div>
                   </li>
                 ))}
-              </ul>
+              </ol>
               <Link to={coachCtaTo} className="inline-block mt-10">
                 <Button variant="dark" size="lg">
-                  {isCoach ? "Go to Dashboard" : "Sign up and create account"}
+                  {isCoach ? "Go to Dashboard" : "Create your free profile"}
                   <ArrowRight className="w-5 h-5" />
                 </Button>
               </Link>
             </div>
 
             <div className="flex-shrink-0 rounded-3xl bg-gradient-to-br from-slate-900 to-slate-800 text-white p-10 sm:p-12 shadow-card-dark max-w-sm ring-1 ring-white/5">
-              <Zap className="w-10 h-10 text-brand-400 mb-4" />
-              <p className="text-3xl font-display font-extrabold tracking-display leading-tight">
-                Coaches spend
+              <LayoutDashboard className="w-10 h-10 text-brand-400 mb-4" />
+              <p className="text-2xl sm:text-3xl font-display font-extrabold tracking-display leading-tight">
+                Everything you need
                 <br />
-                <span className="text-brand-400">5+ fewer hours</span>
+                to run your coaching
                 <br />
-                per week on admin.
+                business —{" "}
+                <span className="text-brand-400">in one place.</span>
               </p>
-              <p className="mt-4 text-sm text-slate-400">
-                Focus on what you love — coaching — while your assistant handles the rest.
-              </p>
+              <ul className="mt-6 space-y-2.5 text-sm text-slate-300">
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-brand-400 flex-shrink-0" />
+                  No website needed
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-brand-400 flex-shrink-0" />
+                  No chasing payments
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-brand-400 flex-shrink-0" />
+                  No scheduling headaches
+                </li>
+              </ul>
             </div>
           </div>
         </div>
@@ -204,79 +231,43 @@ export default function ForCoaches() {
 
       {/* ── Pricing ── */}
       <section id="pricing" className="py-20 sm:py-28 bg-white">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6">
           <SectionHeader
             eyebrow="Pricing"
-            title="Simple pricing that scales with your business"
-            description="Plans include your AI assistant, scheduling, and payments. Platform fee applies per booking — you keep the rest."
+            title="Free to join. You only pay when you earn."
           />
 
-          <div className="mt-14 grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
-            {PRICING_PLANS.map((plan) => (
-              <div
-                key={plan.id}
-                className={`relative rounded-2xl border bg-white p-8 flex flex-col transition-all duration-300 hover:-translate-y-1 ${
-                  plan.recommended
-                    ? "border-brand-500 shadow-xl shadow-brand-500/10 ring-2 ring-brand-500/20"
-                    : "border-slate-200 hover:border-slate-300 hover:shadow-lg"
-                }`}
-              >
-                {plan.recommended && (
-                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-brand-500 px-4 py-1.5 text-xs font-bold text-white shadow-lg shadow-brand-500/30">
-                      <Zap className="w-3.5 h-3.5" />
-                      Most popular
-                    </span>
-                  </div>
-                )}
-                <h3 className="font-display text-xl font-bold text-slate-900">
-                  {plan.name}
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">{plan.tagline}</p>
-                <p className="mt-5 flex items-baseline gap-1">
-                  <span className="text-4xl font-extrabold text-slate-900">
-                    ${plan.priceMonthly}
-                  </span>
-                  <span className="text-slate-500 font-medium">/ month</span>
-                </p>
-                <ul className="mt-7 space-y-3 flex-1">
-                  {plan.included.map((item) => (
-                    <li
-                      key={item}
-                      className="flex items-start gap-2.5 text-sm text-slate-700"
-                    >
-                      <Check className="w-4 h-4 text-brand-500 flex-shrink-0 mt-0.5" />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-6 pt-5 border-t border-slate-100 space-y-1.5 text-sm text-slate-500">
-                  <p>
-                    <span className="font-semibold text-slate-700">Platform fee:</span>{" "}
-                    {plan.platformFeePercent}%
-                  </p>
-                  <p>
-                    <span className="font-semibold text-slate-700">Additional messages:</span>{" "}
-                    {formatAdditionalMessages(plan)}
-                  </p>
-                </div>
-                <Link to={coachCtaTo} className="mt-7 block">
-                  <Button
-                    variant={plan.recommended ? "primary" : "dark"}
-                    size="lg"
-                    className="w-full"
-                  >
-                    {plan.ctaLabel}
-                  </Button>
-                </Link>
-              </div>
-            ))}
-          </div>
+          <div className="mt-14 rounded-2xl border border-brand-200 bg-gradient-brand-subtle p-8 sm:p-12 text-center shadow-lg shadow-brand-500/5">
+            <p className="flex items-baseline justify-center gap-2">
+              <span className="text-6xl sm:text-7xl font-extrabold text-slate-900 tracking-tight">
+                10%
+              </span>
+              <span className="text-xl text-slate-500 font-medium">per paid booking</span>
+            </p>
+            <p className="mt-4 text-slate-600 max-w-lg mx-auto leading-relaxed">
+              The 10% fee covers all payment processing. No hidden fees, no monthly subscription.
+              Free for sessions paid outside the platform.
+            </p>
 
-          <div className="mt-14 max-w-2xl mx-auto space-y-2 text-sm text-slate-400 text-center">
-            {PRICING_FOOTNOTES.map((line) => (
-              <p key={line}>{line}</p>
-            ))}
+            <div className="mt-10 grid grid-cols-2 sm:grid-cols-3 gap-3 max-w-xl mx-auto text-left">
+              {INCLUDED_FEATURES.map((feature) => (
+                <div key={feature} className="flex items-start gap-2 text-sm text-slate-700">
+                  <Check className="w-4 h-4 text-brand-500 flex-shrink-0 mt-0.5" />
+                  <span>{feature}</span>
+                </div>
+              ))}
+            </div>
+
+            <Link to={coachCtaTo} className="inline-block mt-10">
+              <Button size="xl" className="shadow-lg shadow-brand-500/30">
+                {isCoach ? "Go to Dashboard" : "Get started free"}
+                <ArrowRight className="w-5 h-5" />
+              </Button>
+            </Link>
+
+            <p className="mt-4 text-xs text-slate-400">
+              No credit card required to sign up.
+            </p>
           </div>
         </div>
       </section>
@@ -289,7 +280,7 @@ export default function ForCoaches() {
             Ready to grow your coaching business?
           </h2>
           <p className="mt-4 text-lg text-slate-400">
-            Join hundreds of coaches already using ApexSports.
+            Create your free profile in minutes. No credit card required.
           </p>
           <Link to={coachCtaTo} className="inline-block mt-8">
             <Button size="xl" className="shadow-lg shadow-brand-500/30">
