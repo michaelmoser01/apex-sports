@@ -1,12 +1,11 @@
 /**
- * Booking notifications via AWS SES (email) and SNS (SMS).
+ * Booking notifications via SendGrid (email) and AWS SNS (SMS).
  * Failures are logged and do not affect the HTTP response.
  */
 
-import { SendEmailCommand, SESClient } from "@aws-sdk/client-ses";
+import sgMail from "@sendgrid/mail";
 import { PublishCommand, SNSClient } from "@aws-sdk/client-sns";
 
-const ses = new SESClient({ region: process.env.AWS_REGION ?? "us-east-1" });
 const sns = new SNSClient({ region: process.env.AWS_REGION ?? "us-east-1" });
 const fromEmail = process.env.NOTIFICATION_FROM_EMAIL ?? "notifications@apexsports.example.com";
 const sendSms = process.env.SEND_SMS !== "false";
@@ -15,6 +14,25 @@ const myBookingsUrl = appUrl ? `${appUrl}/bookings` : "";
 const dashboardAthletesUrl = appUrl ? `${appUrl}/dashboard/athletes` : "";
 /** IANA timezone for email times (slot times are stored UTC). Default US/Pacific. */
 const notificationTimeZone = process.env.NOTIFICATION_TIMEZONE ?? "America/Los_Angeles";
+
+/** Shared email sender — lazily initialises the SendGrid API key on first use. */
+async function sendEmail(params: {
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+  replyTo?: string;
+}): Promise<void> {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
+  await sgMail.send({
+    to: params.to,
+    from: fromEmail,
+    ...(params.replyTo ? { replyTo: params.replyTo } : {}),
+    subject: params.subject,
+    text: params.text,
+    html: params.html,
+  });
+}
 
 function formatSlotTime(iso: string, timeZone: string = notificationTimeZone): string {
   try {
@@ -213,29 +231,15 @@ export async function sendAthleteMessageToCoach(params: AthleteMessageToCoachPar
   );
 
   try {
-    await ses.send(
-      new SendEmailCommand({
-        Source: fromEmail,
-        Destination: { ToAddresses: [coachEmail] },
-        ReplyToAddresses: athleteEmail ? [athleteEmail] : undefined,
-        Message: {
-          Subject: { Data: subject, Charset: "UTF-8" },
-          Body: {
-            Text: { Data: bodyText, Charset: "UTF-8" },
-            Html: { Data: bodyHtml, Charset: "UTF-8" },
-          },
-        },
-      })
-    );
+    await sendEmail({
+      to: coachEmail,
+      subject,
+      text: bodyText,
+      html: bodyHtml,
+      replyTo: athleteEmail ?? undefined,
+    });
   } catch (err) {
-    const sesErr = err as { name?: string; message?: string; Code?: string };
-    console.error(
-      "[notifications] sendAthleteMessageToCoach email failed:",
-      sesErr?.name ?? sesErr?.Code,
-      sesErr?.message ?? err,
-      "to:",
-      coachEmail
-    );
+    console.error("[notifications] sendAthleteMessageToCoach email failed:", err, "to:", coachEmail);
     throw err;
   }
 }
@@ -273,28 +277,9 @@ export async function sendNewAthleteConnectedToCoach(params: NewAthleteConnected
   );
 
   try {
-    await ses.send(
-      new SendEmailCommand({
-        Source: fromEmail,
-        Destination: { ToAddresses: [coachEmail] },
-        Message: {
-          Subject: { Data: subject, Charset: "UTF-8" },
-          Body: {
-            Text: { Data: bodyText, Charset: "UTF-8" },
-            Html: { Data: bodyHtml, Charset: "UTF-8" },
-          },
-        },
-      })
-    );
+    await sendEmail({ to: coachEmail, subject, text: bodyText, html: bodyHtml });
   } catch (err) {
-    const sesErr = err as { name?: string; message?: string; Code?: string };
-    console.error(
-      "[notifications] sendNewAthleteConnectedToCoach email failed:",
-      sesErr?.name ?? sesErr?.Code,
-      sesErr?.message ?? err,
-      "from:",
-      fromEmail
-    );
+    console.error("[notifications] sendNewAthleteConnectedToCoach email failed:", err);
   }
 }
 
@@ -351,28 +336,9 @@ export async function sendBookingRequestedToCoach(params: BookingRequestedToCoac
   );
 
   try {
-    await ses.send(
-      new SendEmailCommand({
-        Source: fromEmail,
-        Destination: { ToAddresses: [coachEmail] },
-        Message: {
-          Subject: { Data: subject, Charset: "UTF-8" },
-          Body: {
-            Text: { Data: bodyText, Charset: "UTF-8" },
-            Html: { Data: bodyHtml, Charset: "UTF-8" },
-          },
-        },
-      })
-    );
+    await sendEmail({ to: coachEmail, subject, text: bodyText, html: bodyHtml });
   } catch (err) {
-    const sesErr = err as { name?: string; message?: string; Code?: string };
-    console.error(
-      "[notifications] sendBookingRequestedToCoach email failed:",
-      sesErr?.name ?? sesErr?.Code,
-      sesErr?.message ?? err,
-      "from:",
-      fromEmail
-    );
+    console.error("[notifications] sendBookingRequestedToCoach email failed:", err);
   }
 
   if (sendSms && coachPhone?.trim()) {
@@ -440,28 +406,9 @@ export async function sendCoachBookedAthlete(params: CoachBookedAthleteParams): 
   );
 
   try {
-    await ses.send(
-      new SendEmailCommand({
-        Source: fromEmail,
-        Destination: { ToAddresses: [athleteEmail] },
-        Message: {
-          Subject: { Data: subject, Charset: "UTF-8" },
-          Body: {
-            Text: { Data: bodyText, Charset: "UTF-8" },
-            Html: { Data: bodyHtml, Charset: "UTF-8" },
-          },
-        },
-      })
-    );
+    await sendEmail({ to: athleteEmail, subject, text: bodyText, html: bodyHtml });
   } catch (err) {
-    const sesErr = err as { name?: string; message?: string; Code?: string };
-    console.error(
-      "[notifications] sendCoachBookedAthlete failed:",
-      sesErr?.name ?? sesErr?.Code,
-      sesErr?.message ?? err,
-      "from:",
-      fromEmail
-    );
+    console.error("[notifications] sendCoachBookedAthlete failed:", err);
   }
 }
 
@@ -511,28 +458,9 @@ export async function sendCoachInviteToBookSlot(params: CoachInviteToBookSlotPar
   );
 
   try {
-    await ses.send(
-      new SendEmailCommand({
-        Source: fromEmail,
-        Destination: { ToAddresses: [athleteEmail] },
-        Message: {
-          Subject: { Data: subject, Charset: "UTF-8" },
-          Body: {
-            Text: { Data: bodyText, Charset: "UTF-8" },
-            Html: { Data: bodyHtml, Charset: "UTF-8" },
-          },
-        },
-      })
-    );
+    await sendEmail({ to: athleteEmail, subject, text: bodyText, html: bodyHtml });
   } catch (err) {
-    const sesErr = err as { name?: string; message?: string; Code?: string };
-    console.error(
-      "[notifications] sendCoachInviteToBookSlot failed:",
-      sesErr?.name ?? sesErr?.Code,
-      sesErr?.message ?? err,
-      "from:",
-      fromEmail
-    );
+    console.error("[notifications] sendCoachInviteToBookSlot failed:", err);
   }
 }
 
@@ -582,28 +510,9 @@ export async function sendBookingRequestSubmittedToAthlete(params: BookingReques
   );
 
   try {
-    await ses.send(
-      new SendEmailCommand({
-        Source: fromEmail,
-        Destination: { ToAddresses: [athleteEmail] },
-        Message: {
-          Subject: { Data: subject, Charset: "UTF-8" },
-          Body: {
-            Text: { Data: bodyText, Charset: "UTF-8" },
-            Html: { Data: bodyHtml, Charset: "UTF-8" },
-          },
-        },
-      })
-    );
+    await sendEmail({ to: athleteEmail, subject, text: bodyText, html: bodyHtml });
   } catch (err) {
-    const sesErr = err as { name?: string; message?: string; Code?: string };
-    console.error(
-      "[notifications] sendBookingRequestSubmittedToAthlete failed:",
-      sesErr?.name ?? sesErr?.Code,
-      sesErr?.message ?? err,
-      "from:",
-      fromEmail
-    );
+    console.error("[notifications] sendBookingRequestSubmittedToAthlete failed:", err);
   }
 }
 
@@ -666,28 +575,9 @@ export async function sendGroupInviteToAthlete(params: GroupInviteToAthleteParam
   );
 
   try {
-    await ses.send(
-      new SendEmailCommand({
-        Source: fromEmail,
-        Destination: { ToAddresses: [athleteEmail] },
-        Message: {
-          Subject: { Data: subject, Charset: "UTF-8" },
-          Body: {
-            Text: { Data: bodyText, Charset: "UTF-8" },
-            Html: { Data: bodyHtml, Charset: "UTF-8" },
-          },
-        },
-      })
-    );
+    await sendEmail({ to: athleteEmail, subject, text: bodyText, html: bodyHtml });
   } catch (err) {
-    const sesErr = err as { name?: string; message?: string; Code?: string };
-    console.error(
-      "[notifications] sendGroupInviteToAthlete failed:",
-      sesErr?.name ?? sesErr?.Code,
-      sesErr?.message ?? err,
-      "from:",
-      fromEmail
-    );
+    console.error("[notifications] sendGroupInviteToAthlete failed:", err);
   }
 }
 
@@ -802,28 +692,9 @@ export async function sendBookingStatusToAthlete(params: BookingStatusToAthleteP
   const { subject, body, bodyHtml } = statusMessages[newStatus];
 
   try {
-    await ses.send(
-      new SendEmailCommand({
-        Source: fromEmail,
-        Destination: { ToAddresses: [athleteEmail] },
-        Message: {
-          Subject: { Data: subject, Charset: "UTF-8" },
-          Body: {
-            Text: { Data: body, Charset: "UTF-8" },
-            Html: { Data: bodyHtml, Charset: "UTF-8" },
-          },
-        },
-      })
-    );
+    await sendEmail({ to: athleteEmail, subject, text: body, html: bodyHtml });
   } catch (err) {
-    const sesErr = err as { name?: string; message?: string; Code?: string };
-    console.error(
-      "[notifications] sendBookingStatusToAthlete failed:",
-      sesErr?.name ?? sesErr?.Code,
-      sesErr?.message ?? err,
-      "from:",
-      fromEmail
-    );
+    console.error("[notifications] sendBookingStatusToAthlete failed:", err);
   }
 }
 
@@ -911,28 +782,9 @@ export async function sendPaymentLinkToAthlete(params: PaymentLinkToAthleteParam
       );
 
   try {
-    await ses.send(
-      new SendEmailCommand({
-        Source: fromEmail,
-        Destination: { ToAddresses: [athleteEmail] },
-        Message: {
-          Subject: { Data: subject, Charset: "UTF-8" },
-          Body: {
-            Text: { Data: bodyText, Charset: "UTF-8" },
-            Html: { Data: bodyHtml, Charset: "UTF-8" },
-          },
-        },
-      })
-    );
+    await sendEmail({ to: athleteEmail, subject, text: bodyText, html: bodyHtml });
   } catch (err) {
-    const sesErr = err as { name?: string; message?: string; Code?: string };
-    console.error(
-      "[notifications] sendPaymentLinkToAthlete failed:",
-      sesErr?.name ?? sesErr?.Code,
-      sesErr?.message ?? err,
-      "from:",
-      fromEmail
-    );
+    console.error("[notifications] sendPaymentLinkToAthlete failed:", err);
   }
 }
 
@@ -990,26 +842,9 @@ export async function sendPriceDropNotification(params: PriceDropNotificationPar
   );
 
   try {
-    await ses.send(
-      new SendEmailCommand({
-        Source: fromEmail,
-        Destination: { ToAddresses: [athleteEmail] },
-        Message: {
-          Subject: { Data: subject, Charset: "UTF-8" },
-          Body: {
-            Text: { Data: bodyText, Charset: "UTF-8" },
-            Html: { Data: bodyHtml, Charset: "UTF-8" },
-          },
-        },
-      })
-    );
+    await sendEmail({ to: athleteEmail, subject, text: bodyText, html: bodyHtml });
   } catch (err) {
-    const sesErr = err as { name?: string; message?: string; Code?: string };
-    console.error(
-      "[notifications] sendPriceDropNotification failed:",
-      sesErr?.name ?? sesErr?.Code,
-      sesErr?.message ?? err,
-    );
+    console.error("[notifications] sendPriceDropNotification failed:", err);
   }
 }
 
@@ -1054,22 +889,9 @@ export async function sendAthleteCancelledToCoach(params: AthleteCancelledToCoac
   );
 
   try {
-    await ses.send(
-      new SendEmailCommand({
-        Source: fromEmail,
-        Destination: { ToAddresses: [coachEmail] },
-        Message: {
-          Subject: { Data: subject, Charset: "UTF-8" },
-          Body: {
-            Text: { Data: bodyText, Charset: "UTF-8" },
-            Html: { Data: bodyHtml, Charset: "UTF-8" },
-          },
-        },
-      })
-    );
+    await sendEmail({ to: coachEmail, subject, text: bodyText, html: bodyHtml });
   } catch (err) {
-    const sesErr = err as { name?: string; message?: string; Code?: string };
-    console.error("[notifications] sendAthleteCancelledToCoach failed:", sesErr?.name ?? sesErr?.Code, sesErr?.message ?? err);
+    console.error("[notifications] sendAthleteCancelledToCoach failed:", err);
   }
 
   if (sendSms && coachPhone?.trim()) {
@@ -1144,28 +966,9 @@ export async function sendPaymentConfirmedToAthlete(params: PaymentConfirmedToAt
   );
 
   try {
-    await ses.send(
-      new SendEmailCommand({
-        Source: fromEmail,
-        Destination: { ToAddresses: [athleteEmail] },
-        Message: {
-          Subject: { Data: subject, Charset: "UTF-8" },
-          Body: {
-            Text: { Data: bodyText, Charset: "UTF-8" },
-            Html: { Data: bodyHtml, Charset: "UTF-8" },
-          },
-        },
-      })
-    );
+    await sendEmail({ to: athleteEmail, subject, text: bodyText, html: bodyHtml });
   } catch (err) {
-    const sesErr = err as { name?: string; message?: string; Code?: string };
-    console.error(
-      "[notifications] sendPaymentConfirmedToAthlete failed:",
-      sesErr?.name ?? sesErr?.Code,
-      sesErr?.message ?? err,
-      "from:",
-      fromEmail
-    );
+    console.error("[notifications] sendPaymentConfirmedToAthlete failed:", err);
   }
 }
 
@@ -1226,27 +1029,8 @@ export async function sendPaymentReceivedToCoach(params: PaymentReceivedToCoachP
   );
 
   try {
-    await ses.send(
-      new SendEmailCommand({
-        Source: fromEmail,
-        Destination: { ToAddresses: [coachEmail] },
-        Message: {
-          Subject: { Data: subject, Charset: "UTF-8" },
-          Body: {
-            Text: { Data: bodyText, Charset: "UTF-8" },
-            Html: { Data: bodyHtml, Charset: "UTF-8" },
-          },
-        },
-      })
-    );
+    await sendEmail({ to: coachEmail, subject, text: bodyText, html: bodyHtml });
   } catch (err) {
-    const sesErr = err as { name?: string; message?: string; Code?: string };
-    console.error(
-      "[notifications] sendPaymentReceivedToCoach failed:",
-      sesErr?.name ?? sesErr?.Code,
-      sesErr?.message ?? err,
-      "from:",
-      fromEmail
-    );
+    console.error("[notifications] sendPaymentReceivedToCoach failed:", err);
   }
 }

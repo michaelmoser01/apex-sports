@@ -1,4 +1,5 @@
 import type { SQSEvent, SQSBatchResponse } from "aws-lambda";
+import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
 import type { NotificationType } from "./emailQueue.js";
 import {
   sendAthleteMessageToCoach,
@@ -34,7 +35,20 @@ const dispatch: Record<NotificationType, (p: any) => Promise<void>> = {
 };
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+async function ensureSendGridSecrets(): Promise<void> {
+  if (process.env.SENDGRID_API_KEY) return;
+  const secretArn = process.env.SENDGRID_SECRET_ARN;
+  if (!secretArn) return;
+  const client = new SecretsManagerClient({});
+  const res = await client.send(new GetSecretValueCommand({ SecretId: secretArn }));
+  const secret = JSON.parse(res.SecretString ?? "{}") as Record<string, string>;
+  for (const [key, value] of Object.entries(secret)) {
+    if (value != null && value !== "") process.env[key] = value;
+  }
+}
+
 export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
+  await ensureSendGridSecrets();
   const failures: SQSBatchResponse["batchItemFailures"] = [];
 
   for (const record of event.Records) {

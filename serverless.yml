@@ -39,11 +39,6 @@ provider:
             - s3:PutObjectAcl
           Resource: !Sub ["arn:aws:s3:::${Bucket}/*", { Bucket: !Ref UploadsBucket }]
         - Effect: Allow
-          Action:
-            - ses:SendEmail
-            - ses:SendRawEmail
-          Resource: "*"
-        - Effect: Allow
           Action: sqs:SendMessage
           Resource: !GetAtt EmailQueue.Arn
         - Effect: Allow
@@ -139,6 +134,7 @@ functions:
       NOTIFICATION_TIMEZONE: America/Los_Angeles
       # Stripe: secret created per stage (apex-sports-<stage>-stripe-keys); paste key values in console
       STRIPE_SECRET_ARN: !Ref StripeSecret
+      SENDGRID_SECRET_ARN: !Ref SendGridSecret
       STRIPE_PLATFORM_FEE_PERCENT: "10"
       # Bedrock: set BEDROCK_MODEL_ID / BEDROCK_REGION when running serverless deploy to override
       BEDROCK_REGION: ${env:BEDROCK_REGION, 'us-east-1'}
@@ -220,7 +216,7 @@ functions:
 
   emailWorker:
     handler: apps/api/src/email-worker.handler
-    description: Processes queued email notifications via SES/SNS
+    description: Processes queued email notifications via SendGrid/SNS
     memorySize: 256
     timeout: 60
     environment:
@@ -228,6 +224,7 @@ functions:
       APP_URL: https://${self:custom.webDomainName}
       NOTIFICATION_TIMEZONE: America/Los_Angeles
       SEND_SMS: ${env:SEND_SMS, 'true'}
+      SENDGRID_SECRET_ARN: !Ref SendGridSecret
     events:
       - sqs:
           arn: !GetAtt EmailQueue.Arn
@@ -410,6 +407,14 @@ resources:
           GenerateStringKey: password
           PasswordLength: 32
           ExcludeCharacters: '"@/\'
+
+    # SendGrid API key (per stage); paste value in AWS console after deploy
+    SendGridSecret:
+      Type: AWS::SecretsManager::Secret
+      Properties:
+        Name: ${self:service}-${self:provider.stage}-sendgrid-keys
+        Description: SendGrid API key for email delivery; fill value in AWS console after deploy
+        SecretString: '{"SENDGRID_API_KEY":""}'
 
     # Stripe keys (per stage: dev = test mode keys, prod = live keys); paste values in console after deploy
     StripeSecret:
