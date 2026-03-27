@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { setDeepLink, consumeDeepLink } from "@/utils/deepLink";
 import { useQueryClient } from "@tanstack/react-query";
 import { Trophy, Users, ArrowRight, Eye, EyeOff } from "lucide-react";
+import { trackEvent } from "@/lib/analytics";
 
 function waitForSignIn(): Promise<void> {
   return new Promise((resolve) => {
@@ -64,6 +65,7 @@ function DevSignUp() {
         body: JSON.stringify({ signupRole: role }),
       });
       await queryClient.refetchQueries({ queryKey: ["auth", "me"] });
+      trackEvent("sign_up", { method: "dev", role });
       navigate(role === "coach" ? "/coach/onboarding/basic" : "/athlete/onboarding", { replace: true });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Sign up failed");
@@ -215,6 +217,7 @@ function CognitoSignUp() {
       // Role may already be set if this is a retry
     }
     await queryClient.refetchQueries({ queryKey: ["auth", "me"] });
+    trackEvent("sign_up", { method: "cognito", role });
     navigate(
       role === "coach" ? "/coach/onboarding/basic" : "/athlete/onboarding",
       { replace: true },

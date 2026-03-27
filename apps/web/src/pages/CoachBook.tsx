@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { setDeepLink } from "@/utils/deepLink";
 import { CoachDetailMap } from "@/components/CoachDetailMap";
 import { Users, Lock } from "lucide-react";
+import { trackEvent } from "@/lib/analytics";
 
 interface SlotLocation {
   id: string;
@@ -248,6 +249,7 @@ export default function CoachBook() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["coach", id] });
       queryClient.invalidateQueries({ queryKey: ["bookings"] });
+      trackEvent("booking_requested", { coach_id: id ?? "", is_group: isGroupEligible && !lockPrivate });
       if (isGroupEligible && !lockPrivate && data?.id) {
         navigate(`/bookings/${data.id}?booked=group`, { replace: true });
       } else {

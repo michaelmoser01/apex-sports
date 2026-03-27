@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ONBOARDING_BASE, isCoachAssistantOnboardingEnabled } from "@/config/onboarding";
 import { consumeDeepLink } from "@/utils/deepLink";
+import { trackEvent } from "@/lib/analytics";
 
 const MAX_ABOUT_CHARS = 2600;
 
@@ -46,6 +47,7 @@ export default function OnboardingAbout() {
       if (isCoachAssistantOnboardingEnabled) {
         navigate(`${ONBOARDING_BASE}/assistant`, { replace: true });
       } else {
+        trackEvent("coach_onboarding_complete");
         navigate(consumeDeepLink() ?? "/dashboard", { replace: true });
       }
     },

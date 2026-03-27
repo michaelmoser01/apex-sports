@@ -19,6 +19,7 @@ import {
   Share2,
   Lock,
 } from "lucide-react";
+import { trackEvent } from "@/lib/analytics";
 
 const stripePk = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
 const stripePromise = stripePk ? loadStripe(stripePk) : null;
@@ -106,7 +107,10 @@ export default function BookingDetail() {
       setConfirmAction(null);
       if (data?.status === "completed") setSuccessMessage("Session marked complete.");
       else if (data?.status === "cancelled") setSuccessMessage("Booking cancelled.");
-      else if (data?.status === "confirmed") setSuccessMessage("Booking confirmed.");
+      else if (data?.status === "confirmed") {
+        setSuccessMessage("Booking confirmed.");
+        trackEvent("booking_confirmed", { booking_id: id ?? "" });
+      }
       setTimeout(() => setSuccessMessage(null), 5000);
       queryClient.invalidateQueries({ queryKey: ["booking", id] });
       queryClient.invalidateQueries({ queryKey: ["bookings"] });
@@ -403,6 +407,7 @@ export default function BookingDetail() {
                       setPaymentError(null);
                       setPaymentJustCompleted(true);
                       setSuccessMessage("Payment confirmed.");
+                      trackEvent("payment_completed", { booking_id: id ?? "" });
                       setTimeout(() => setSuccessMessage(null), 5000);
                       queryClient.invalidateQueries({ queryKey: ["booking", id] });
                       queryClient.invalidateQueries({ queryKey: ["bookings"] });
