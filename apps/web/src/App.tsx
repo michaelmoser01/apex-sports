@@ -8,6 +8,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import Home from "./pages/Home";
 import Coaches from "./pages/Coaches";
 import ForCoaches from "./pages/ForCoaches";
+import StartCoaching from "./pages/StartCoaching";
 import CoachDetail from "./pages/CoachDetail";
 import CoachBook from "./pages/CoachBook";
 import CoachBookingSuccess from "./pages/CoachBookingSuccess";
@@ -57,6 +58,7 @@ function AppContent() {
         {/* Public routes */}
         <Route index element={<Home />} />
         <Route path="coaches" element={<ForCoaches />} />
+        <Route path="start-coaching" element={<StartCoaching />} />
         <Route path="pricing" element={<Navigate to="/coaches#pricing" replace />} />
         <Route path="find" element={<Coaches />} />
         <Route path="join/:slug" element={<Join />} />
