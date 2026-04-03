@@ -26,9 +26,9 @@ const HERO_CROSSFADE_MS = 1500;
 
 const valueProps = [
   {
-    title: "Verified & trusted",
+    title: "Local coaches, real experience",
     description:
-      "Every coach is background-checked and verified. Book with confidence for yourself or your athlete.",
+      "Find independent coaches in your area who specialize in your sport. Browse profiles, credentials, and reviews before you book.",
     icon: ShieldCheck,
     accent: "from-success-500/20 to-success-500/0",
   },
@@ -40,9 +40,9 @@ const valueProps = [
     accent: "from-brand-500/20 to-brand-500/0",
   },
   {
-    title: "Real reviews, real results",
+    title: "Simple, transparent pricing",
     description:
-      "See ratings from other athletes and parents. After each session, leave a review to help the community.",
+      "See each coach's rates upfront. Pay after your session — no subscriptions, no commitments, no surprises.",
     icon: Star,
     accent: "from-amber-500/20 to-amber-500/0",
   },
@@ -120,8 +120,8 @@ export default function Home() {
             <span className="text-gradient-brand">Athletic Potential</span>
           </h1>
           <p className="mt-6 text-lg sm:text-xl text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            Train with elite, verified coaches who help athletes improve faster.
-            Every coach is vetted, background-checked, and reviewed.
+            Train with elite coaches who help athletes improve faster.
+            Every coach is rated and reviewed by real athletes.
           </p>
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <Link to="/find">
@@ -149,7 +149,7 @@ export default function Home() {
           <SectionHeader
             eyebrow="Get started"
             title="Browse by sport"
-            description="Find verified coaches near you in just a few clicks."
+            description="Find coaches near you in just a few clicks."
           />
           <div className="mt-10 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             {ALLOWED_SPORTS.map((sport) => (

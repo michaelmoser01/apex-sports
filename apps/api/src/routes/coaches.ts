@@ -600,20 +600,6 @@ router.post("/me/plan", authMiddleware(), async (req, res) => {
   res.json({ planId });
 });
 
-// Mock verification (background check). Later: integrate Chekr; for now just sets verified.
-router.post("/me/verify", authMiddleware(), async (req, res) => {
-  const user = (req as { user?: { id: string } }).user;
-  if (!user) return res.status(401).json({ error: "Unauthorized" });
-
-  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
-  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
-
-  await prisma.coachProfile.update({
-    where: { userId: user.id },
-    data: { verified: true },
-  });
-  res.json({ verified: true });
-});
 
 // Update coach credentials (certifications, experience, education)
 router.put("/me/credentials", authMiddleware(), async (req, res) => {
@@ -700,6 +686,13 @@ router.put("/me", authMiddleware(), async (req, res) => {
       ...(groupRates !== undefined && { groupRates: groupRates as Prisma.InputJsonValue }),
     },
   });
+
+  if (!profile.verified && profile.bio && profile.hourlyRate && profile.displayName) {
+    await prisma.coachProfile.update({
+      where: { id: profile.id },
+      data: { verified: true },
+    });
+  }
 
   let photosSaveSkipped = false;
   if (photoUrls !== undefined) {

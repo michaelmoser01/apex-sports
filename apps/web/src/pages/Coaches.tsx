@@ -463,11 +463,6 @@ export default function Coaches() {
                         <div className="min-w-0">
                           <h2 className="text-base sm:text-lg font-bold text-slate-900 truncate">
                             {coach.displayName}
-                            {coach.verified && (
-                              <span className="ml-2 text-xs bg-success-100 text-success-700 px-2 py-0.5 rounded-full font-semibold ring-1 ring-success-600/10 align-middle">
-                                Verified
-                              </span>
-                            )}
                           </h2>
                           <p className="text-brand-600 font-medium text-sm">
                             {coach.sports?.length ? coach.sports.join(", ") : "—"}

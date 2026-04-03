@@ -52,7 +52,7 @@ interface InviteResponse {
 
 const joinValueProps = [
   "Book sessions with this coach easily—see real availability and pay in one place.",
-  "Verified platform: every coach is background-checked so you can book with confidence.",
+  "Trusted platform: every coach is rated and reviewed by real athletes.",
   "One place to manage bookings, messages, and your athlete profile.",
 ];
 

@@ -101,12 +101,10 @@ function GettingStartedChecklist({
   coach,
   hasAvailability,
   inviteUrl,
-  onVerify,
 }: {
-  coach: { id: string; stripeOnboardingComplete?: boolean; verified: boolean };
+  coach: { id: string; stripeOnboardingComplete?: boolean };
   hasAvailability: boolean;
   inviteUrl: string | null;
-  onVerify: () => void;
 }) {
   const sharedLinkKey = `apex:coach:sharedLink:${coach.id}`;
   const [linkShared, setLinkShared] = useState(() => {
@@ -126,7 +124,7 @@ function GettingStartedChecklist({
   };
 
   const allDone =
-    hasAvailability && linkShared && coach.verified && coach.stripeOnboardingComplete;
+    hasAvailability && linkShared && coach.stripeOnboardingComplete;
   if (allDone) return null;
 
   return (
@@ -197,29 +195,7 @@ function GettingStartedChecklist({
           </div>
         </div>
 
-        {/* Phase 2: Get discovered */}
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-sky-600 mb-2">Get discovered</p>
-          <p className="text-xs text-slate-400 mb-2">Appear in Find Coaches so athletes can find you.</p>
-          <ChecklistItem
-            done={coach.verified}
-            label="Complete your background check"
-            description="Required before athletes can discover your profile."
-            action={
-              !coach.verified ? (
-                <button
-                  type="button"
-                  onClick={onVerify}
-                  className="shrink-0 px-3 py-1.5 rounded-lg bg-sky-500 text-white text-sm font-medium hover:bg-sky-600 transition touch-manipulation inline-flex items-center gap-1"
-                >
-                  Start <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              ) : undefined
-            }
-          />
-        </div>
-
-        {/* Phase 3: Get paid */}
+        {/* Phase 2: Get paid */}
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider text-emerald-600 mb-2">Get paid</p>
           <p className="text-xs text-slate-400 mb-2">Needed before your first session completes. No rush.</p>
@@ -673,7 +649,6 @@ export default function CoachDashboard() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [photosSaveSkippedMessage, setPhotosSaveSkippedMessage] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState(false);
-  const [showVerifyModal, setShowVerifyModal] = useState(false);
   // Agent test harness state
   const [agentThreadId] = useState(() => {
     if (typeof window === "undefined") return crypto.randomUUID();
@@ -879,15 +854,6 @@ export default function CoachDashboard() {
         body: JSON.stringify({ photoId }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
-      queryClient.invalidateQueries({ queryKey: ["auth"] });
-    },
-  });
-
-  const verifyMutation = useMutation({
-    mutationFn: () => api<{ verified: boolean }>("/coaches/me/verify", { method: "POST" }),
-    onSuccess: () => {
-      setShowVerifyModal(false);
       queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
       queryClient.invalidateQueries({ queryKey: ["auth"] });
     },
@@ -1133,7 +1099,6 @@ export default function CoachDashboard() {
           coach={coach}
           hasAvailability={(rules.length > 0 || oneOffSlots.length > 0)}
           inviteUrl={inviteData?.url ?? null}
-          onVerify={() => setShowVerifyModal(true)}
         />
 
         {/* Grid: 1 col mobile, 2 cols desktop */}
@@ -1431,33 +1396,6 @@ export default function CoachDashboard() {
           )}
         </div>
       </div>
-      {showVerifyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" aria-modal="true" role="dialog">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Background check</h2>
-            <p className="text-slate-600 text-sm mb-6">
-              This is where the background check will happen. We&apos;ll use Checkr later to run verification. For now you can mark yourself as verified.
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button
-                type="button"
-                onClick={() => setShowVerifyModal(false)}
-                className="px-4 py-2 text-slate-700 font-medium hover:bg-slate-100 rounded-lg transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => verifyMutation.mutate()}
-                disabled={verifyMutation.isPending}
-                className="px-4 py-2 bg-brand-500 text-white font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50 transition"
-              >
-                {verifyMutation.isPending ? "Verifying\u2026" : "Get verified"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       </>
     );
   }
@@ -2036,33 +1974,6 @@ export default function CoachDashboard() {
         </div>{/* end main column */}
         </div>{/* end lg:flex */}
       </div>
-      {showVerifyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" aria-modal="true" role="dialog">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Background check</h2>
-            <p className="text-slate-600 text-sm mb-6">
-              This is where the background check will happen. We&apos;ll use Chekr later to run verification. For now you can mark yourself as verified.
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button
-                type="button"
-                onClick={() => setShowVerifyModal(false)}
-                className="px-4 py-2 text-slate-700 font-medium hover:bg-slate-100 rounded-lg transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => verifyMutation.mutate()}
-                disabled={verifyMutation.isPending}
-                className="px-4 py-2 bg-brand-500 text-white font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50 transition"
-              >
-                {verifyMutation.isPending ? "Verifying…" : "Get verified"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
     );
   }
@@ -2310,33 +2221,6 @@ export default function CoachDashboard() {
         </Link>.
       </p>
     </div>
-    {showVerifyModal && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" aria-modal="true" role="dialog">
-        <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">Background check</h2>
-          <p className="text-slate-600 text-sm mb-6">
-            This is where the background check will happen. We&apos;ll use Chekr later to run verification. For now you can mark yourself as verified.
-          </p>
-          <div className="flex gap-3 justify-end">
-            <button
-              type="button"
-              onClick={() => setShowVerifyModal(false)}
-              className="px-4 py-2 text-slate-700 font-medium hover:bg-slate-100 rounded-lg transition"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => verifyMutation.mutate()}
-              disabled={verifyMutation.isPending}
-              className="px-4 py-2 bg-brand-500 text-white font-medium rounded-lg hover:bg-brand-600 disabled:opacity-50 transition"
-            >
-              {verifyMutation.isPending ? "Verifying…" : "Get verified"}
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
   </>
   );
 }
