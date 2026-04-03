@@ -1034,3 +1034,45 @@ export async function sendPaymentReceivedToCoach(params: PaymentReceivedToCoachP
     console.error("[notifications] sendPaymentReceivedToCoach failed:", err);
   }
 }
+
+// --- Admin: new coach signup ---
+
+const ADMIN_EMAIL = "michaelmoser01@gmail.com";
+
+export interface NewCoachSignupAdminParams {
+  coachName: string;
+  sports: string[];
+  cities: string[];
+}
+
+export async function sendNewCoachSignupAdmin(params: NewCoachSignupAdminParams): Promise<void> {
+  const { coachName, sports, cities } = params;
+  const name = coachName?.trim() || "Unknown";
+
+  const subject = `New coach signed up: ${name}`;
+  const bodyText = [
+    `A new coach just signed up on ApexSports!`,
+    "",
+    `Name: ${name}`,
+    `Sports: ${sports?.length ? sports.join(", ") : "None listed"}`,
+    `Cities: ${cities?.length ? cities.join(", ") : "None listed"}`,
+  ].join("\n");
+
+  const bodyHtml = htmlEmail(
+    [
+      `<p style="margin: 0 0 4px; font-size: 14px; color: ${SLATE_500};">New coach signup</p>`,
+      `<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">Congrats — you have a new coach!</p>`,
+      infoCard([
+        iconRow("👤", "Name", `<strong>${escapeHtml(name)}</strong>`),
+        iconRow("⚽", "Sports", escapeHtml(sports?.length ? sports.join(", ") : "None listed")),
+        iconRow("📍", "Cities", escapeHtml(cities?.length ? cities.join(", ") : "None listed")),
+      ]),
+    ].join("\n")
+  );
+
+  try {
+    await sendEmail({ to: ADMIN_EMAIL, subject, text: bodyText, html: bodyHtml });
+  } catch (err) {
+    console.error("[notifications] sendNewCoachSignupAdmin failed:", err);
+  }
+}

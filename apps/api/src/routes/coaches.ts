@@ -922,6 +922,12 @@ router.post("/me", authMiddleware(), async (req, res) => {
       include: { photos: { orderBy: { sortOrder: "asc" } } },
     });
 
+    queueEmail("new_coach_signup", {
+      coachName: data.displayName,
+      sports: data.sports,
+      cities: data.serviceCities,
+    }).catch((err) => console.error("[coaches] queueEmail new_coach_signup failed:", err));
+
     res.status(201).json({
       id: withPhotos!.id,
       displayName: withPhotos!.displayName,

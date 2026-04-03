@@ -13,7 +13,8 @@ export type NotificationType =
   | "price_drop"
   | "athlete_cancelled"
   | "payment_confirmed"
-  | "payment_received";
+  | "payment_received"
+  | "new_coach_signup";
 
 const queueUrl = process.env.EMAIL_QUEUE_URL;
 let sqs: SQSClient | null = null;
@@ -47,6 +48,7 @@ export async function queueEmail(
       athlete_cancelled: "sendAthleteCancelledToCoach",
       payment_confirmed: "sendPaymentConfirmedToAthlete",
       payment_received: "sendPaymentReceivedToCoach",
+      new_coach_signup: "sendNewCoachSignupAdmin",
     };
     const fn = dispatch[fnMap[type]];
     if (fn) await fn(payload as never);
