@@ -124,9 +124,8 @@ export default function AdminCoaches() {
   const fetchCoaches = useCallback(async (key: string) => {
     setLoading(true);
     setError(null);
-    const fullUrl = `${baseUrl}/admin/coaches`;
     try {
-      const res = await fetch(fullUrl, {
+      const res = await fetch(`${baseUrl}/admin/coaches`, {
         headers: { "X-Admin-Key": key },
       });
       if (res.status === 401) {
@@ -139,10 +138,7 @@ export default function AdminCoaches() {
       const data = await res.json();
       setCoaches(data);
     } catch (err) {
-      // #region agent log
-      const msg = err instanceof Error ? `${err.name}: ${err.message}` : "Unknown error";
-      setError(`${msg} | URL: ${fullUrl} | baseUrl: ${baseUrl}`);
-      // #endregion
+      setError(err instanceof Error ? err.message : "Failed to load coaches");
     } finally {
       setLoading(false);
     }

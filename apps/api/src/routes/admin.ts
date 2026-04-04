@@ -8,9 +8,6 @@ function adminAuth(req: Request, res: Response, next: NextFunction): void {
   if (req.method === "OPTIONS") { next(); return; }
   const key = req.headers["x-admin-key"];
   const expected = process.env.ADMIN_API_KEY;
-  // #region agent log
-  console.log("[DEBUG-8f1486] adminAuth", { method: req.method, hasKey: !!key, hasExpected: !!expected, keyMatch: key === expected, expectedLen: expected?.length, keyLen: typeof key === "string" ? key.length : 0 });
-  // #endregion
   if (!expected) {
     if (!key) { res.status(401).json({ error: "Unauthorized" }); return; }
     next();
