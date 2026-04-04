@@ -6,6 +6,7 @@ import athletesRoutes from "./routes/athletes.js";
 import bookingsRoutes from "./routes/bookings.js";
 import sessionsRoutes from "./routes/sessions.js";
 import invitesRoutes from "./routes/invites.js";
+import adminRoutes from "./routes/admin.js";
 import { stripeWebhookHandler } from "./routes/webhooks.js";
 import { prisma } from "./db.js";
 
@@ -25,7 +26,7 @@ app.use(
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Dev-User-Id"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Dev-User-Id", "X-Admin-Key"],
   })
 );
 
@@ -54,6 +55,7 @@ app.use("/athletes", athletesRoutes);
 app.use("/bookings", bookingsRoutes);
 app.use("/sessions", sessionsRoutes);
 app.use("/invites", invitesRoutes);
+app.use("/admin", adminRoutes);
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const message = err instanceof Error ? err.message : String(err);

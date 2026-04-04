@@ -19,6 +19,7 @@ provider:
         - Content-Type
         - Authorization
         - X-Dev-User-Id
+        - X-Admin-Key
       allowedMethods:
         - GET
         - POST
@@ -135,6 +136,7 @@ functions:
       # Stripe: secret created per stage (apex-sports-<stage>-stripe-keys); paste key values in console
       STRIPE_SECRET_ARN: !Ref StripeSecret
       SENDGRID_SECRET_ARN: !Ref SendGridSecret
+      ADMIN_SECRET_ARN: !Ref AdminSecret
       STRIPE_PLATFORM_FEE_PERCENT: "10"
       # Bedrock: set BEDROCK_MODEL_ID / BEDROCK_REGION when running serverless deploy to override
       BEDROCK_REGION: ${env:BEDROCK_REGION, 'us-east-1'}
@@ -407,6 +409,14 @@ resources:
           GenerateStringKey: password
           PasswordLength: 32
           ExcludeCharacters: '"@/\'
+
+    # Admin API key (per stage); paste value in AWS console after deploy
+    AdminSecret:
+      Type: AWS::SecretsManager::Secret
+      Properties:
+        Name: ${self:service}-${self:provider.stage}-admin-keys
+        Description: Admin API key for admin dashboard; fill value in AWS console after deploy
+        SecretString: '{"ADMIN_API_KEY":""}'
 
     # SendGrid API key (per stage); paste value in AWS console after deploy
     SendGridSecret:

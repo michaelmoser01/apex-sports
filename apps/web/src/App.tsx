@@ -9,6 +9,7 @@ import Home from "./pages/Home";
 import Coaches from "./pages/Coaches";
 import ForCoaches from "./pages/ForCoaches";
 import StartCoaching from "./pages/StartCoaching";
+import AdminCoaches from "./pages/AdminCoaches";
 import CoachDetail from "./pages/CoachDetail";
 import CoachBook from "./pages/CoachBook";
 import CoachBookingSuccess from "./pages/CoachBookingSuccess";
@@ -59,6 +60,7 @@ function AppContent() {
         <Route index element={<Home />} />
         <Route path="coaches" element={<ForCoaches />} />
         <Route path="start-coaching" element={<StartCoaching />} />
+        <Route path="admin/coaches" element={<AdminCoaches />} />
         <Route path="pricing" element={<Navigate to="/coaches#pricing" replace />} />
         <Route path="find" element={<Coaches />} />
         <Route path="join/:slug" element={<Join />} />

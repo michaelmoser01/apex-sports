@@ -47,11 +47,25 @@ async function ensureSendGridSecrets(): Promise<void> {
   }
 }
 
+async function ensureAdminSecrets(): Promise<void> {
+  if (process.env.ADMIN_API_KEY) return;
+  const secretArn = process.env.ADMIN_SECRET_ARN;
+  if (!secretArn) return;
+
+  const client = new SecretsManagerClient({});
+  const res = await client.send(new GetSecretValueCommand({ SecretId: secretArn }));
+  const secret = JSON.parse(res.SecretString ?? "{}") as Record<string, string>;
+  for (const [key, value] of Object.entries(secret)) {
+    if (value != null && value !== "") process.env[key] = value;
+  }
+}
+
 async function getApp(): Promise<Application> {
   if (!appPromise) {
     await ensureDatabaseUrl();
     await ensureStripeSecrets();
     await ensureSendGridSecrets();
+    await ensureAdminSecrets();
     const m = await import("./app.js");
     appPromise = Promise.resolve(m.default);
   }
