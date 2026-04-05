@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Check, X, ChevronDown, ChevronRight, Lock } from "lucide-react";
+import { Check, X, ChevronDown, ChevronRight, Lock, Trash2 } from "lucide-react";
 
 const STORAGE_KEY = "apex-admin-key";
 
@@ -39,8 +39,15 @@ function StatusIcon({ ok }: { ok: boolean }) {
   );
 }
 
-function CoachDetailRow({ coach }: { coach: CoachRow }) {
+function CoachDetailRow({ coach, onDelete }: { coach: CoachRow; onDelete: () => void }) {
   const creds = coach.credentials;
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete ${coach.displayName} (${coach.email})? This cannot be undone.`)) return;
+    setDeleting(true);
+    onDelete();
+  };
 
   return (
     <tr>
@@ -76,6 +83,17 @@ function CoachDetailRow({ coach }: { coach: CoachRow }) {
               <Stat label="Bookings" value={coach.bookingCount} />
             </div>
           </div>
+        </div>
+        <div className="mt-4 pt-4 border-t border-slate-200">
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 disabled:opacity-50 transition"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            {deleting ? "Deleting..." : "Delete coach"}
+          </button>
         </div>
       </td>
     </tr>
@@ -147,6 +165,21 @@ export default function AdminCoaches() {
   useEffect(() => {
     if (adminKey) fetchCoaches(adminKey);
   }, [adminKey, fetchCoaches]);
+
+  const deleteCoach = useCallback(async (id: string) => {
+    if (!adminKey) return;
+    try {
+      const res = await fetch(`${baseUrl}/admin/coaches/${id}`, {
+        method: "DELETE",
+        headers: { "X-Admin-Key": adminKey },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setCoaches((prev) => prev.filter((c) => c.id !== id));
+      setExpandedId(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete coach");
+    }
+  }, [adminKey, baseUrl]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -234,6 +267,7 @@ export default function AdminCoaches() {
                       coach={coach}
                       isExpanded={isExpanded}
                       onToggle={() => setExpandedId(isExpanded ? null : coach.id)}
+                      onDelete={() => deleteCoach(coach.id)}
                     />
                   );
                 })}
@@ -254,10 +288,12 @@ function CoachTableRow({
   coach,
   isExpanded,
   onToggle,
+  onDelete,
 }: {
   coach: CoachRow;
   isExpanded: boolean;
   onToggle: () => void;
+  onDelete: () => void;
 }) {
   const date = new Date(coach.createdAt);
   const formatted = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -288,7 +324,7 @@ function CoachTableRow({
         <td className="px-3 py-3 text-center"><StatusIcon ok={coach.hasStripe} /></td>
         <td className="px-3 py-3 text-center"><StatusIcon ok={coach.isVerified} /></td>
       </tr>
-      {isExpanded && <CoachDetailRow coach={coach} />}
+      {isExpanded && <CoachDetailRow coach={coach} onDelete={onDelete} />}
     </>
   );
 }

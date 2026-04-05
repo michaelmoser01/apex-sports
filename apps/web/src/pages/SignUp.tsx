@@ -40,7 +40,7 @@ function DevSignUp() {
   const queryClient = useQueryClient();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState<Role>("athlete");
+  const [role, setRole] = useState<Role>(searchParams.get("role") === "coach" ? "coach" : "athlete");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -115,7 +115,7 @@ function CognitoSignUp() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [role, setRole] = useState<Role>("athlete");
+  const [role, setRole] = useState<Role>(searchParams.get("role") === "coach" ? "coach" : "athlete");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);

@@ -92,7 +92,7 @@ export default function ForCoaches() {
   const isAuthenticated = isDevMode ? !!devUser : authStatus === "authenticated";
   const { data: currentUser } = useCurrentUser(isAuthenticated);
   const isCoach = !!currentUser?.coachProfile || currentUser?.signupRole === "coach";
-  const coachCtaTo = isCoach ? "/dashboard" : "/sign-up";
+  const coachCtaTo = isCoach ? "/dashboard" : "/sign-up?role=coach";
 
   return (
     <div className="min-h-screen bg-white">

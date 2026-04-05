@@ -119,7 +119,7 @@ export default function StartCoaching() {
   const isAuthenticated = isDevMode ? !!devUser : authStatus === "authenticated";
   const { data: currentUser } = useCurrentUser(isAuthenticated);
   const isCoach = !!currentUser?.coachProfile || currentUser?.signupRole === "coach";
-  const coachCtaTo = isCoach ? "/dashboard" : "/sign-up";
+  const coachCtaTo = isCoach ? "/dashboard" : "/sign-up?role=coach";
   const ctaLabel = isCoach ? "Go to Dashboard" : "Start coaching today";
 
   const handleCtaClick = () => {

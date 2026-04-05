@@ -69,4 +69,29 @@ router.get("/coaches", async (_req: Request, res: Response) => {
   res.json(result);
 });
 
+router.delete("/coaches/:id", async (req: Request, res: Response) => {
+  const profile = await prisma.coachProfile.findUnique({
+    where: { id: req.params.id },
+    include: { user: { select: { id: true, cognitoSub: true } } },
+  });
+  if (!profile) { res.status(404).json({ error: "Coach not found" }); return; }
+
+  if (profile.user.cognitoSub && process.env.COGNITO_USER_POOL_ID) {
+    try {
+      const { CognitoIdentityProviderClient, AdminDeleteUserCommand } = await import("@aws-sdk/client-cognito-identity-provider");
+      const cognito = new CognitoIdentityProviderClient({ region: process.env.COGNITO_REGION ?? "us-east-1" });
+      await cognito.send(new AdminDeleteUserCommand({
+        UserPoolId: process.env.COGNITO_USER_POOL_ID,
+        Username: profile.user.cognitoSub,
+      }));
+    } catch (err) {
+      console.warn("[admin] Cognito delete failed:", err);
+    }
+  }
+
+  await prisma.user.delete({ where: { id: profile.user.id } });
+
+  res.json({ deleted: true });
+});
+
 export default router;
