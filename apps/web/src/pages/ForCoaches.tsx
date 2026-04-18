@@ -19,39 +19,39 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 const FEATURES = [
   {
-    title: "Get discovered by athletes",
+    title: "Athletes find you",
     description:
-      "Your public profile shows up in sport and location searches. Athletes find you — no outreach needed.",
+      "Your profile shows up when local athletes search by sport and location. New clients come to you.",
     icon: Search,
   },
   {
-    title: "Online scheduling",
+    title: "Instant booking",
     description:
-      "Set your availability once. Athletes see open slots and self-book — no back-and-forth texts.",
+      "Set your availability once. Athletes see open slots and book themselves — no back-and-forth texts.",
     icon: CalendarCheck,
   },
   {
-    title: "Group sessions built in",
+    title: "Fill sessions with group invites",
     description:
-      "Run group training for 2–20 athletes with dynamic per-person pricing and invite links to fill spots.",
+      "Athletes share your session link with friends. Spots fill organically with built-in per-person pricing.",
     icon: Users,
   },
   {
-    title: "Get paid automatically",
+    title: "Get paid after every session",
     description:
-      "Payment links sent after every session. No invoicing, no chasing — money goes straight to your account.",
+      "Payment links are sent automatically. No invoicing, no chasing — money goes straight to your account.",
     icon: CreditCard,
   },
   {
-    title: "Build your reputation",
+    title: "Reviews that bring more athletes",
     description:
-      "Athletes leave reviews after every session. Your rating shows on your profile and builds trust.",
+      "Athletes rate you after every session. Great reviews build trust and attract new bookings.",
     icon: Star,
   },
   {
     title: "One dashboard for everything",
     description:
-      "Upcoming sessions, pending requests, athlete roster, and payment tracking — all in one place.",
+      "Sessions, requests, athlete roster, and payments — all in one place so nothing falls through the cracks.",
     icon: LayoutDashboard,
   },
 ];
@@ -117,8 +117,7 @@ export default function ForCoaches() {
             <span className="text-gradient-brand">Manage less.</span>
           </h1>
           <p className="mt-6 text-lg sm:text-xl text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            The all-in-one platform for independent coaches.
-            Get discovered, manage bookings, and get paid — so you can focus on coaching.
+            Fill more sessions, manage your schedule with ease, get discovered by local athletes, and get paid automatically.
           </p>
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <Link to={coachCtaTo}>
@@ -127,11 +126,6 @@ export default function ForCoaches() {
                 <ArrowRight className="w-5 h-5" />
               </Button>
             </Link>
-            <a href="#pricing">
-              <Button variant="glass" size="xl" className="w-full sm:w-auto">
-                See pricing
-              </Button>
-            </a>
           </div>
         </div>
       </section>
@@ -140,9 +134,9 @@ export default function ForCoaches() {
       <section className="py-20 sm:py-28 bg-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <SectionHeader
-            eyebrow="Everything you need"
-            title="Built to grow your coaching business"
-            description="From scheduling to payments to reviews — everything you need to run your business, in one place."
+            eyebrow="More athletes. More sessions."
+            title="Everything you need to fill your schedule"
+            description="Athletes find you, book instantly, invite friends, and pay automatically. You just coach."
           />
 
           <div className="mt-16 grid sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
@@ -203,25 +197,24 @@ export default function ForCoaches() {
             <div className="flex-shrink-0 rounded-3xl bg-gradient-to-br from-slate-900 to-slate-800 text-white p-10 sm:p-12 shadow-card-dark max-w-sm ring-1 ring-white/5">
               <LayoutDashboard className="w-10 h-10 text-brand-400 mb-4" />
               <p className="text-2xl sm:text-3xl font-display font-extrabold tracking-display leading-tight">
-                Everything you need
+                More athletes.
                 <br />
-                to run your coaching
+                More sessions.
                 <br />
-                business —{" "}
-                <span className="text-brand-400">in one place.</span>
+                <span className="text-brand-400">Less busywork.</span>
               </p>
               <ul className="mt-6 space-y-2.5 text-sm text-slate-300">
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-brand-400 flex-shrink-0" />
-                  No website needed
+                  Athletes discover and book you
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-brand-400 flex-shrink-0" />
-                  No chasing payments
+                  Group invites fill spots for you
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-brand-400 flex-shrink-0" />
-                  No scheduling headaches
+                  Payments happen automatically
                 </li>
               </ul>
             </div>
@@ -234,19 +227,18 @@ export default function ForCoaches() {
         <div className="max-w-4xl mx-auto px-4 sm:px-6">
           <SectionHeader
             eyebrow="Pricing"
-            title="Free to join. You only pay when you earn."
+            title="Free to use. You keep what you earn."
           />
 
           <div className="mt-14 rounded-2xl border border-brand-200 bg-gradient-brand-subtle p-8 sm:p-12 text-center shadow-lg shadow-brand-500/5">
             <p className="flex items-baseline justify-center gap-2">
               <span className="text-6xl sm:text-7xl font-extrabold text-slate-900 tracking-tight">
-                10%
+                $0
               </span>
-              <span className="text-xl text-slate-500 font-medium">per paid booking</span>
+              <span className="text-xl text-slate-500 font-medium">platform fee</span>
             </p>
             <p className="mt-4 text-slate-600 max-w-lg mx-auto leading-relaxed">
-              The 10% fee covers all payment processing. No hidden fees, no monthly subscription.
-              Free for sessions paid outside the platform.
+              No platform fees. Athletes cover standard card processing (~3%) at checkout.
             </p>
 
             <div className="mt-10 grid grid-cols-2 sm:grid-cols-3 gap-3 max-w-xl mx-auto text-left">
@@ -277,10 +269,10 @@ export default function ForCoaches() {
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_50%_50%,rgba(236,116,26,0.12),transparent_70%)]" />
         <div className="relative max-w-3xl mx-auto px-4 sm:px-6 text-center">
           <h2 className="font-display text-3xl sm:text-4xl font-extrabold tracking-display text-white">
-            Ready to grow your coaching business?
+            Ready to get more athletes?
           </h2>
           <p className="mt-4 text-lg text-slate-400">
-            Create your free profile in minutes. No credit card required.
+            Set up your profile in minutes. Start getting bookings today.
           </p>
           <Link to={coachCtaTo} className="inline-block mt-8">
             <Button size="xl" className="shadow-lg shadow-brand-500/30">

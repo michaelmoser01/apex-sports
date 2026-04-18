@@ -39,7 +39,7 @@ interface SlotParticipant {
 interface BookingDetailData {
   id: string;
   viewerRole: "athlete" | "coach";
-  coach: { id: string; displayName: string; sports: string[]; userId: string; stripeOnboardingComplete: boolean };
+  coach: { id: string; displayName: string; sports: string[]; userId: string; stripeOnboardingComplete: boolean; feeMode?: string };
   slot: {
     id: string;
     startTime: string;
@@ -68,6 +68,8 @@ interface BookingDetailData {
   slotParticipants?: SlotParticipant[];
   spotsRemaining?: number;
   currentPerPersonAmountCents?: number | null;
+  processingFeeCents?: number;
+  totalChargeCents?: number | null;
 }
 
 export default function BookingDetail() {
@@ -334,16 +336,25 @@ export default function BookingDetail() {
               <span>{slotTime}</span>
             </div>
             {(booking.amountCents != null || booking.currentPerPersonAmountCents != null) && (() => {
-              const displayAmount = hasParticipants && booking.currentPerPersonAmountCents != null
+              const sessionAmount = hasParticipants && booking.currentPerPersonAmountCents != null
                 ? booking.currentPerPersonAmountCents
                 : booking.amountCents!;
+              const fee = booking.processingFeeCents ?? 0;
+              const total = fee > 0 ? sessionAmount + fee : sessionAmount;
               return (
                 <div className="flex items-center gap-3 text-slate-700">
                   <DollarSign className="w-5 h-5 shrink-0 text-slate-400" />
-                  <span className="font-semibold">
-                    ${(displayAmount / 100).toFixed(2)}
-                    {hasParticipants && <span className="text-sm font-normal text-slate-500 ml-1">per person</span>}
-                  </span>
+                  <div>
+                    <span className="font-semibold">
+                      ${(total / 100).toFixed(2)}
+                      {hasParticipants && <span className="text-sm font-normal text-slate-500 ml-1">per person</span>}
+                    </span>
+                    {fee > 0 && (
+                      <span className="text-xs text-slate-500 ml-2">
+                        (${(sessionAmount / 100).toFixed(2)} + ${(fee / 100).toFixed(2)} processing)
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })()}
@@ -392,7 +403,7 @@ export default function BookingDetail() {
               <div className="p-5 rounded-xl bg-white border-2 border-amber-300 shadow-sm">
                 <h2 className="text-lg font-semibold text-slate-900 mb-1">Payment due</h2>
                 <p className="text-slate-600 text-sm mb-4">
-                  Complete your payment of <span className="font-semibold text-slate-900">${(booking.amountCents! / 100).toFixed(2)}</span> for this session.
+                  Complete your payment for this session.
                 </p>
                 {paymentError && (
                   <p className="text-danger-600 text-sm mb-3" role="alert">
@@ -403,6 +414,8 @@ export default function BookingDetail() {
                   <DeferredPaymentForm
                     bookingId={id}
                     amountCents={booking.amountCents!}
+                    processingFeeCents={booking.processingFeeCents ?? 0}
+                    totalChargeCents={booking.totalChargeCents ?? undefined}
                     onSuccess={() => {
                       setPaymentError(null);
                       setPaymentJustCompleted(true);

@@ -5,6 +5,8 @@ import { api } from "@/lib/api";
 interface DeferredPaymentFormProps {
   bookingId: string;
   amountCents: number;
+  processingFeeCents?: number;
+  totalChargeCents?: number;
   onSuccess: () => void;
   onError: (message: string) => void;
   disabled?: boolean;
@@ -13,6 +15,8 @@ interface DeferredPaymentFormProps {
 export function DeferredPaymentForm({
   bookingId,
   amountCents,
+  processingFeeCents = 0,
+  totalChargeCents,
   onSuccess,
   onError,
   disabled,
@@ -22,7 +26,11 @@ export function DeferredPaymentForm({
   const [cardComplete, setCardComplete] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const amountDollars = (amountCents / 100).toFixed(2);
+  const chargeTotal = totalChargeCents ?? amountCents;
+  const chargeDollars = (chargeTotal / 100).toFixed(2);
+  const sessionDollars = (amountCents / 100).toFixed(2);
+  const feeDollars = (processingFeeCents / 100).toFixed(2);
+  const hasFee = processingFeeCents > 0;
   const canSubmit = stripe && cardComplete && !disabled && !isLoading;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -85,11 +93,30 @@ export function DeferredPaymentForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <p className="text-slate-700 font-medium">
-        Session total: <span className="text-slate-900">${amountDollars}</span>
-      </p>
+      {hasFee ? (
+        <div className="space-y-1">
+          <p className="text-slate-600 text-sm flex justify-between">
+            <span>Session</span>
+            <span>${sessionDollars}</span>
+          </p>
+          <p className="text-slate-600 text-sm flex justify-between">
+            <span>Processing fee</span>
+            <span>${feeDollars}</span>
+          </p>
+          <div className="border-t border-slate-200 pt-1">
+            <p className="text-slate-900 font-medium flex justify-between">
+              <span>Total</span>
+              <span>${chargeDollars}</span>
+            </p>
+          </div>
+        </div>
+      ) : (
+        <p className="text-slate-700 font-medium">
+          Session total: <span className="text-slate-900">${sessionDollars}</span>
+        </p>
+      )}
       <p className="text-slate-600 text-sm">
-        You&apos;ll be charged ${amountDollars} now.
+        You&apos;ll be charged ${chargeDollars} now.
       </p>
       <div className="p-3 border border-slate-300 rounded-lg bg-white">
         <CardElement

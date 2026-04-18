@@ -3,7 +3,20 @@ import Stripe from "stripe";
 const secretKey = process.env.STRIPE_SECRET_KEY;
 export const stripe = secretKey ? new Stripe(secretKey, { apiVersion: "2023-10-16" }) : null;
 
-const FEE_PERCENT = Math.min(100, Math.max(0, Number(process.env.STRIPE_PLATFORM_FEE_PERCENT) || 10));
+export type FeeMode = "pass_to_athlete" | "coach_absorbs";
+
+const STRIPE_RATE = 0.029;
+const STRIPE_FIXED_CENTS = 30;
+
+/** Gross-up surcharge so the platform breaks even on Stripe processing fees. */
+export function calculateProcessingFee(sessionAmountCents: number): number {
+  return Math.ceil((sessionAmountCents * STRIPE_RATE + STRIPE_FIXED_CENTS) / (1 - STRIPE_RATE));
+}
+
+/** Estimated Stripe fee on a given charge amount. */
+function estimateStripeFee(chargeCents: number): number {
+  return Math.ceil(chargeCents * STRIPE_RATE + STRIPE_FIXED_CENTS);
+}
 
 export function isStripeEnabled(): boolean {
   return !!stripe && !!secretKey;
@@ -31,7 +44,8 @@ export async function cancelPaymentIntent(paymentIntentId: string): Promise<void
 }
 
 /** Create and optionally confirm a PaymentIntent for deferred booking payment (immediate capture, destination charge).
- * When paymentMethodId is provided, the PI is confirmed server-side so the charge happens in one round-trip. */
+ * When paymentMethodId is provided, the PI is confirmed server-side so the charge happens in one round-trip.
+ * feeMode controls whether Stripe processing fees are added to the charge (pass_to_athlete) or absorbed by the coach. */
 export async function createDeferredBookingPaymentIntent(params: {
   amountCents: number;
   currency: string;
@@ -40,9 +54,20 @@ export async function createDeferredBookingPaymentIntent(params: {
   bookingId: string;
   idempotencyKey: string;
   paymentMethodId?: string;
+  feeMode?: FeeMode;
 }): Promise<{ clientSecret: string | null; paymentIntentId: string; status: string }> {
   if (!stripe) throw new Error("Stripe not configured");
-  const feeCents = Math.round((params.amountCents * FEE_PERCENT) / 100);
+  const mode = params.feeMode ?? "pass_to_athlete";
+  let chargeCents: number;
+  let applicationFeeCents: number;
+  if (mode === "pass_to_athlete") {
+    const surcharge = calculateProcessingFee(params.amountCents);
+    chargeCents = params.amountCents + surcharge;
+    applicationFeeCents = surcharge;
+  } else {
+    chargeCents = params.amountCents;
+    applicationFeeCents = estimateStripeFee(params.amountCents);
+  }
   const confirm = !!params.paymentMethodId;
   if (params.paymentMethodId) {
     try {
@@ -54,14 +79,14 @@ export async function createDeferredBookingPaymentIntent(params: {
   }
   const pi = await stripe.paymentIntents.create(
     {
-      amount: params.amountCents,
+      amount: chargeCents,
       currency: params.currency,
       customer: params.customerId,
       payment_method: params.paymentMethodId || undefined,
       capture_method: "automatic",
       metadata: { bookingId: params.bookingId },
       transfer_data: { destination: params.connectAccountId },
-      application_fee_amount: feeCents,
+      application_fee_amount: applicationFeeCents,
       confirm,
       automatic_payment_methods: { enabled: true, allow_redirects: "never" },
     },
@@ -84,9 +109,20 @@ export async function createBookingPaymentCheckout(params: {
   coachDisplayName: string;
   successUrl: string;
   cancelUrl: string;
+  feeMode?: FeeMode;
 }): Promise<{ url: string; sessionId: string }> {
   if (!stripe) throw new Error("Stripe not configured");
-  const feeCents = Math.round((params.amountCents * FEE_PERCENT) / 100);
+  const mode = params.feeMode ?? "pass_to_athlete";
+  let chargeCents: number;
+  let applicationFeeCents: number;
+  if (mode === "pass_to_athlete") {
+    const surcharge = calculateProcessingFee(params.amountCents);
+    chargeCents = params.amountCents + surcharge;
+    applicationFeeCents = surcharge;
+  } else {
+    chargeCents = params.amountCents;
+    applicationFeeCents = estimateStripeFee(params.amountCents);
+  }
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     customer_email: params.customerEmail.trim() || undefined,
@@ -95,13 +131,13 @@ export async function createBookingPaymentCheckout(params: {
         price_data: {
           currency: params.currency,
           product_data: { name: `Coaching session with ${params.coachDisplayName}` },
-          unit_amount: params.amountCents,
+          unit_amount: chargeCents,
         },
         quantity: 1,
       },
     ],
     payment_intent_data: {
-      application_fee_amount: feeCents,
+      application_fee_amount: applicationFeeCents,
       transfer_data: { destination: params.connectAccountId },
       metadata: { bookingId: params.bookingId },
     },

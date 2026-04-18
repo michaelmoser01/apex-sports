@@ -8,7 +8,9 @@ import {
   getOrCreateStripeCustomerId,
   createDeferredBookingPaymentIntent,
   cancelPaymentIntent,
+  calculateProcessingFee,
 } from "../stripe.js";
+import type { FeeMode } from "../stripe.js";
 
 const router = Router();
 const auth = authMiddleware();
@@ -425,6 +427,15 @@ router.get("/:id", auth, async (req, res) => {
     }
   }
 
+  const feeMode = (booking.coach.feeMode ?? "pass_to_athlete") as FeeMode;
+  const displayAmountCents = currentPerPersonAmountCents ?? booking.amountCents;
+  const processingFeeCents = displayAmountCents && feeMode === "pass_to_athlete"
+    ? calculateProcessingFee(displayAmountCents)
+    : 0;
+  const totalChargeCents = displayAmountCents
+    ? displayAmountCents + processingFeeCents
+    : null;
+
   res.json({
     id: booking.id,
     viewerRole: isAthlete ? "athlete" : "coach",
@@ -434,6 +445,7 @@ router.get("/:id", auth, async (req, res) => {
       sports: booking.coach.sports,
       userId: booking.coach.userId,
       stripeOnboardingComplete: booking.coach.stripeOnboardingComplete,
+      feeMode,
     },
     slot: {
       id: booking.slot.id,
@@ -492,6 +504,8 @@ router.get("/:id", auth, async (req, res) => {
       ? (isSlotLocked ? 0 : Math.max(0, booking.slot.maxCapacity - activeSlotParticipants.length))
       : undefined,
     currentPerPersonAmountCents,
+    processingFeeCents,
+    totalChargeCents,
   });
 });
 
@@ -622,6 +636,7 @@ router.post("/:id/pay-now", auth, async (req, res) => {
   }
 
   try {
+    const coachFeeMode = (booking.coach.feeMode ?? "pass_to_athlete") as FeeMode;
     const { clientSecret, paymentIntentId, status } = await createDeferredBookingPaymentIntent({
       amountCents: booking.amountCents,
       currency: booking.currency ?? "usd",
@@ -630,6 +645,7 @@ router.post("/:id/pay-now", auth, async (req, res) => {
       bookingId: booking.id,
       idempotencyKey: `deferred-${booking.id}-${Date.now()}`,
       paymentMethodId,
+      feeMode: coachFeeMode,
     });
 
     await prisma.booking.update({

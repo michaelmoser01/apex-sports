@@ -108,13 +108,13 @@ export default function OnboardingGetPaid() {
                 </ul>
               </div>
 
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-6">
                 <div className="flex items-start gap-3">
-                  <Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <Info className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-semibold text-amber-900">10% platform fee per session</p>
-                    <p className="text-sm text-amber-700 mt-0.5">
-                      This covers Stripe processing fees and the Apex Sports service fee. You keep 90% of every payment. There are no monthly or upfront charges.
+                    <p className="text-sm font-semibold text-emerald-900">No platform fee</p>
+                    <p className="text-sm text-emerald-700 mt-0.5">
+                      Apex Sports is free for coaches. You keep 100% of your session price. Standard credit card processing fees (~3%) are covered by the athlete at checkout.
                     </p>
                   </div>
                 </div>

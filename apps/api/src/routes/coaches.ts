@@ -163,6 +163,7 @@ router.get("/me", authMiddleware(), async (req, res) => {
     assistantCapabilities: profile.assistantCapabilities ?? null,
     planId: profile.planId ?? null,
     billingMode: profile.billingMode ?? "after_session",
+    feeMode: profile.feeMode ?? "pass_to_athlete",
     groupRates: profile.groupRates ?? null,
   });
 });
@@ -627,9 +628,10 @@ router.put("/me", authMiddleware(), async (req, res) => {
 
   const dbUserCheck = await prisma.user.findUnique({
     where: { id: user.id },
-    select: { signupRole: true, athleteProfiles: { select: { id: true }, take: 1 } },
+    select: { signupRole: true, athleteProfiles: { select: { id: true }, take: 1 }, coachProfile: { select: { id: true } } },
   });
-  if (dbUserCheck?.signupRole === "athlete" || (dbUserCheck?.athleteProfiles?.length ?? 0) > 0) {
+  const hasExistingCoachProfile = !!dbUserCheck?.coachProfile;
+  if (!hasExistingCoachProfile && (dbUserCheck?.signupRole === "athlete" || (dbUserCheck?.athleteProfiles?.length ?? 0) > 0)) {
     return res.status(403).json({
       error: "You signed up as an athlete. Use a different account to create a coach profile.",
     });
@@ -647,6 +649,9 @@ router.put("/me", authMiddleware(), async (req, res) => {
 
   const rawGroupRates = (req.body as { groupRates?: Record<string, number> }).groupRates;
   const groupRates = rawGroupRates && typeof rawGroupRates === "object" ? rawGroupRates : undefined;
+
+  const rawFeeMode = (req.body as { feeMode?: string }).feeMode;
+  const feeMode = rawFeeMode === "pass_to_athlete" || rawFeeMode === "coach_absorbs" ? rawFeeMode : undefined;
 
   const existing = await prisma.coachProfile.findUnique({
     where: { userId: user.id },
@@ -684,6 +689,7 @@ router.put("/me", authMiddleware(), async (req, res) => {
       }),
       ...(data.phone !== undefined && { phone: data.phone?.trim() || null }),
       ...(groupRates !== undefined && { groupRates: groupRates as Prisma.InputJsonValue }),
+      ...(feeMode !== undefined && { feeMode }),
     },
   });
 
@@ -755,6 +761,7 @@ router.put("/me", authMiddleware(), async (req, res) => {
     assistantCapabilities: out.assistantCapabilities ?? null,
     planId: out.planId ?? null,
     billingMode: out.billingMode ?? "after_session",
+    feeMode: out.feeMode ?? "pass_to_athlete",
     ...(photosSaveSkipped && { photosSaveSkipped: true }),
   });
 });

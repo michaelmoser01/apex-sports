@@ -49,7 +49,7 @@ Each stage gets its own secret: `apex-sports-dev-stripe-keys`, `apex-sports-prod
 
 5. Save. The next Lambda cold start will load the new values.
 
-- **Platform fee** is **10%** in `serverless.yml` (`STRIPE_PLATFORM_FEE_PERCENT`). Change there if needed.
+- **Platform fee** is **$0** (no platform fee). Standard Stripe processing fees (~2.9% + 30¢) are either passed to athletes or absorbed by coaches based on each coach's `feeMode` setting (default: `pass_to_athlete`).
 - **Coach plan subscriptions:** To charge coaches their monthly plan fee at the end of onboarding:
   1. In [Stripe Dashboard → Products](https://dashboard.stripe.com/products), create three products (e.g. "Starter", "Pro", "Elite").
   2. For each product, add a **recurring Price** (monthly): $19, $29, and $59/month.
@@ -152,7 +152,7 @@ When you run the web deploy script, it reads this secret and uses `STRIPE_PUBLIS
 
 ## 6. Test mode: platform balance for transfers
 
-When a coach marks a session **complete**, the API **captures** the payment and **transfers** (minus platform fee) to the coach's Connect account. The transfer uses your **platform's available balance** in Stripe.
+When a coach marks a session **complete**, the API **captures** the payment and **transfers** to the coach's Connect account. A small `application_fee_amount` covers Stripe processing fees (no platform cut). The transfer uses your **platform's available balance** in Stripe.
 
 In **test mode**, a new account often has **zero available balance**. If you see "Payment capture failed" with a `balance_insufficient` error in the API logs:
 

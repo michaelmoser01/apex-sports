@@ -294,20 +294,18 @@ export default function StartCoaching() {
         <div className="max-w-4xl mx-auto px-4 sm:px-6">
           <SectionHeader
             eyebrow="Pricing"
-            title="Free to join. Keep 90% of what you earn."
+            title="Free to use. You keep what you earn."
           />
 
           <div className="mt-14 rounded-2xl border border-brand-200 bg-white p-8 sm:p-12 text-center shadow-lg shadow-brand-500/5">
             <p className="flex items-baseline justify-center gap-2">
               <span className="text-6xl sm:text-7xl font-extrabold text-slate-900 tracking-tight">
-                10%
+                $0
               </span>
-              <span className="text-xl text-slate-500 font-medium">per paid booking</span>
+              <span className="text-xl text-slate-500 font-medium">platform fee</span>
             </p>
             <p className="mt-4 text-slate-600 max-w-lg mx-auto leading-relaxed">
-              We only make money when you do. 10% per paid booking covers
-              everything — payment processing, platform, support. No monthly
-              fees. No signup cost.
+              No platform fees. Athletes cover standard card processing (~3%) at checkout.
             </p>
 
             <div className="mt-10 grid grid-cols-2 sm:grid-cols-3 gap-3 max-w-xl mx-auto text-left">
@@ -320,8 +318,8 @@ export default function StartCoaching() {
             </div>
 
             <p className="mt-8 text-sm text-slate-500 font-medium">
-              A coach charging $60/hr running 10 sessions a week earns over
-              $2,300/month after fees.
+              A coach charging $60/hr running 10 sessions a week earns
+              $2,400+/month. You keep it all.
             </p>
 
             <Link to={coachCtaTo} onClick={handleCtaClick} className="inline-block mt-8">

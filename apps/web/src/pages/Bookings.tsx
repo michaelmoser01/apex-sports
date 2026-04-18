@@ -71,6 +71,7 @@ type TabId = "athlete" | "coach";
 interface CoachProfilePayment {
   hourlyRate: string | null;
   stripeOnboardingComplete?: boolean;
+  feeMode?: string;
 }
 
 function isActive(endTime: string, status: string): boolean {
@@ -89,6 +90,7 @@ export default function Bookings() {
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [pendingUpdateId, setPendingUpdateId] = useState<string | null>(null);
+  const [feeModeSaving, setFeeModeSaving] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{
     type: "cancel" | "complete" | "cancel_request" | "needs_stripe";
     bookingId: string;
@@ -273,34 +275,85 @@ export default function Bookings() {
 
       {hasCoachProfile && coachProfile?.hourlyRate && (
         <section className="mb-6 p-6 bg-white rounded-2xl border border-slate-200 shadow-sm">
-          <h2 className="text-lg font-bold text-slate-900 mb-4">Payments</h2>
-          {connectStatusSyncing ? (
-            <p className="text-slate-500 text-sm">Checking payment setup…</p>
-          ) : coachProfile.stripeOnboardingComplete ? (
-            <div className="space-y-2">
-              <p className="text-slate-600 text-sm flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-success-600" />
-                <span className="text-success-700 font-medium">Payments active</span>
-              </p>
-              <p className="text-slate-500 text-xs">
-                A 10% platform fee (includes credit card processing) is applied to each payment.
-              </p>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold text-slate-900">Payments</h2>
+              {!connectStatusSyncing && coachProfile.stripeOnboardingComplete && (
+                <span className="flex items-center gap-1 text-success-700 text-xs font-medium">
+                  <CheckCircle className="w-3.5 h-3.5 text-success-600" />
+                  Active
+                </span>
+              )}
+            </div>
+            {!connectStatusSyncing && coachProfile.stripeOnboardingComplete && (
               <button
                 type="button"
                 onClick={async () => {
                   try {
                     const data = await api<{ url: string }>("/coaches/me/stripe-dashboard");
-                    if (data.url) {
-                      window.open(data.url, "_blank");
-                    }
+                    if (data.url) window.open(data.url, "_blank");
                   } catch {
                     window.open("https://connect.stripe.com/express_login", "_blank");
                   }
                 }}
-                className="text-brand-600 hover:text-brand-700 text-sm font-medium hover:underline"
+                className="text-brand-600 hover:text-brand-700 text-xs font-medium hover:underline"
               >
-                Open Stripe dashboard &rarr;
+                Stripe dashboard &rarr;
               </button>
+            )}
+          </div>
+          {connectStatusSyncing ? (
+            <p className="text-slate-500 text-sm">Checking payment setup…</p>
+          ) : coachProfile.stripeOnboardingComplete ? (
+            <div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <p className="text-slate-700 text-sm font-medium">Who pays processing fees?</p>
+                  <div className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-100">
+                    <button
+                    type="button"
+                    disabled={feeModeSaving}
+                    onClick={async () => {
+                      if (coachProfile.feeMode !== "coach_absorbs") return;
+                      setFeeModeSaving(true);
+                      try {
+                        await api("/coaches/me", { method: "PUT", body: JSON.stringify({ feeMode: "pass_to_athlete" }) });
+                        queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
+                      } finally { setFeeModeSaving(false); }
+                    }}
+                    className={`px-3 py-1.5 text-sm rounded-md transition-all disabled:opacity-50 ${
+                      coachProfile.feeMode !== "coach_absorbs"
+                        ? "bg-white text-slate-900 font-medium shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    Athlete pays
+                  </button>
+                  <button
+                    type="button"
+                    disabled={feeModeSaving}
+                    onClick={async () => {
+                      if (coachProfile.feeMode === "coach_absorbs") return;
+                      setFeeModeSaving(true);
+                      try {
+                        await api("/coaches/me", { method: "PUT", body: JSON.stringify({ feeMode: "coach_absorbs" }) });
+                        queryClient.invalidateQueries({ queryKey: ["coachProfile"] });
+                      } finally { setFeeModeSaving(false); }
+                    }}
+                    className={`px-3 py-1.5 text-sm rounded-md transition-all disabled:opacity-50 ${
+                      coachProfile.feeMode === "coach_absorbs"
+                        ? "bg-white text-slate-900 font-medium shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    I pay
+                    </button>
+                  </div>
+                </div>
+                <p className="text-slate-500 text-xs mt-1.5">
+                  {coachProfile.feeMode === "coach_absorbs"
+                    ? "~3% is deducted from your payout. Athletes pay your exact session price."
+                    : "A ~3% fee is added to the athlete's total. You keep 100% of your rate."}
+                </p>
             </div>
           ) : (
             <>

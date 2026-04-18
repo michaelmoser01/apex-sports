@@ -74,7 +74,7 @@ package:
 
 custom:
   # Bump this when you add a new Prisma migration so the migrate Lambda runs on next deploy.
-  migrationsVersion: "44"
+  migrationsVersion: "45"
   esbuild:
     bundle: true
     packager: npm
@@ -137,7 +137,6 @@ functions:
       STRIPE_SECRET_ARN: !Ref StripeSecret
       SENDGRID_SECRET_ARN: !Ref SendGridSecret
       ADMIN_SECRET_ARN: !Ref AdminSecret
-      STRIPE_PLATFORM_FEE_PERCENT: "10"
       # Bedrock: set BEDROCK_MODEL_ID / BEDROCK_REGION when running serverless deploy to override
       BEDROCK_REGION: ${env:BEDROCK_REGION, 'us-east-1'}
       BEDROCK_MODEL_ID: ${env:BEDROCK_MODEL_ID, 'anthropic.claude-3-haiku-20240307-v1:0'}
