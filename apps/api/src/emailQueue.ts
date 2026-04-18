@@ -14,7 +14,8 @@ export type NotificationType =
   | "athlete_cancelled"
   | "payment_confirmed"
   | "payment_received"
-  | "new_coach_signup";
+  | "new_coach_signup"
+  | "new_message";
 
 const queueUrl = process.env.EMAIL_QUEUE_URL;
 let sqs: SQSClient | null = null;
@@ -49,6 +50,7 @@ export async function queueEmail(
       payment_confirmed: "sendPaymentConfirmedToAthlete",
       payment_received: "sendPaymentReceivedToCoach",
       new_coach_signup: "sendNewCoachSignupAdmin",
+      new_message: "sendNewMessageEmail",
     };
     const fn = dispatch[fnMap[type]];
     if (fn) await fn(payload as never);

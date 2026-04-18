@@ -24,6 +24,7 @@ import AthleteDashboard from "./pages/AthleteDashboard";
 import AthleteOnboarding from "./pages/AthleteOnboarding";
 import CoachOnboardingBio from "./pages/CoachOnboardingBio";
 import CoachAthleteDetail from "./pages/CoachAthleteDetail";
+import Messages from "./pages/Messages";
 import Welcome from "./pages/Welcome";
 import Join from "./pages/Join";
 import GroupInvite from "./pages/GroupInvite";
@@ -78,6 +79,8 @@ function AppContent() {
         {/* Protected routes */}
         <Route path="book/:coachId/:slotId" element={<ProtectedRoute><CompleteReservedBooking /></ProtectedRoute>} />
         <Route path="bookings" element={<ProtectedRoute><Bookings /></ProtectedRoute>} />
+        <Route path="messages" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
+        <Route path="messages/:conversationId" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
         <Route path="bookings/:id" element={<ProtectedRoute><BookingDetail /></ProtectedRoute>} />
         <Route path="sessions/:slotId" element={<ProtectedRoute><SessionDetail /></ProtectedRoute>} />
         <Route path="dashboard" element={<ProtectedRoute><CoachDashboard /></ProtectedRoute>} />

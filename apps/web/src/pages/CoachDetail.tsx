@@ -60,6 +60,7 @@ interface Credentials {
 
 interface CoachDetail {
   id: string;
+  userId: string;
   displayName: string;
   email?: string;
   sports: string[];
@@ -101,9 +102,7 @@ export default function CoachDetail() {
   const { authStatus } = useAuthenticator((c) => [c.authStatus]);
   const isAuthenticated = isDevMode ? isAuthFromContext : authStatus === "authenticated";
   const [photoLightboxIndex, setPhotoLightboxIndex] = useState<number | null>(null);
-  const [messageModalOpen, setMessageModalOpen] = useState(false);
   const [signInPromptOpen, setSignInPromptOpen] = useState(false);
-  const [contactMessage, setContactMessage] = useState("");
   const connectInviteAttempted = useRef(false);
   const { data: currentUser } = useCurrentUser(isAuthenticated);
 
@@ -130,15 +129,11 @@ export default function CoachDetail() {
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setMessageModalOpen(false);
-        setSignInPromptOpen(false);
-        contactMutation.reset();
-      }
+      if (e.key === "Escape") setSignInPromptOpen(false);
     };
-    if (messageModalOpen || signInPromptOpen) document.addEventListener("keydown", handleEscape);
+    if (signInPromptOpen) document.addEventListener("keydown", handleEscape);
     return () => document.removeEventListener("keydown", handleEscape);
-  }, [messageModalOpen, signInPromptOpen]);
+  }, [signInPromptOpen]);
 
   useEffect(() => {
     if (!id || !isAuthenticated || connectInviteAttempted.current) return;
@@ -194,13 +189,12 @@ export default function CoachDetail() {
     );
   }, [coach?.id, myBookings]);
 
-  const contactMutation = useMutation({
-    mutationFn: async (message: string) =>
-      api<{ sent: boolean }>(`/coaches/${id}/contact`, {
+  const startDirectMessageMutation = useMutation({
+    mutationFn: (targetUserId: string) =>
+      api<{ conversationId: string }>(`/messages/conversations/direct/${targetUserId}`, {
         method: "POST",
-        body: JSON.stringify({ message: message.trim() }),
       }),
-    onSuccess: () => setContactMessage(""),
+    onSuccess: (data) => navigate(`/messages/${data.conversationId}`),
   });
 
   // All slots from API (available and booked) - filter invalid dates
@@ -277,34 +271,33 @@ export default function CoachDetail() {
   })();
   const profileImageUrl = photoUrls[0] ?? null;
 
-  const messageCoachButton = (mobileOnly = false) =>
-    id && currentUser?.coachProfile?.id !== id ? (
-      isAuthenticated && currentUser?.athleteProfile ? (
+  const messageCoachButton = (mobileOnly = false) => {
+    if (!id || currentUser?.coachProfile?.id === id) return null;
+    const buttonClass = mobileOnly
+      ? "w-full px-4 py-3 text-base font-semibold text-brand-600 hover:text-brand-700 bg-white hover:bg-brand-50 rounded-xl border-2 border-brand-500 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
+      : "w-full sm:w-auto flex-shrink-0 px-4 py-3 sm:px-3 sm:py-1.5 text-base sm:text-sm font-semibold sm:font-medium text-brand-600 hover:text-brand-700 bg-white hover:bg-brand-50 rounded-xl sm:rounded-lg border-2 sm:border border-brand-500 border-brand-200 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 sm:focus:ring-offset-1 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed";
+    if (isAuthenticated && currentUser?.athleteProfile) {
+      return (
         <button
           type="button"
-          onClick={() => setMessageModalOpen(true)}
-          className={
-            mobileOnly
-              ? "w-full px-4 py-3 text-base font-semibold text-brand-600 hover:text-brand-700 bg-white hover:bg-brand-50 rounded-xl border-2 border-brand-500 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 touch-manipulation"
-              : "w-full sm:w-auto flex-shrink-0 px-4 py-3 sm:px-3 sm:py-1.5 text-base sm:text-sm font-semibold sm:font-medium text-brand-600 hover:text-brand-700 bg-white hover:bg-brand-50 rounded-xl sm:rounded-lg border-2 sm:border border-brand-500 border-brand-200 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 sm:focus:ring-offset-1 touch-manipulation"
-          }
+          onClick={() => coach?.userId && startDirectMessageMutation.mutate(coach.userId)}
+          disabled={!coach?.userId || startDirectMessageMutation.isPending}
+          className={buttonClass}
         >
-          Message coach
+          {startDirectMessageMutation.isPending ? "Opening…" : "Message coach"}
         </button>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setSignInPromptOpen(true)}
-          className={
-            mobileOnly
-              ? "w-full px-4 py-3 text-base font-semibold text-brand-600 hover:text-brand-700 bg-white hover:bg-brand-50 rounded-xl border-2 border-brand-500 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 touch-manipulation"
-              : "w-full sm:w-auto flex-shrink-0 px-4 py-3 sm:px-3 sm:py-1.5 text-base sm:text-sm font-semibold sm:font-medium text-brand-600 hover:text-brand-700 bg-white hover:bg-brand-50 rounded-xl sm:rounded-lg border-2 sm:border border-brand-500 border-brand-200 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 sm:focus:ring-offset-1 touch-manipulation"
-          }
-        >
-          Message coach
-        </button>
-      )
-    ) : null;
+      );
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => setSignInPromptOpen(true)}
+        className={buttonClass}
+      >
+        Message coach
+      </button>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -522,92 +515,25 @@ export default function CoachDetail() {
           </div>
         )}
 
-        {/* Message coach modal */}
-        {messageModalOpen && id && (
+        {/* Message coach error toast */}
+        {startDirectMessageMutation.isError && (
           <div
-            className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/50"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="message-coach-title"
-            onClick={() => setMessageModalOpen(false)}
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[80] max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl bg-danger-50 border border-danger-200 text-danger-700 text-sm shadow-lg flex items-start justify-between gap-3"
+            role="alert"
           >
-            <div
-              className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto"
-              onClick={(e) => e.stopPropagation()}
+            <span>
+              {startDirectMessageMutation.error instanceof Error
+                ? startDirectMessageMutation.error.message
+                : "Couldn't open conversation. Please try again."}
+            </span>
+            <button
+              type="button"
+              onClick={() => startDirectMessageMutation.reset()}
+              className="text-danger-400 hover:text-danger-600 shrink-0"
+              aria-label="Dismiss"
             >
-              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-                <h2 id="message-coach-title" className="text-lg font-semibold text-slate-900">
-                  Message coach
-                </h2>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMessageModalOpen(false);
-                    contactMutation.reset();
-                  }}
-                  className="p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  aria-label="Close"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="p-5 space-y-4">
-                {contactMutation.data?.sent ? (
-                  <>
-                    <p className="text-slate-700">
-                      Message sent. The coach will get back to you by email.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => contactMutation.reset()}
-                      className="w-full px-4 py-2 text-sm font-medium text-brand-600 hover:text-brand-700 bg-brand-50 rounded-lg border border-brand-200"
-                    >
-                      Send another message
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <label htmlFor="contact-message" className="block text-sm font-medium text-slate-700">
-                      Your message
-                    </label>
-                    <textarea
-                      id="contact-message"
-                      value={contactMessage}
-                      onChange={(e) => setContactMessage(e.target.value)}
-                      placeholder="Ask about availability, experience, or anything else…"
-                      rows={4}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                      disabled={contactMutation.isPending}
-                    />
-                    {contactMutation.isError && (
-                      <p className="text-sm text-danger-600" role="alert">
-                        {contactMutation.error instanceof Error ? contactMutation.error.message : "Failed to send message."}
-                      </p>
-                    )}
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMessageModalOpen(false);
-                          contactMutation.reset();
-                        }}
-                        className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => contactMessage.trim() && contactMutation.mutate(contactMessage.trim())}
-                        disabled={!contactMessage.trim() || contactMutation.isPending}
-                        className="px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-50 disabled:pointer-events-none rounded-lg"
-                      >
-                        {contactMutation.isPending ? "Sending…" : "Send"}
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
+              <X className="w-4 h-4" />
+            </button>
           </div>
         )}
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import {
@@ -12,6 +12,7 @@ import {
   DollarSign,
   FileText,
   MapPin,
+  MessageSquare,
   Phone,
   Star,
   User,
@@ -39,6 +40,7 @@ interface AthleteBooking {
 interface AthleteDetailData {
   athlete: {
     id: string;
+    userId: string;
     displayName: string;
     sports: string[];
     serviceCity: string | null;
@@ -119,11 +121,20 @@ export default function CoachAthleteDetail() {
   const { athleteProfileId } = useParams<{ athleteProfileId: string }>();
   const [expandedRecap, setExpandedRecap] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["coachAthleteDetail", athleteProfileId],
     queryFn: () => api<AthleteDetailData>(`/coaches/me/athletes/${athleteProfileId}`),
     enabled: !!athleteProfileId,
+  });
+
+  const startDirectMessageMutation = useMutation({
+    mutationFn: (targetUserId: string) =>
+      api<{ conversationId: string }>(`/messages/conversations/direct/${targetUserId}`, { method: "POST" }),
+    onSuccess: (data) => {
+      navigate(`/messages/${data.conversationId}`);
+    },
   });
 
   const paymentRequestMutation = useMutation({
@@ -210,6 +221,15 @@ export default function CoachAthleteDetail() {
                   Connected {new Date(connection.createdAt).toLocaleDateString()}
                 </p>
               )}
+              <button
+                type="button"
+                onClick={() => startDirectMessageMutation.mutate(athlete.userId)}
+                disabled={startDirectMessageMutation.isPending}
+                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50"
+              >
+                <MessageSquare className="w-4 h-4" />
+                Message
+              </button>
             </div>
           </div>
         </div>

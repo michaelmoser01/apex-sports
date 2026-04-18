@@ -1076,3 +1076,99 @@ export async function sendNewCoachSignupAdmin(params: NewCoachSignupAdminParams)
     console.error("[notifications] sendNewCoachSignupAdmin failed:", err);
   }
 }
+
+// --- New message notification ---
+
+export interface NewMessageEmailParams {
+  recipientEmail: string;
+  recipientName: string | null;
+  senderName: string;
+  messagePreview: string;
+  conversationId: string;
+  conversationTitle: string | null;
+  conversationType?: string | null;
+  totalParticipants?: number | null;
+}
+
+export async function sendNewMessageEmail(params: NewMessageEmailParams): Promise<void> {
+  const {
+    recipientEmail,
+    recipientName,
+    senderName,
+    messagePreview,
+    conversationId,
+    conversationTitle,
+    conversationType,
+    totalParticipants,
+  } = params;
+  const name = recipientName?.trim() || "there";
+  const sender = senderName?.trim() || "Someone";
+  const isGroup = conversationType === "session" || conversationType === "group";
+  const groupNoun = conversationType === "session" ? "session group" : "group";
+  const messagesUrl = appUrl ? `${appUrl}/messages/${conversationId}` : "";
+
+  const subject = isGroup
+    ? conversationTitle
+      ? `${sender} messaged the ${groupNoun} "${conversationTitle}"`
+      : `${sender} sent a message to your ${groupNoun}`
+    : `New message from ${sender}`;
+
+  const groupContextLine = isGroup
+    ? totalParticipants && totalParticipants > 0
+      ? `This message was sent to everyone in the ${groupNoun} (${totalParticipants} people, including you). Replies are visible to the whole group.`
+      : `This message was sent to everyone in the ${groupNoun}. Replies are visible to the whole group.`
+    : null;
+
+  const introLine = isGroup
+    ? conversationTitle
+      ? `${sender} sent a message to the ${groupNoun} "${conversationTitle}":`
+      : `${sender} sent a message to your ${groupNoun}:`
+    : `${sender} sent you a message:`;
+
+  const bodyText = [
+    `Hi ${name},`,
+    "",
+    introLine,
+    "",
+    "---",
+    messagePreview,
+    "---",
+    "",
+    groupContextLine,
+    messagesUrl ? `View conversation: ${messagesUrl}` : null,
+    "",
+    "Apex Sports",
+  ].filter((l) => l !== null).join("\n");
+
+  const headerLabel = isGroup
+    ? conversationTitle
+      ? `New ${groupNoun} message in "${conversationTitle}"`
+      : `New ${groupNoun} message`
+    : "New message";
+
+  const headlineHtml = isGroup
+    ? `<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">${escapeHtml(sender)} messaged the ${escapeHtml(groupNoun)}</p>`
+    : `<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">${escapeHtml(sender)} sent you a message</p>`;
+
+  const footerHtml = isGroup
+    ? `<p style="margin: 0; font-size: 14px; color: ${SLATE_500};">${escapeHtml(groupContextLine ?? "Replies are visible to everyone in the group.")} Reply in the app to continue the conversation.</p>`
+    : `<p style="margin: 0; font-size: 15px; color: ${SLATE_500};">Reply in the app to continue the conversation.</p>`;
+
+  const bodyHtml = htmlEmail(
+    [
+      `<p style="margin: 0 0 4px; font-size: 14px; color: ${SLATE_500};">${escapeHtml(headerLabel)}</p>`,
+      headlineHtml,
+      quoteBlock(messagePreview),
+      footerHtml,
+    ].join("\n"),
+    "View conversation",
+    messagesUrl || undefined
+  );
+
+  try {
+    await sendEmail({ to: recipientEmail, subject, text: bodyText, html: bodyHtml });
+  } catch (err) {
+    console.error("[notifications] sendNewMessageEmail failed:", err, "to:", recipientEmail);
+    throw err;
+  }
+}

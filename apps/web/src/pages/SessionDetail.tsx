@@ -1,4 +1,4 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/lib/api";
@@ -12,6 +12,7 @@ import {
   Users,
   Share2,
   Lock,
+  MessageSquare,
 } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 
@@ -65,6 +66,7 @@ interface SessionData {
 export default function SessionDetail() {
   const { slotId } = useParams<{ slotId: string }>();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
@@ -164,6 +166,15 @@ export default function SessionDetail() {
     },
   });
 
+  const messageParticipantsMutation = useMutation({
+    mutationFn: () =>
+      api<{ conversationId: string }>(`/messages/conversations/session/${slotId}`, { method: "POST" }),
+    onSuccess: (data) => {
+      navigate(`/messages/${data.conversationId}`);
+    },
+    onError: (err: Error) => setUpdateError(err.message ?? "Failed to start conversation"),
+  });
+
   if (isLoading) {
     return (
       <div className="max-w-3xl mx-auto p-6">
@@ -217,19 +228,19 @@ export default function SessionDetail() {
 
   return (
     <div className="max-w-3xl mx-auto pb-20">
-      <div className="px-6 pt-6 pb-4">
+      <div className="px-4 sm:px-6 pt-6 pb-4">
         <Link to="/bookings" className="text-brand-500 hover:text-brand-600 text-sm font-medium flex items-center gap-1">
           <ArrowLeft className="w-4 h-4" /> Back to bookings
         </Link>
       </div>
 
       {successMessage && (
-        <div className="mx-6 mb-4 p-3 bg-success-50 border border-success-200 rounded-xl text-success-700 text-sm font-medium">
+        <div className="mx-4 sm:mx-6 mb-4 p-3 bg-success-50 border border-success-200 rounded-xl text-success-700 text-sm font-medium">
           {successMessage}
         </div>
       )}
       {updateError && (
-        <div className="mx-6 mb-4 p-3 bg-danger-50 border border-danger-200 rounded-xl text-danger-700 text-sm font-medium">
+        <div className="mx-4 sm:mx-6 mb-4 p-3 bg-danger-50 border border-danger-200 rounded-xl text-danger-700 text-sm font-medium">
           {updateError}
         </div>
       )}
@@ -253,7 +264,7 @@ export default function SessionDetail() {
         </div>
 
         {/* Header */}
-        <div className="px-6 pt-5 pb-4">
+        <div className="px-4 sm:px-6 pt-5 pb-4">
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
               Session &middot; {dateStr}
@@ -283,7 +294,7 @@ export default function SessionDetail() {
         </div>
 
         {/* Session details */}
-        <div className="px-6 py-4 border-t border-slate-100 space-y-3">
+        <div className="px-4 sm:px-6 py-4 border-t border-slate-100 space-y-3">
           <div className="flex items-center gap-3 text-slate-700">
             <Calendar className="w-5 h-5 shrink-0 text-slate-400" />
             <span>{slotStart.toLocaleDateString([], { dateStyle: "medium" })}, {slotStart.toLocaleTimeString([], { timeStyle: "short" })} – {slotEnd.toLocaleTimeString([], { timeStyle: "short" })}</span>
@@ -311,7 +322,7 @@ export default function SessionDetail() {
 
         {/* Locked Private callout */}
         {session.lockedPrivate && (
-          <div className="mx-6 mb-4 p-4 rounded-xl bg-violet-50 border border-violet-200 flex gap-3">
+          <div className="mx-4 sm:mx-6 mb-4 p-4 rounded-xl bg-violet-50 border border-violet-200 flex gap-3">
             <Lock className="w-5 h-5 text-violet-600 mt-0.5 shrink-0" />
             <div>
               <p className="text-sm font-semibold text-violet-800">Private session</p>
@@ -323,19 +334,19 @@ export default function SessionDetail() {
         )}
 
         {/* Participants */}
-        <div className="px-6 pt-4 pb-2 border-t border-slate-200">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
-              <Users className="w-5 h-5 text-slate-400" />
-              Session Participants ({activeParticipants.length})
+        <div className="px-4 sm:px-6 pt-4 pb-2 border-t border-slate-200">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2 min-w-0">
+              <Users className="w-5 h-5 text-slate-400 shrink-0" />
+              <span className="truncate">Participants ({activeParticipants.length})</span>
             </h2>
             {session.spotsRemaining > 0 && session.sessionStatus !== "cancelled" && session.sessionStatus !== "completed" && (
               <button
                 type="button"
                 onClick={() => { navigator.clipboard.writeText(shareUrl); setSuccessMessage("Link copied!"); setTimeout(() => setSuccessMessage(null), 3000); }}
-                className="flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700"
+                className="flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700 shrink-0"
               >
-                <Share2 className="w-4 h-4" /> Share session
+                <Share2 className="w-4 h-4" /> Share
               </button>
             )}
           </div>
@@ -351,64 +362,64 @@ export default function SessionDetail() {
               const isPaid = p.paymentStatus === "succeeded" || p.paymentStatus === "authorized" || p.paymentStatus === "paid_offline";
               const needsPayment = session.sessionStatus === "completed" &&
                 (p.paymentStatus === "deferred" || p.paymentStatus === "payment_link_sent");
+              const showPendingActions = p.status === "pending" && session.sessionStatus !== "completed";
+              const showConfirmedActions = p.status === "confirmed" && session.sessionStatus === "confirmed";
+              const hasActions = showPendingActions || showConfirmedActions || needsPayment || isPaid;
 
               return (
                 <div
                   key={p.id}
-                  className={`flex items-center gap-3 p-3 rounded-xl border transition ${
+                  className={`p-3 rounded-xl border transition ${
                     isCancelled ? "border-slate-200 bg-slate-50 opacity-60" : "border-slate-200 bg-white"
                   }`}
                 >
-                  <Avatar displayName={p.name ?? "?"} src={null} size="sm" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm text-slate-900 truncate">{p.name ?? p.email ?? "Athlete"}</p>
-                    <div className="flex items-center gap-2 text-xs text-slate-500">
-                      <span className={
-                        p.status === "confirmed" ? "text-success-600 font-medium"
-                        : p.status === "completed" ? "text-slate-600 font-medium"
-                        : p.status === "cancelled" ? "text-danger-600 font-medium"
-                        : "text-amber-600 font-medium"
-                      }>{p.status}</span>
-                      {p.paymentStatus && <span>&middot; {p.paymentStatus === "paid_offline" ? "paid (offline)" : p.paymentStatus}</span>}
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Avatar displayName={p.name ?? "?"} src={null} size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm text-slate-900 truncate">{p.name ?? p.email ?? "Athlete"}</p>
+                      <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+                        <span className={
+                          p.status === "confirmed" ? "text-success-600 font-medium"
+                          : p.status === "completed" ? "text-slate-600 font-medium"
+                          : p.status === "cancelled" ? "text-danger-600 font-medium"
+                          : "text-amber-600 font-medium"
+                        }>{p.status}</span>
+                        {p.paymentStatus && <span>&middot; {p.paymentStatus === "paid_offline" ? "paid (offline)" : p.paymentStatus}</span>}
+                      </div>
                     </div>
+                    {isPaid && (
+                      <span className="px-2 py-0.5 text-xs font-medium bg-success-100 text-success-700 rounded-full shrink-0">
+                        {p.paymentStatus === "paid_offline" ? "Paid (offline)" : "Paid"}
+                      </span>
+                    )}
                   </div>
 
-                  {/* Inline actions */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    {/* Pending: confirm / decline */}
-                    {p.status === "pending" && session.sessionStatus !== "completed" && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => confirmMutation.mutate({ bookingId: p.id, status: "confirmed" })}
-                          disabled={confirmMutation.isPending}
-                          className="px-2.5 py-1 text-xs font-medium bg-success-100 text-success-700 rounded-lg hover:bg-success-200 disabled:opacity-50"
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => confirmMutation.mutate({ bookingId: p.id, status: "cancelled" })}
-                          disabled={confirmMutation.isPending}
-                          className="px-2.5 py-1 text-xs font-medium text-danger-600 hover:text-danger-700"
-                        >
-                          Decline
-                        </button>
-                      </>
-                    )}
-                    {/* Confirmed: remove + attendance */}
-                    {p.status === "confirmed" && session.sessionStatus === "confirmed" && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => confirmMutation.mutate({ bookingId: p.id, status: "cancelled" })}
-                          disabled={confirmMutation.isPending}
-                          className="px-2.5 py-1 text-xs font-medium text-danger-600 bg-danger-50 rounded-lg hover:bg-danger-100 disabled:opacity-50"
-                        >
-                          Remove
-                        </button>
-                        <div className="flex items-center gap-1 text-xs">
-                          <label className="flex items-center gap-1 cursor-pointer">
+                  {/* Action row — stacks below on mobile, no jamming */}
+                  {hasActions && !isPaid && session.viewerRole === "coach" && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2">
+                      {showPendingActions && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => confirmMutation.mutate({ bookingId: p.id, status: "confirmed" })}
+                            disabled={confirmMutation.isPending}
+                            className="flex-1 sm:flex-none px-3 py-1.5 text-xs font-semibold bg-success-100 text-success-700 rounded-lg hover:bg-success-200 disabled:opacity-50"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => confirmMutation.mutate({ bookingId: p.id, status: "cancelled" })}
+                            disabled={confirmMutation.isPending}
+                            className="flex-1 sm:flex-none px-3 py-1.5 text-xs font-medium text-danger-600 hover:text-danger-700 hover:bg-danger-50 rounded-lg"
+                          >
+                            Decline
+                          </button>
+                        </>
+                      )}
+                      {showConfirmedActions && (
+                        <>
+                          <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer mr-auto">
                             <input
                               type="checkbox"
                               checked={attendanceOverrides[p.id] ?? p.attended}
@@ -417,54 +428,72 @@ export default function SessionDetail() {
                             />
                             Attended
                           </label>
-                        </div>
-                      </>
-                    )}
-                    {/* Completed: payment actions */}
-                    {needsPayment && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => markPaidMutation.mutate(p.id)}
-                          disabled={markPaidMutation.isPending}
-                          className="px-2.5 py-1 text-xs font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
-                        >
-                          Mark paid
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => paymentRequestMutation.mutate(p.id)}
-                          disabled={paymentRequestMutation.isPending}
-                          className="px-2.5 py-1 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100 disabled:opacity-50"
-                        >
-                          Send link
-                        </button>
-                      </div>
-                    )}
-                    {isPaid && (
-                      <span className="px-2 py-0.5 text-xs font-medium bg-success-100 text-success-700 rounded-full">
-                        {p.paymentStatus === "paid_offline" ? "Paid (offline)" : "Paid"}
-                      </span>
-                    )}
-                  </div>
+                          <button
+                            type="button"
+                            onClick={() => confirmMutation.mutate({ bookingId: p.id, status: "cancelled" })}
+                            disabled={confirmMutation.isPending}
+                            className="px-3 py-1.5 text-xs font-medium text-danger-600 bg-danger-50 rounded-lg hover:bg-danger-100 disabled:opacity-50"
+                          >
+                            Remove
+                          </button>
+                        </>
+                      )}
+                      {needsPayment && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => markPaidMutation.mutate(p.id)}
+                            disabled={markPaidMutation.isPending}
+                            className="flex-1 sm:flex-none px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+                          >
+                            Mark paid
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => paymentRequestMutation.mutate(p.id)}
+                            disabled={paymentRequestMutation.isPending}
+                            className="flex-1 sm:flex-none px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100 disabled:opacity-50"
+                          >
+                            Send link
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
+
+          {/* Prominent message CTA at the bottom of the participants list */}
+          {session.viewerRole === "coach" && activeParticipants.length > 0 && (
+            <button
+              type="button"
+              onClick={() => messageParticipantsMutation.mutate()}
+              disabled={messageParticipantsMutation.isPending}
+              className="w-full mb-4 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100 hover:border-brand-300 font-semibold text-sm transition disabled:opacity-50"
+            >
+              <MessageSquare className="w-4 h-4" />
+              {messageParticipantsMutation.isPending
+                ? "Opening conversation…"
+                : activeParticipants.length === 1
+                  ? `Message ${activeParticipants[0].name?.split(" ")[0] ?? "athlete"}`
+                  : `Message the group (${activeParticipants.length})`}
+            </button>
+          )}
         </div>
 
         {/* Session-level actions */}
         {session.sessionStatus !== "cancelled" && session.sessionStatus !== "available" && session.sessionStatus !== "completed" && (
-          <div className="px-6 py-5 border-t border-slate-200">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-slate-900">Actions</h2>
-              <div className="flex flex-1 flex-wrap gap-3 justify-end min-w-0">
+          <div className="px-4 sm:px-6 py-5 border-t border-slate-200">
+            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Session actions</h2>
+            <div className="flex flex-col sm:flex-row sm:flex-wrap sm:justify-end gap-2 sm:gap-3">
               {pendingParticipants.length >= 2 && session.viewerRole === "coach" && (
                 <button
                   type="button"
                   onClick={() => confirmAllMutation.mutate()}
                   disabled={confirmAllMutation.isPending}
-                  className="bg-success-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-success-700 disabled:opacity-50"
+                  className="w-full sm:w-auto bg-success-600 text-white px-4 py-2.5 rounded-lg text-sm font-semibold hover:bg-success-700 disabled:opacity-50"
                 >
                   Confirm all
                 </button>
@@ -480,7 +509,7 @@ export default function SessionDetail() {
                     }
                   }}
                   disabled={completeMutation.isPending}
-                  className="bg-brand-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-600 disabled:opacity-50"
+                  className="w-full sm:w-auto bg-brand-500 text-white px-4 py-2.5 rounded-lg text-sm font-semibold hover:bg-brand-600 disabled:opacity-50"
                 >
                   Mark complete
                 </button>
@@ -488,12 +517,11 @@ export default function SessionDetail() {
               {activeParticipants.length > 0 && (
                 <button
                   onClick={() => setConfirmAction({ type: "cancel-session" })}
-                  className="bg-danger-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-danger-700"
+                  className="w-full sm:w-auto bg-white border border-danger-200 text-danger-600 px-4 py-2.5 rounded-lg text-sm font-semibold hover:bg-danger-50"
                 >
                   Cancel session
                 </button>
               )}
-              </div>
             </div>
           </div>
         )}

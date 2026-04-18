@@ -1,4 +1,4 @@
-import { useParams, Link, useSearchParams } from "react-router-dom";
+import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { loadStripe } from "@stripe/stripe-js";
@@ -18,6 +18,7 @@ import {
   Users,
   Share2,
   Lock,
+  MessageSquare,
 } from "lucide-react";
 import { trackEvent } from "@/lib/analytics";
 
@@ -75,6 +76,7 @@ interface BookingDetailData {
 export default function BookingDetail() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const justBooked = searchParams.get("booked") === "group";
 
@@ -153,6 +155,14 @@ export default function BookingDetail() {
       setTimeout(() => setSuccessMessage(null), 5000);
       queryClient.invalidateQueries({ queryKey: ["booking", id] });
       queryClient.invalidateQueries({ queryKey: ["bookings"] });
+    },
+  });
+
+  const startDirectMessageMutation = useMutation({
+    mutationFn: (targetUserId: string) =>
+      api<{ conversationId: string }>(`/messages/conversations/direct/${targetUserId}`, { method: "POST" }),
+    onSuccess: (data) => {
+      navigate(`/messages/${data.conversationId}`);
     },
   });
 
@@ -308,6 +318,17 @@ export default function BookingDetail() {
               <span className="px-3 py-1 rounded-full text-xs font-semibold bg-violet-100 text-violet-700 ring-1 ring-violet-600/10">
                 Private
               </span>
+            )}
+            {isAthlete && (
+              <button
+                type="button"
+                onClick={() => startDirectMessageMutation.mutate(booking.coach.userId)}
+                disabled={startDirectMessageMutation.isPending}
+                className="ml-auto inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50"
+              >
+                <MessageSquare className="w-4 h-4" />
+                Message coach
+              </button>
             )}
           </div>
 

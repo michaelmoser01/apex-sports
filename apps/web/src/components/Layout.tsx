@@ -3,12 +3,13 @@ import { createPortal } from "react-dom";
 import { Outlet, Link, useLocation, Navigate } from "react-router-dom";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { signOut } from "aws-amplify/auth";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { api } from "@/lib/api";
 import { getStoredInviteSlug } from "@/pages/Join";
 import { isCoachAssistantOnboardingEnabled } from "@/config/onboarding";
-import { Menu, X, ChevronRight } from "lucide-react";
+import { Menu, X, ChevronRight, MessageSquare } from "lucide-react";
 
 function getAvatarInitial(currentUser: { coachProfile?: { displayName: string } | null; athleteProfile?: { displayName: string } | null; name?: string | null } | null | undefined): string {
   if (!currentUser) return "U";
@@ -135,6 +136,30 @@ function NavLink({ to, children, active }: { to: string; children: ReactNode; ac
   );
 }
 
+function MessagesNavLink({ active, unreadCount }: { active: boolean; unreadCount: number }) {
+  return (
+    <Link
+      to="/messages"
+      className={`relative text-sm font-medium transition-colors py-1 flex items-center gap-1.5 ${
+        active ? "text-brand-600" : "text-slate-600 hover:text-slate-900"
+      }`}
+    >
+      <MessageSquare className="w-4 h-4" />
+      Messages
+      {unreadCount > 0 && (
+        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] text-[10px] font-bold text-white bg-brand-500 rounded-full px-1 leading-none">
+          {unreadCount > 9 ? "9+" : unreadCount}
+        </span>
+      )}
+      <span
+        className={`absolute -bottom-1 left-0 h-0.5 bg-brand-500 rounded-full transition-all duration-200 ${
+          active ? "w-full" : "w-0 group-hover:w-full"
+        }`}
+      />
+    </Link>
+  );
+}
+
 function AppShell({
   config,
   children,
@@ -147,6 +172,14 @@ function AppShell({
   const avatarMenuRef = useRef<HTMLDivElement>(null);
   const avatarMenuRefMobile = useRef<HTMLDivElement>(null);
   const location = useLocation();
+
+  const { data: unreadData } = useQuery({
+    queryKey: ["unread-count"],
+    queryFn: () => api<{ unreadCount: number }>("/messages/unread-count"),
+    enabled: config.signedIn,
+    refetchInterval: 30000,
+  });
+  const unreadCount = unreadData?.unreadCount ?? 0;
 
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
 
@@ -217,6 +250,10 @@ function AppShell({
                 <NavLink to="/bookings" active={pathname.startsWith("/bookings")}>
                   Bookings
                 </NavLink>
+                <MessagesNavLink
+                  active={pathname.startsWith("/messages")}
+                  unreadCount={unreadCount}
+                />
                 {config.showCoachDashboard && (
                   <NavLink to="/dashboard/athletes" active={pathname === "/dashboard/athletes"}>
                     Athletes
@@ -356,6 +393,21 @@ function AppShell({
                       onClick={() => setMenuOpen(false)}
                     >
                       Bookings <ChevronRight className="w-4 h-4 text-slate-400" />
+                    </Link>
+                    <Link
+                      to="/messages"
+                      className="flex items-center justify-between py-2.5 px-3 -mx-1 text-slate-700 font-medium rounded-lg hover:bg-slate-50 transition-colors text-sm"
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <span className="flex items-center gap-2">
+                        Messages
+                        {unreadCount > 0 && (
+                          <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] text-[10px] font-bold text-white bg-brand-500 rounded-full px-1 leading-none">
+                            {unreadCount > 9 ? "9+" : unreadCount}
+                          </span>
+                        )}
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-slate-400" />
                     </Link>
                     {config.showCoachDashboard && (
                       <Link

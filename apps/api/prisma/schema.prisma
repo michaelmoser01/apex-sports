@@ -17,8 +17,10 @@ model User {
   stripeCustomerId String?  @unique @map("stripe_customer_id") // for saved payment methods
   createdAt        DateTime @default(now()) @map("created_at")
 
-  coachProfile      CoachProfile?
-  athleteProfiles   AthleteProfile[]
+  coachProfile              CoachProfile?
+  athleteProfiles           AthleteProfile[]
+  conversationParticipants  ConversationParticipant[]
+  sentMessages              Message[]
 }
 
 model CoachProfile {
@@ -145,7 +147,8 @@ model AvailabilitySlot {
   inviteCode    String?  @unique @map("slot_invite_code")
   lockedPrivate Boolean  @default(false) @map("slot_locked_private")
 
-  bookings Booking[]
+  bookings      Booking[]
+  conversation  Conversation?
 
   @@map("availability_slots")
 }
@@ -257,4 +260,46 @@ model FavoriteCoach {
 
   @@unique([athleteProfileId, coachProfileId])
   @@map("favorite_coaches")
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  type      String   @default("direct") // "direct" | "session" | "group"
+  title     String?
+  slotId    String?  @unique @map("slot_id")
+  slot      AvailabilitySlot? @relation(fields: [slotId], references: [id])
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id               String       @id @default(uuid())
+  conversationId   String       @map("conversation_id")
+  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId           String       @map("user_id")
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadAt       DateTime?    @map("last_read_at")
+  preferredChannel String       @default("email") @map("preferred_channel") // "email" | "sms" | "both"
+  createdAt        DateTime     @default(now()) @map("created_at")
+
+  @@unique([conversationId, userId])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String       @map("conversation_id")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderUserId   String       @map("sender_user_id")
+  sender         User         @relation(fields: [senderUserId], references: [id], onDelete: Cascade)
+  content        String       @db.Text
+  deliveryStatus Json?        @map("delivery_status")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@map("messages")
 }

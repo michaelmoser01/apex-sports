@@ -16,6 +16,7 @@ import {
   sendPaymentConfirmedToAthlete,
   sendPaymentReceivedToCoach,
   sendNewCoachSignupAdmin,
+  sendNewMessageEmail,
 } from "./notifications.js";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -34,6 +35,7 @@ const dispatch: Record<NotificationType, (p: any) => Promise<void>> = {
   payment_confirmed: sendPaymentConfirmedToAthlete,
   payment_received: sendPaymentReceivedToCoach,
   new_coach_signup: sendNewCoachSignupAdmin,
+  new_message: sendNewMessageEmail,
 };
 /* eslint-enable @typescript-eslint/no-explicit-any */
 

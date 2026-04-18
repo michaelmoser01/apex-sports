@@ -1153,6 +1153,7 @@ router.get("/me/athletes/:athleteProfileId", authMiddleware(), async (req, res) 
   res.json({
     athlete: {
       id: athleteProfile.id,
+      userId: athleteProfile.userId,
       displayName: athleteProfile.displayName,
       sports: athleteProfile.sports,
       serviceCity: athleteProfile.serviceCity,
@@ -2187,6 +2188,7 @@ router.get("/:id", async (req, res) => {
 
   res.json({
     id: coach.id,
+    userId: coach.userId,
     displayName: coach.displayName,
     // Expose coach email on public profile only in non-production for debugging
     ...(process.env.NODE_ENV !== "production" && coach.user?.email
