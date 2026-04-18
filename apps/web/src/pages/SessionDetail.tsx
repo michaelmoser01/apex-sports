@@ -384,7 +384,20 @@ export default function SessionDetail() {
                           : p.status === "cancelled" ? "text-danger-600 font-medium"
                           : "text-amber-600 font-medium"
                         }>{p.status}</span>
-                        {p.paymentStatus && <span>&middot; {p.paymentStatus === "paid_offline" ? "paid (offline)" : p.paymentStatus}</span>}
+                        {(() => {
+                          // Only surface payment subtext when it adds value:
+                          // - hide entirely for pending/cancelled bookings (payment isn't relevant yet)
+                          // - hide values shown elsewhere (succeeded/paid_offline are in the "Paid" pill)
+                          // - hide pending/deferred (they're the default "pay after" posture)
+                          if (p.status === "pending" || p.status === "cancelled") return null;
+                          const label =
+                            p.paymentStatus === "payment_link_sent" ? "link sent"
+                            : p.paymentStatus === "authorized" ? "card on file"
+                            : p.paymentStatus === "failed" ? "payment issue"
+                            : p.paymentStatus === "requires_action" ? "payment issue"
+                            : null;
+                          return label ? <span>&middot; {label}</span> : null;
+                        })()}
                       </div>
                     </div>
                     {isPaid && (
@@ -465,29 +478,26 @@ export default function SessionDetail() {
             })}
           </div>
 
-          {/* Prominent message CTA at the bottom of the participants list */}
-          {session.viewerRole === "coach" && activeParticipants.length > 0 && (
-            <button
-              type="button"
-              onClick={() => messageParticipantsMutation.mutate()}
-              disabled={messageParticipantsMutation.isPending}
-              className="w-full mb-4 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100 hover:border-brand-300 font-semibold text-sm transition disabled:opacity-50"
-            >
-              <MessageSquare className="w-4 h-4" />
-              {messageParticipantsMutation.isPending
-                ? "Opening conversation…"
-                : activeParticipants.length === 1
-                  ? `Message ${activeParticipants[0].name?.split(" ")[0] ?? "athlete"}`
-                  : `Message the group (${activeParticipants.length})`}
-            </button>
-          )}
         </div>
 
         {/* Session-level actions */}
-        {session.sessionStatus !== "cancelled" && session.sessionStatus !== "available" && session.sessionStatus !== "completed" && (
+        {session.viewerRole === "coach" && activeParticipants.length > 0 && (
           <div className="px-4 sm:px-6 py-5 border-t border-slate-200">
             <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Session actions</h2>
-            <div className="flex flex-col sm:flex-row sm:flex-wrap sm:justify-end gap-2 sm:gap-3">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 sm:gap-3">
+              <button
+                type="button"
+                onClick={() => messageParticipantsMutation.mutate()}
+                disabled={messageParticipantsMutation.isPending}
+                className="w-full sm:w-auto sm:mr-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm font-semibold disabled:opacity-50"
+              >
+                <MessageSquare className="w-4 h-4" />
+                {messageParticipantsMutation.isPending
+                  ? "Opening…"
+                  : activeParticipants.length === 1
+                    ? `Message ${activeParticipants[0].name?.split(" ")[0] ?? "athlete"}`
+                    : `Message the group (${activeParticipants.length})`}
+              </button>
               {pendingParticipants.length >= 2 && session.viewerRole === "coach" && (
                 <button
                   type="button"
@@ -514,7 +524,7 @@ export default function SessionDetail() {
                   Mark complete
                 </button>
               )}
-              {activeParticipants.length > 0 && (
+              {activeParticipants.length > 0 && session.sessionStatus !== "completed" && session.sessionStatus !== "cancelled" && (
                 <button
                   onClick={() => setConfirmAction({ type: "cancel-session" })}
                   className="w-full sm:w-auto bg-white border border-danger-200 text-danger-600 px-4 py-2.5 rounded-lg text-sm font-semibold hover:bg-danger-50"

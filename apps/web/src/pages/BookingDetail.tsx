@@ -166,6 +166,22 @@ export default function BookingDetail() {
     },
   });
 
+  // Discover an existing session group conversation for this booking's slot, if any.
+  // The coach starts the group thread; we only surface it for athletes once it exists.
+  const slotIdForBooking = booking?.slot.id ?? null;
+  const isAthleteView = booking?.viewerRole === "athlete";
+  const { data: conversationsList } = useQuery({
+    queryKey: ["conversations"],
+    queryFn: () =>
+      api<{ id: string; type: string; slotId: string | null }[]>("/messages/conversations"),
+    enabled: isAthleteView && !!slotIdForBooking,
+    staleTime: 30_000,
+  });
+  const groupConversationId =
+    conversationsList?.find(
+      (c) => c.type === "session" && c.slotId === slotIdForBooking,
+    )?.id ?? null;
+
   if (!id || isLoading || !booking) {
     const errorMsg = isError
       ? (error instanceof Error ? error.message : "Booking not found.")
@@ -642,15 +658,37 @@ export default function BookingDetail() {
           </div>
         )}
 
-        {/* Athlete: Cancel */}
-        {isAthlete && (booking.status === "pending" || booking.status === "confirmed") && (
-          <div className="px-6 py-5 border-t border-slate-200">
+        {/* Athlete: bottom actions */}
+        {isAthlete && (
+          <div className="px-6 py-5 border-t border-slate-200 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3">
             <button
-              onClick={() => setConfirmAction({ type: "athlete-cancel" })}
-              className="text-sm font-medium text-danger-600 hover:text-danger-700"
+              type="button"
+              onClick={() => startDirectMessageMutation.mutate(booking.coach.userId)}
+              disabled={startDirectMessageMutation.isPending}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-brand-300 text-brand-700 hover:bg-brand-50 font-semibold text-sm disabled:opacity-50"
             >
-              {booking.status === "pending" ? "Cancel request" : "Cancel booking"}
+              <MessageSquare className="w-4 h-4" />
+              {startDirectMessageMutation.isPending ? "Opening…" : "Message coach"}
             </button>
+            {groupConversationId && (
+              <button
+                type="button"
+                onClick={() => navigate(`/messages/${groupConversationId}`)}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-semibold text-sm"
+              >
+                <Users className="w-4 h-4" />
+                Group chat
+              </button>
+            )}
+            {(booking.status === "pending" || booking.status === "confirmed") && (
+              <button
+                type="button"
+                onClick={() => setConfirmAction({ type: "athlete-cancel" })}
+                className="text-sm font-medium text-danger-600 hover:text-danger-700 sm:ml-auto"
+              >
+                {booking.status === "pending" ? "Cancel request" : "Cancel booking"}
+              </button>
+            )}
           </div>
         )}
 
