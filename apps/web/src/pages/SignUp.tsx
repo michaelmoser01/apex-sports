@@ -10,23 +10,27 @@ import { setDeepLink, consumeDeepLink } from "@/utils/deepLink";
 import { useQueryClient } from "@tanstack/react-query";
 import { Trophy, Users, ArrowRight, Eye, EyeOff } from "lucide-react";
 import { trackEvent } from "@/lib/analytics";
-import {
-  getStoredInviteToken,
-  getStoredInviteTokenEmail,
-  clearStoredInviteToken,
-} from "./Claim";
+import { clearStoredInviteToken } from "./Claim";
 
-/** Read invite token + pre-filled email from the current URL (preferred) or sessionStorage. */
+/**
+ * Read invite token + pre-filled email from the current URL.
+ *
+ * We deliberately ONLY trust the URL here. We previously fell back to
+ * session/localStorage, but that caused stale invite state to bleed into
+ * unrelated signup attempts (e.g. opening /sign-up after visiting an old
+ * /claim/:token link would force athlete role + lock the email field).
+ * Storage is only used as a safety net inside finishSignUp via the explicit
+ * connect-invite-token retry, which is keyed on the URL token captured here.
+ */
 function readInviteContext(searchParams: URLSearchParams): {
   inviteToken: string | null;
   inviteEmail: string | null;
 } {
   const urlToken = searchParams.get("inviteToken");
   const urlEmail = searchParams.get("email");
-  return {
-    inviteToken: urlToken && urlToken.trim() ? urlToken.trim() : getStoredInviteToken(),
-    inviteEmail: urlEmail && urlEmail.trim() ? urlEmail.trim() : getStoredInviteTokenEmail(),
-  };
+  const inviteToken = urlToken && urlToken.trim() ? urlToken.trim() : null;
+  const inviteEmail = urlEmail && urlEmail.trim() ? urlEmail.trim() : null;
+  return { inviteToken, inviteEmail };
 }
 
 function waitForSignIn(): Promise<void> {
@@ -419,6 +423,14 @@ export default function SignUpPage() {
   useEffect(() => {
     if (returnTo) setDeepLink(returnTo);
   }, [returnTo]);
+
+  // If we landed on /sign-up without an invite token in the URL, purge any
+  // stale invite saved from a previous /claim/:token visit. Otherwise it can
+  // resurface (pre-filled email, locked role) on unrelated signup attempts.
+  useEffect(() => {
+    const urlToken = searchParams.get("inviteToken");
+    if (!urlToken || !urlToken.trim()) clearStoredInviteToken();
+  }, [searchParams]);
 
   if (isAuthenticated && !isLoading && currentUser) {
     if (currentUser.signupRole === "coach" || currentUser.coachProfile) {
