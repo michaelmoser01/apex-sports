@@ -128,8 +128,9 @@ function paymentBadge(paymentStatus: string | null, amountCents: number | null) 
   return null;
 }
 
-interface MyCoach {
+export interface MyCoach {
   coachId: string;
+  userId: string;
   displayName: string;
   sports: string[];
   avatarUrl: string | null;

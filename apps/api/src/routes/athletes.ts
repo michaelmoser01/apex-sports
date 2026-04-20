@@ -249,20 +249,20 @@ router.get("/me/my-coaches", authMiddleware(), async (req, res) => {
       where: { athleteProfileId: profile.id },
       include: {
         coach: {
-          select: { id: true, displayName: true, sports: true, avatarUrl: true, hourlyRate: true },
+          select: { id: true, userId: true, displayName: true, sports: true, avatarUrl: true, hourlyRate: true },
         },
       },
     }),
     prisma.booking.findMany({
       where: { athleteProfileId: profile.id, status: { not: "cancelled" } },
-      select: { coachId: true, createdAt: true, coach: { select: { id: true, displayName: true, sports: true, avatarUrl: true, hourlyRate: true } } },
+      select: { coachId: true, createdAt: true, coach: { select: { id: true, userId: true, displayName: true, sports: true, avatarUrl: true, hourlyRate: true } } },
       orderBy: { createdAt: "desc" },
     }),
     prisma.coachAthlete.findMany({
       where: { athleteProfileId: profile.id, status: "active" },
       include: {
         coach: {
-          select: { id: true, displayName: true, sports: true, avatarUrl: true, hourlyRate: true },
+          select: { id: true, userId: true, displayName: true, sports: true, avatarUrl: true, hourlyRate: true },
         },
       },
     }),
@@ -272,6 +272,7 @@ router.get("/me/my-coaches", authMiddleware(), async (req, res) => {
 
   const coachMap = new Map<string, {
     coachId: string;
+    userId: string;
     displayName: string;
     sports: string[];
     avatarUrl: string | null;
@@ -284,6 +285,7 @@ router.get("/me/my-coaches", authMiddleware(), async (req, res) => {
   for (const fav of favorites) {
     coachMap.set(fav.coachProfileId, {
       coachId: fav.coachProfileId,
+      userId: fav.coach.userId,
       displayName: fav.coach.displayName,
       sports: fav.coach.sports,
       avatarUrl: fav.coach.avatarUrl,
@@ -303,6 +305,7 @@ router.get("/me/my-coaches", authMiddleware(), async (req, res) => {
     } else {
       coachMap.set(b.coachId, {
         coachId: b.coachId,
+        userId: b.coach.userId,
         displayName: b.coach.displayName,
         sports: b.coach.sports,
         avatarUrl: b.coach.avatarUrl,
@@ -318,6 +321,7 @@ router.get("/me/my-coaches", authMiddleware(), async (req, res) => {
     if (!coachMap.has(c.coachProfileId)) {
       coachMap.set(c.coachProfileId, {
         coachId: c.coachProfileId,
+        userId: c.coach.userId,
         displayName: c.coach.displayName,
         sports: c.coach.sports,
         avatarUrl: c.coach.avatarUrl,

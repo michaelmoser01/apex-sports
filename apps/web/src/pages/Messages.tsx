@@ -5,6 +5,8 @@ import { api, ApiRequestError } from "@/lib/api";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { ArrowLeft, Send, MessageSquare, Users, ChevronDown, Lock, Plus } from "lucide-react";
 import { BroadcastMessageModal, type ConnectedAthlete } from "@/components/BroadcastMessageModal";
+import { NewAthleteMessageModal } from "@/components/NewAthleteMessageModal";
+import type { MyCoach } from "@/pages/AthleteDashboard";
 
 interface ConversationListItem {
   id: string;
@@ -549,13 +551,21 @@ export default function Messages() {
   });
 
   const isCoach = !!currentUser?.coachProfile;
+  const isAthlete = !!currentUser?.athleteProfile;
   const { data: coachAthletes = [] } = useQuery({
     queryKey: ["coachAthletes"],
     queryFn: () => api<ConnectedAthlete[]>("/coaches/me/athletes"),
     enabled: isCoach,
   });
+  const { data: myCoachesData } = useQuery({
+    queryKey: ["myCoaches"],
+    queryFn: () => api<{ coaches: MyCoach[] }>("/athletes/me/my-coaches"),
+    enabled: isAthlete,
+  });
+  const myCoaches = myCoachesData?.coaches ?? [];
 
   const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [newAthleteMessageOpen, setNewAthleteMessageOpen] = useState(false);
   const [mobileShowThread, setMobileShowThread] = useState(!!conversationId);
 
   useEffect(() => {
@@ -625,10 +635,10 @@ export default function Messages() {
     >
       <div className={mobileOverlay ? "hidden md:flex md:items-center md:justify-between md:gap-3 md:mb-4" : "flex items-center justify-between gap-3 mb-4"}>
         <h1 className="text-2xl font-bold text-slate-900">Messages</h1>
-        {isCoach && (
+        {(isCoach || isAthlete) && (
           <button
             type="button"
-            onClick={() => setBroadcastOpen(true)}
+            onClick={() => (isCoach ? setBroadcastOpen(true) : setNewAthleteMessageOpen(true))}
             className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500 text-white text-sm font-bold hover:bg-brand-600 transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4" />
@@ -692,6 +702,23 @@ export default function Messages() {
           onClose={() => setBroadcastOpen(false)}
           onConversationCreated={(conversationId) => {
             setBroadcastOpen(false);
+            navigate(`/messages/${conversationId}`);
+          }}
+        />
+      )}
+
+      {newAthleteMessageOpen && (
+        <NewAthleteMessageModal
+          coaches={myCoaches.map((c) => ({
+            userId: c.userId,
+            coachId: c.coachId,
+            displayName: c.displayName,
+            sports: c.sports,
+            avatarUrl: c.avatarUrl,
+          }))}
+          onClose={() => setNewAthleteMessageOpen(false)}
+          onConversationCreated={(conversationId) => {
+            setNewAthleteMessageOpen(false);
             navigate(`/messages/${conversationId}`);
           }}
         />
