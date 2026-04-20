@@ -301,8 +301,12 @@ body {
     min-height: 6.5rem;
   }
 }
+/* Hide the empty all-day row in week/day view (both coach availability and
+ * public booking calendars). The app has no all-day events; the empty strip
+ * just picks up day-state background tints and looks like a stray colored
+ * band between the weekday header and the time grid. */
 .availability-calendar .rbc-time-view .rbc-allday-cell {
-  border-color: rgb(241 245 249);
+  display: none;
 }
 .availability-calendar .rbc-time-header-content {
   border-left-color: rgb(241 245 249);
