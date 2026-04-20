@@ -1,13 +1,8 @@
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 import { api } from "@/lib/api";
-import {
-  getStoredInviteSlug,
-  getStoredInviteCoachId,
-  clearStoredInviteSlug,
-} from "@/pages/Join";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -103,12 +98,21 @@ export default function CoachDetail() {
   const isAuthenticated = isDevMode ? isAuthFromContext : authStatus === "authenticated";
   const [photoLightboxIndex, setPhotoLightboxIndex] = useState<number | null>(null);
   const [signInPromptOpen, setSignInPromptOpen] = useState(false);
-  const connectInviteAttempted = useRef(false);
   const { data: currentUser } = useCurrentUser(isAuthenticated);
 
   const { data: favoriteData } = useQuery({
     queryKey: ["favoriteIds"],
     queryFn: () => api<{ ids: string[] }>("/athletes/me/favorites/ids"),
+    enabled: isAuthenticated && !!currentUser?.athleteProfile,
+    staleTime: 60 * 1000,
+  });
+
+  const { data: myCoachesData } = useQuery({
+    queryKey: ["myCoaches"],
+    queryFn: () =>
+      api<{ coaches: { coachId: string; isConnected: boolean }[] }>(
+        "/athletes/me/my-coaches",
+      ),
     enabled: isAuthenticated && !!currentUser?.athleteProfile,
     staleTime: 60 * 1000,
   });
@@ -135,20 +139,6 @@ export default function CoachDetail() {
     return () => document.removeEventListener("keydown", handleEscape);
   }, [signInPromptOpen]);
 
-  useEffect(() => {
-    if (!id || !isAuthenticated || connectInviteAttempted.current) return;
-    const slug = getStoredInviteSlug();
-    const storedCoachId = getStoredInviteCoachId();
-    if (!slug || storedCoachId !== id) return;
-    connectInviteAttempted.current = true;
-    api("/auth/me/connect-invite", {
-      method: "POST",
-      body: JSON.stringify({ inviteSlug: slug }),
-    })
-      .then(() => clearStoredInviteSlug())
-      .catch(() => {});
-  }, [id, isAuthenticated]);
-
   const { data: coach, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["coach", id],
     queryFn: () => api<CoachDetail>(`/coaches/${id}`),
@@ -156,6 +146,9 @@ export default function CoachDetail() {
   });
 
   const isFavorited = favoriteData?.ids?.includes(coach?.id ?? "") ?? false;
+  const isConnectedCoach =
+    !!coach?.id &&
+    !!(myCoachesData?.coaches?.find((c) => c.coachId === coach.id)?.isConnected);
 
   const { data: myBookings } = useQuery({
     queryKey: ["bookings"],
@@ -276,6 +269,7 @@ export default function CoachDetail() {
     const buttonClass = mobileOnly
       ? "w-full px-4 py-3 text-base font-semibold text-brand-600 hover:text-brand-700 bg-white hover:bg-brand-50 rounded-xl border-2 border-brand-500 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
       : "w-full sm:w-auto flex-shrink-0 px-4 py-3 sm:px-3 sm:py-1.5 text-base sm:text-sm font-semibold sm:font-medium text-brand-600 hover:text-brand-700 bg-white hover:bg-brand-50 rounded-xl sm:rounded-lg border-2 sm:border border-brand-500 border-brand-200 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 sm:focus:ring-offset-1 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed";
+    const label = isConnectedCoach ? "Message your coach" : "Message coach";
     if (isAuthenticated && currentUser?.athleteProfile) {
       return (
         <button
@@ -284,7 +278,7 @@ export default function CoachDetail() {
           disabled={!coach?.userId || startDirectMessageMutation.isPending}
           className={buttonClass}
         >
-          {startDirectMessageMutation.isPending ? "Opening…" : "Message coach"}
+          {startDirectMessageMutation.isPending ? "Opening…" : label}
         </button>
       );
     }
@@ -294,7 +288,7 @@ export default function CoachDetail() {
         onClick={() => setSignInPromptOpen(true)}
         className={buttonClass}
       >
-        Message coach
+        {label}
       </button>
     );
   };
@@ -359,6 +353,11 @@ export default function CoachDetail() {
                 {coach.verified && (
                   <span className="inline-flex items-center gap-1 text-xs bg-success-100 text-success-700 px-2.5 py-1 rounded-full font-semibold ring-1 ring-success-600/10">
                     <ShieldCheck className="w-3.5 h-3.5" /> Verified
+                  </span>
+                )}
+                {isConnectedCoach && (
+                  <span className="inline-flex items-center text-xs bg-brand-50 text-brand-700 px-2.5 py-1 rounded-full font-semibold ring-1 ring-inset ring-brand-100">
+                    Your coach
                   </span>
                 )}
               </div>

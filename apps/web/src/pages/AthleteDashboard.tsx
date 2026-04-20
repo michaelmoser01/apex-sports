@@ -135,6 +135,7 @@ interface MyCoach {
   avatarUrl: string | null;
   hourlyRate: string | null;
   isFavorite: boolean;
+  isConnected: boolean;
   lastBookingDate: string | null;
 }
 
@@ -163,7 +164,7 @@ function MyCoachesCard() {
         <div className="px-4 py-6 text-center text-sm text-gray-400">Loading…</div>
       ) : coaches.length === 0 ? (
         <div className="px-4 py-6 text-center">
-          <p className="text-sm text-gray-500">Book or favorite coaches to see them here</p>
+          <p className="text-sm text-gray-500">Book, favorite, or get invited by a coach to see them here</p>
         </div>
       ) : (
         <>
@@ -194,7 +195,14 @@ function MyCoachesCard() {
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{coach.displayName}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-medium text-gray-900 truncate">{coach.displayName}</p>
+                        {coach.isConnected && !coach.isFavorite && !coach.lastBookingDate && (
+                          <span className="shrink-0 inline-flex items-center rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-100">
+                            Your coach
+                          </span>
+                        )}
+                      </div>
                       {coach.sports.length > 0 && (
                         <p className="text-xs text-gray-500 truncate">{coach.sports.join(", ")}</p>
                       )}

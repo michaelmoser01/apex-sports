@@ -244,7 +244,7 @@ router.get("/me/my-coaches", authMiddleware(), async (req, res) => {
   const profile = await prisma.athleteProfile.findFirst({ where: { userId: user.id }, select: { id: true } });
   if (!profile) return res.json({ coaches: [] });
 
-  const [favorites, bookings] = await Promise.all([
+  const [favorites, bookings, connections] = await Promise.all([
     prisma.favoriteCoach.findMany({
       where: { athleteProfileId: profile.id },
       include: {
@@ -258,9 +258,17 @@ router.get("/me/my-coaches", authMiddleware(), async (req, res) => {
       select: { coachId: true, createdAt: true, coach: { select: { id: true, displayName: true, sports: true, avatarUrl: true, hourlyRate: true } } },
       orderBy: { createdAt: "desc" },
     }),
+    prisma.coachAthlete.findMany({
+      where: { athleteProfileId: profile.id, status: "active" },
+      include: {
+        coach: {
+          select: { id: true, displayName: true, sports: true, avatarUrl: true, hourlyRate: true },
+        },
+      },
+    }),
   ]);
 
-  const favoriteIds = new Set(favorites.map((f) => f.coachProfileId));
+  const connectedIds = new Set(connections.map((c) => c.coachProfileId));
 
   const coachMap = new Map<string, {
     coachId: string;
@@ -269,6 +277,7 @@ router.get("/me/my-coaches", authMiddleware(), async (req, res) => {
     avatarUrl: string | null;
     hourlyRate: string | null;
     isFavorite: boolean;
+    isConnected: boolean;
     lastBookingDate: string | null;
   }>();
 
@@ -280,6 +289,7 @@ router.get("/me/my-coaches", authMiddleware(), async (req, res) => {
       avatarUrl: fav.coach.avatarUrl,
       hourlyRate: fav.coach.hourlyRate?.toString() ?? null,
       isFavorite: true,
+      isConnected: connectedIds.has(fav.coachProfileId),
       lastBookingDate: null,
     });
   }
@@ -298,7 +308,23 @@ router.get("/me/my-coaches", authMiddleware(), async (req, res) => {
         avatarUrl: b.coach.avatarUrl,
         hourlyRate: b.coach.hourlyRate?.toString() ?? null,
         isFavorite: false,
+        isConnected: connectedIds.has(b.coachId),
         lastBookingDate: b.createdAt.toISOString(),
+      });
+    }
+  }
+
+  for (const c of connections) {
+    if (!coachMap.has(c.coachProfileId)) {
+      coachMap.set(c.coachProfileId, {
+        coachId: c.coachProfileId,
+        displayName: c.coach.displayName,
+        sports: c.coach.sports,
+        avatarUrl: c.coach.avatarUrl,
+        hourlyRate: c.coach.hourlyRate?.toString() ?? null,
+        isFavorite: false,
+        isConnected: true,
+        lastBookingDate: null,
       });
     }
   }
@@ -307,7 +333,9 @@ router.get("/me/my-coaches", authMiddleware(), async (req, res) => {
     if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
     const aDate = a.lastBookingDate ? new Date(a.lastBookingDate).getTime() : 0;
     const bDate = b.lastBookingDate ? new Date(b.lastBookingDate).getTime() : 0;
-    return bDate - aDate;
+    if (aDate !== bDate) return bDate - aDate;
+    if (a.isConnected !== b.isConnected) return a.isConnected ? -1 : 1;
+    return a.displayName.localeCompare(b.displayName);
   });
 
   res.json({ coaches });

@@ -3,13 +3,7 @@ import { useNavigate, Navigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ALLOWED_SPORTS } from "@apex-sports/shared";
-import {
-  getStoredInviteSlug,
-  getStoredInviteCoachId,
-  clearStoredInviteSlug,
-} from "./Join";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { hasCompletedAthleteOnboarding } from "@/lib/athleteProfile";
 import { consumeDeepLink } from "@/utils/deepLink";
 import ServiceAreaPicker, { type ServiceAreaItem } from "@/components/ServiceAreaPicker";
 
@@ -29,33 +23,6 @@ export default function AthleteOnboarding() {
   const queryClient = useQueryClient();
   const { data: currentUser, isLoading: currentUserLoading } = useCurrentUser(true);
 
-  const inviteSlug = getStoredInviteSlug();
-  const inviteCoachId = getStoredInviteCoachId();
-  const isAlreadyAthlete =
-    currentUser?.signupRole === "athlete" || !!currentUser?.athleteProfile;
-  const athleteProfileComplete = hasCompletedAthleteOnboarding(currentUser?.athleteProfile ?? null);
-  const needsRole = !!inviteSlug && !currentUser?.signupRole;
-  const setRoleAttempted = useRef(false);
-
-  const setRoleMutation = useMutation({
-    mutationFn: () => {
-      const slug = getStoredInviteSlug();
-      return api("/auth/me", {
-        method: "PATCH",
-        body: JSON.stringify({ signupRole: "athlete", ...(slug ? { inviteSlug: slug } : {}) }),
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
-    },
-  });
-
-  useEffect(() => {
-    if (currentUserLoading || !needsRole || setRoleAttempted.current) return;
-    setRoleAttempted.current = true;
-    setRoleMutation.mutate();
-  }, [currentUserLoading, needsRole]);
-
   const {
     data: profile,
     isLoading: profileLoading,
@@ -63,13 +30,13 @@ export default function AthleteOnboarding() {
   } = useQuery({
     queryKey: ["athleteProfile"],
     queryFn: () => api<AthleteProfile>("/athletes/me"),
-    enabled: !needsRole && (!!currentUser?.signupRole || !!currentUser?.athleteProfile),
+    enabled: !!currentUser?.signupRole || !!currentUser?.athleteProfile,
   });
 
   const { data: existingServiceArea } = useQuery({
     queryKey: ["athleteServiceArea"],
     queryFn: () => api<ServiceAreaItem | null>("/athletes/me/service-area"),
-    enabled: !needsRole && (!!currentUser?.signupRole || !!currentUser?.athleteProfile),
+    enabled: !!currentUser?.signupRole || !!currentUser?.athleteProfile,
   });
 
   const [displayName, setDisplayName] = useState("");
@@ -127,14 +94,7 @@ export default function AthleteOnboarding() {
       queryClient.invalidateQueries({ queryKey: ["athleteServiceArea"] });
       queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
       const deepLink = consumeDeepLink();
-      if (deepLink) {
-        clearStoredInviteSlug();
-        navigate(deepLink, { replace: true });
-        return;
-      }
-      const coachId = getStoredInviteCoachId();
-      clearStoredInviteSlug();
-      navigate(coachId ? `/coaches/${coachId}` : "/athlete", { replace: true });
+      navigate(deepLink ?? "/athlete", { replace: true });
     },
   });
 
@@ -189,38 +149,9 @@ export default function AthleteOnboarding() {
 
   // --- Early returns (all hooks above) ---
 
-  if (inviteSlug && inviteCoachId && currentUserLoading) {
-    return (
-      <div className="max-w-3xl mx-auto px-4 py-12">
-        <p className="text-slate-500">Loading…</p>
-      </div>
-    );
-  }
-
   const isCoach = currentUser?.signupRole === "coach" || !!currentUser?.coachProfile;
-  if (!currentUserLoading && isCoach && !inviteSlug) {
+  if (!currentUserLoading && isCoach) {
     return <Navigate to="/dashboard" replace />;
-  }
-
-  if (
-    inviteSlug &&
-    inviteCoachId &&
-    isAlreadyAthlete &&
-    athleteProfileComplete &&
-    !setRoleAttempted.current
-  ) {
-    return <Navigate to={`/coaches/${inviteCoachId}`} replace />;
-  }
-
-  const settingRole = needsRole && !currentUser?.signupRole;
-  const showForm = !needsRole || !!currentUser?.signupRole;
-
-  if (settingRole || (needsRole && !showForm)) {
-    return (
-      <div className="max-w-3xl mx-auto px-4 py-12">
-        <p className="text-slate-500">Setting up your account…</p>
-      </div>
-    );
   }
 
   if (profileLoading && !profile) {

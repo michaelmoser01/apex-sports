@@ -15,6 +15,7 @@ import {
 } from "@/components/AvailabilityCalendar";
 import { CoachLocationsCompact } from "@/components/CoachLocations";
 import { Avatar } from "@/components/Avatar";
+import { type ConnectedAthlete } from "@/components/BroadcastMessageModal";
 import SessionPricingEditor from "@/components/SessionPricingEditor";
 import {
   AlertTriangle,
@@ -102,10 +103,14 @@ function GettingStartedChecklist({
   coach,
   hasAvailability,
   inviteUrl,
+  invitedAthleteCount,
+  connectedAthleteCount,
 }: {
   coach: { id: string; stripeOnboardingComplete?: boolean };
   hasAvailability: boolean;
   inviteUrl: string | null;
+  invitedAthleteCount: number;
+  connectedAthleteCount: number;
 }) {
   const sharedLinkKey = `apex:coach:sharedLink:${coach.id}`;
   const [linkShared, setLinkShared] = useState(() => {
@@ -124,8 +129,12 @@ function GettingStartedChecklist({
     }
   };
 
+  // "Invited an athlete" is satisfied if the coach has copied their invite link,
+  // sent at least one direct invite, or already has a connected athlete.
+  const hasInvitedAthlete = linkShared || invitedAthleteCount > 0 || connectedAthleteCount > 0;
+
   const allDone =
-    hasAvailability && linkShared && coach.stripeOnboardingComplete;
+    hasAvailability && hasInvitedAthlete && coach.stripeOnboardingComplete;
   if (allDone) return null;
 
   return (
@@ -156,28 +165,40 @@ function GettingStartedChecklist({
               }
             />
             <ChecklistItem
-              done={linkShared}
-              label="Share your link with athletes"
+              done={hasInvitedAthlete}
+              label="Invite an athlete"
               description={
                 <>
-                  Copy your personal link and send it to your athletes. You can find it again anytime under{" "}
+                  Invite athletes by name + email from{" "}
                   <Link to="/dashboard/athletes" className="font-medium text-brand-600 hover:underline">
                     Athletes
-                  </Link>{" "}
-                  in the nav (or use <span className="font-medium text-slate-700">Invite athlete</span> on your dashboard).
+                  </Link>
+                  , or share your profile link.
                 </>
               }
               hintWhenDone={
-                <>
-                  Need the link again? Open{" "}
-                  <Link to="/dashboard/athletes" className="font-medium text-brand-600 hover:underline">
-                    Athletes
-                  </Link>{" "}
-                  to copy it, or use <span className="font-medium text-slate-600">Invite athlete</span> at the top.
-                </>
+                connectedAthleteCount > 0 ? (
+                  <>
+                    {connectedAthleteCount} athlete{connectedAthleteCount === 1 ? "" : "s"} connected. Manage them under{" "}
+                    <Link to="/dashboard/athletes" className="font-medium text-brand-600 hover:underline">
+                      Athletes
+                    </Link>
+                    .
+                  </>
+                ) : invitedAthleteCount > 0 ? (
+                  <>
+                    {invitedAthleteCount} pending invite{invitedAthleteCount === 1 ? "" : "s"}. Track them under{" "}
+                    <Link to="/dashboard/athletes" className="font-medium text-brand-600 hover:underline">
+                      Athletes
+                    </Link>
+                    .
+                  </>
+                ) : (
+                  <>Your profile link is at the top of this page.</>
+                )
               }
               action={
-                !linkShared ? (
+                !hasInvitedAthlete ? (
                   <button
                     type="button"
                     onClick={handleCopyLink}
@@ -615,247 +636,164 @@ function CredentialsSection({ coach }: { coach: CoachProfile }) {
   );
 }
 
-interface ConnectedAthlete {
-  athleteProfileId: string;
-  status: string;
-  createdAt: string;
-  athlete: { id: string; displayName: string; sports: string[]; serviceCity: string | null; userId: string };
+interface AthleteInvite {
+  id: string;
+  athleteEmail: string;
+  athleteName: string;
+  parentName: string | null;
+  invitedAt: string;
+  lastSentAt: string;
 }
 
-function BroadcastMessageModal({
-  athletes,
+function InviteAthleteModal({
   onClose,
-  onConversationCreated,
+  onSubmit,
+  isPending,
 }: {
-  athletes: ConnectedAthlete[];
   onClose: () => void;
-  onConversationCreated: (conversationId: string) => void;
+  onSubmit: (payload: { athleteEmail: string; athleteName: string; parentName: string | null }) => Promise<unknown>;
+  isPending: boolean;
 }) {
-  const queryClient = useQueryClient();
-  const [mode, setMode] = useState<"individual" | "group">("individual");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [message, setMessage] = useState("");
+  const [athleteName, setAthleteName] = useState("");
+  const [parentName, setParentName] = useState("");
+  const [athleteEmail, setAthleteEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [successInfo, setSuccessInfo] = useState<{ sent: number; skipped: number } | null>(null);
+  const [sent, setSent] = useState(false);
 
-  const allIds = useMemo(() => athletes.map((a) => a.athlete.userId), [athletes]);
-  const allSelected = selectedIds.size === allIds.length && allIds.length > 0;
-
-  const toggleAll = () => {
-    if (allSelected) setSelectedIds(new Set());
-    else setSelectedIds(new Set(allIds));
-  };
-
-  const toggleOne = (userId: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(userId)) next.delete(userId);
-      else next.add(userId);
-      return next;
-    });
-  };
-
-  const sendMutation = useMutation({
-    mutationFn: async () => {
-      const userIds = Array.from(selectedIds);
-      const trimmed = message.trim();
-      if (mode === "individual") {
-        const res = await api<{ sentCount: number; skippedCount: number }>("/messages/broadcast", {
-          method: "POST",
-          body: JSON.stringify({ recipientUserIds: userIds, content: trimmed }),
-        });
-        return { kind: "individual" as const, ...res };
-      }
-      const res = await api<{ conversationId: string }>("/messages/conversations", {
-        method: "POST",
-        body: JSON.stringify({
-          type: "group",
-          participantUserIds: userIds,
-          initialMessage: trimmed,
-          title: `Group · ${userIds.length} athletes`,
-        }),
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    const trimmedEmail = athleteEmail.trim().toLowerCase();
+    const trimmedName = athleteName.trim();
+    const trimmedParent = parentName.trim();
+    if (!trimmedName) return setError("Athlete name is required");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      return setError("Please enter a valid email address");
+    }
+    try {
+      await onSubmit({
+        athleteEmail: trimmedEmail,
+        athleteName: trimmedName,
+        parentName: trimmedParent || null,
       });
-      return { kind: "group" as const, conversationId: res.conversationId };
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      queryClient.invalidateQueries({ queryKey: ["unread-count"] });
-      if (data.kind === "group") {
-        onConversationCreated(data.conversationId);
-      } else {
-        setSuccessInfo({ sent: data.sentCount, skipped: data.skippedCount });
-      }
-    },
-    onError: (err: Error) => setError(err.message),
-  });
-
-  const canSend = selectedIds.size > 0 && message.trim().length > 0 && !sendMutation.isPending;
+      setSent(true);
+      setAthleteName("");
+      setParentName("");
+      setAthleteEmail("");
+    } catch (err) {
+      if (err instanceof ApiRequestError) setError(err.message);
+      else if (err instanceof Error) setError(err.message);
+      else setError("Couldn't send invite");
+    }
+  };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="broadcast-title"
-    >
-      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col">
-        <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-          <div>
-            <h3 id="broadcast-title" className="text-lg font-semibold text-slate-900">Send message</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Reach one or more athletes at once.</p>
-          </div>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 p-4">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <h2 className="text-lg font-bold text-slate-900">Invite an athlete</h2>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 text-xl leading-none w-8 h-8 inline-flex items-center justify-center rounded-lg hover:bg-slate-100"
-            aria-label="Close"
+            className="text-slate-400 hover:text-slate-600 text-sm"
           >
-            ×
+            Close
           </button>
         </div>
 
-        {successInfo ? (
-          <div className="p-6 text-center space-y-4">
-            <div className="w-12 h-12 mx-auto rounded-full bg-emerald-100 inline-flex items-center justify-center">
-              <Check className="w-6 h-6 text-emerald-600" />
+        {sent ? (
+          <div className="p-6 text-center">
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-success-50 text-success-600 mb-3">
+              <Check className="w-6 h-6" />
             </div>
-            <div>
-              <p className="text-base font-semibold text-slate-900">
-                Sent to {successInfo.sent} athlete{successInfo.sent !== 1 ? "s" : ""}
-              </p>
-              {successInfo.skipped > 0 && (
-                <p className="text-xs text-slate-500 mt-1">
-                  {successInfo.skipped} skipped (not connected)
-                </p>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-lg bg-brand-500 text-white font-medium text-sm hover:bg-brand-600"
-            >
-              Done
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="px-5 pt-4">
-              <div className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 w-full">
-                <button
-                  type="button"
-                  onClick={() => setMode("individual")}
-                  className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition ${
-                    mode === "individual" ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  Individual messages
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("group")}
-                  className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition ${
-                    mode === "group" ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  Group chat
-                </button>
-              </div>
-              <p className="text-xs text-slate-500 mt-2 leading-snug">
-                {mode === "individual"
-                  ? "Each athlete gets a private 1:1 message. They can't see each other."
-                  : "Everyone is added to one group thread and can see each other's replies."}
-              </p>
-            </div>
-
-            <div className="px-5 pt-4 flex-1 overflow-hidden flex flex-col min-h-0">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
-                  Recipients ({selectedIds.size})
-                </p>
-                <button
-                  type="button"
-                  onClick={toggleAll}
-                  className="text-xs text-brand-600 hover:underline font-medium"
-                >
-                  {allSelected ? "Clear all" : "Select all"}
-                </button>
-              </div>
-              <div className="border border-slate-200 rounded-lg overflow-y-auto max-h-48">
-                {athletes.length === 0 ? (
-                  <p className="p-4 text-center text-slate-400 text-sm">No connected athletes yet.</p>
-                ) : (
-                  athletes.map((a) => {
-                    const checked = selectedIds.has(a.athlete.userId);
-                    return (
-                      <label
-                        key={a.athleteProfileId}
-                        className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50 border-b border-slate-100 last:border-0 ${
-                          checked ? "bg-brand-50/40" : ""
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleOne(a.athlete.userId)}
-                          className="rounded border-slate-300 text-brand-500 focus:ring-brand-500"
-                        />
-                        <Avatar
-                          src={null}
-                          displayName={a.athlete.displayName}
-                          size="sm"
-                          className="shrink-0"
-                        />
-                        <span className="text-sm text-slate-800 flex-1 truncate">{a.athlete.displayName}</span>
-                      </label>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-
-            <div className="px-5 pt-4 pb-3">
-              <label className="text-xs font-semibold text-slate-700 uppercase tracking-wide block mb-1.5">
-                Message
-              </label>
-              <textarea
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                rows={4}
-                placeholder={
-                  mode === "individual"
-                    ? "e.g. Hey! I have a couple open spots in Saturday's clinic — let me know if you'd like in."
-                    : "e.g. Heads up — we're moving to Field B tomorrow."
-                }
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent resize-none"
-              />
-            </div>
-
-            {error && (
-              <p className="px-5 pb-2 text-xs text-red-600" role="alert">{error}</p>
-            )}
-
-            <div className="px-5 py-3 border-t border-slate-200 flex items-center justify-end gap-2">
+            <p className="font-semibold text-slate-900">Invite sent</p>
+            <p className="text-sm text-slate-500 mt-1">
+              We emailed them a link to set up an account and connect with you.
+            </p>
+            <div className="mt-6 flex flex-col sm:flex-row gap-2 justify-center">
+              <button
+                type="button"
+                onClick={() => setSent(false)}
+                className="px-4 py-2 rounded-lg border border-slate-200 text-slate-700 text-sm font-medium hover:bg-slate-50"
+              >
+                Invite another
+              </button>
               <button
                 type="button"
                 onClick={onClose}
-                className="px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 rounded-lg"
+                className="px-4 py-2 rounded-lg bg-brand-500 text-white text-sm font-bold hover:bg-brand-600"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="p-5 space-y-4">
+            <p className="text-sm text-slate-500">
+              We'll email them a link to create an account and automatically connect them to you.
+            </p>
+            <div>
+              <label htmlFor="invite-athlete-name" className="block text-sm font-medium text-slate-700 mb-1">
+                Athlete name <span className="text-danger-500">*</span>
+              </label>
+              <input
+                id="invite-athlete-name"
+                type="text"
+                value={athleteName}
+                onChange={(e) => setAthleteName(e.target.value)}
+                placeholder="Jordan Smith"
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="invite-parent-name" className="block text-sm font-medium text-slate-700 mb-1">
+                Parent name <span className="text-slate-400 font-normal">(optional, for younger athletes)</span>
+              </label>
+              <input
+                id="invite-parent-name"
+                type="text"
+                value={parentName}
+                onChange={(e) => setParentName(e.target.value)}
+                placeholder="Alex Smith"
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+              />
+            </div>
+            <div>
+              <label htmlFor="invite-athlete-email" className="block text-sm font-medium text-slate-700 mb-1">
+                Email <span className="text-danger-500">*</span>
+              </label>
+              <input
+                id="invite-athlete-email"
+                type="email"
+                value={athleteEmail}
+                onChange={(e) => setAthleteEmail(e.target.value)}
+                placeholder="athlete@example.com"
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+                required
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                If the athlete is a minor, use the parent's email so they can manage the account.
+              </p>
+            </div>
+            {error && <p className="text-sm text-danger-600">{error}</p>}
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-lg border border-slate-200 text-slate-700 text-sm font-medium hover:bg-slate-50"
               >
                 Cancel
               </button>
               <button
-                type="button"
-                onClick={() => sendMutation.mutate()}
-                disabled={!canSend}
-                className="px-4 py-1.5 rounded-lg bg-brand-500 text-white font-medium text-sm hover:bg-brand-600 disabled:opacity-50"
+                type="submit"
+                disabled={isPending}
+                className="px-4 py-2 rounded-lg bg-brand-500 text-white text-sm font-bold hover:bg-brand-600 disabled:opacity-50"
               >
-                {sendMutation.isPending
-                  ? "Sending…"
-                  : mode === "individual"
-                    ? `Send to ${selectedIds.size || 0}`
-                    : "Create group chat"}
+                {isPending ? "Sending…" : "Send invite"}
               </button>
             </div>
-          </>
+          </form>
         )}
       </div>
     </div>
@@ -1123,7 +1061,6 @@ export default function CoachDashboard() {
   });
   const [editingInviteSlug, setEditingInviteSlug] = useState(false);
   const [inviteSlugInput, setInviteSlugInput] = useState("");
-  const [inviteCopied, setInviteCopied] = useState(false);
   const updateInviteMutation = useMutation({
     mutationFn: (slug: string) =>
       api<{ slug: string; url: string }>("/coaches/me/invites", {
@@ -1153,7 +1090,6 @@ export default function CoachDashboard() {
     enabled: !!profile && !("error" in profile) && (view === "overview" || view === "athletes" || view === "agentTest"),
   });
 
-  const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
   const [pendingBookingId, setPendingBookingId] = useState<string | null>(null);
   const bookingUpdateMutation = useMutation({
     mutationFn: async ({ bookingId, status }: { bookingId: string; status: "confirmed" | "cancelled" }) => {
@@ -1201,6 +1137,45 @@ export default function CoachDashboard() {
       api<{ conversationId: string }>(`/messages/conversations/direct/${targetUserId}`, { method: "POST" }),
     onSuccess: (data) => {
       navigate(`/messages/${data.conversationId}`);
+    },
+  });
+
+  // ---- Athlete invites (Version A+) -----------------------------------------
+  const {
+    data: athleteInvitesData,
+    isLoading: athleteInvitesLoading,
+  } = useQuery({
+    queryKey: ["athleteInvites"],
+    queryFn: () => api<AthleteInvite[]>("/coaches/me/athlete-invites"),
+    enabled: !!profile && !("error" in profile) && (view === "overview" || view === "athletes"),
+  });
+
+  const [inviteAthleteModalOpen, setInviteAthleteModalOpen] = useState(false);
+
+  const createAthleteInviteMutation = useMutation({
+    mutationFn: (payload: { athleteEmail: string; athleteName: string; parentName: string | null }) =>
+      api<AthleteInvite>("/coaches/me/athlete-invites", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["athleteInvites"] });
+    },
+  });
+
+  const resendAthleteInviteMutation = useMutation({
+    mutationFn: (id: string) =>
+      api<{ id: string; lastSentAt: string }>(`/coaches/me/athlete-invites/${id}/resend`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["athleteInvites"] });
+    },
+  });
+
+  const cancelAthleteInviteMutation = useMutation({
+    mutationFn: (id: string) =>
+      api<void>(`/coaches/me/athlete-invites/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["athleteInvites"] });
     },
   });
 
@@ -1311,45 +1286,83 @@ export default function CoachDashboard() {
             <div className="shrink-0 flex flex-col items-stretch sm:items-end gap-1">
               <button
                 type="button"
-                onClick={() => {
-                  if (inviteData?.url) {
-                    navigator.clipboard.writeText(inviteData.url);
-                    setInviteCopied(true);
-                    setTimeout(() => setInviteCopied(false), 2500);
-                  }
-                }}
-                disabled={!inviteData?.url}
-                className={`px-4 py-2 rounded-xl font-medium text-sm transition touch-manipulation inline-flex items-center gap-1.5 border ${
-                  inviteCopied
-                    ? "bg-white/25 text-white border-white/40"
-                    : "bg-white/15 text-white hover:bg-white/25 border-white/20"
-                }`}
+                onClick={() => setInviteAthleteModalOpen(true)}
+                className="px-4 py-2 rounded-xl font-medium text-sm transition touch-manipulation inline-flex items-center gap-1.5 border bg-white/15 text-white hover:bg-white/25 border-white/20"
               >
-                {inviteCopied ? (
-                  <>
-                    <Check className="w-4 h-4" />
-                    Copied!
-                  </>
-                ) : (
-                  <>
-                    <Users className="w-4 h-4" />
-                    Invite athlete
-                  </>
-                )}
+                <Users className="w-4 h-4" />
+                Invite athlete
               </button>
-              {inviteCopied && inviteData?.url && (
-                <p className="text-white/90 text-xs" title={inviteData.url}>
-                  Copied to clipboard: {inviteData.url.replace(/^https?:\/\/[^/]+/, "")}
-                </p>
-              )}
             </div>
           </div>
         </section>
+
+        {/* Thin profile-link strip */}
+        {inviteData?.url ? (
+          <section id="invite-athletes" className="mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <span className="text-xs font-medium text-slate-500 shrink-0">Your profile link</span>
+              <input
+                type="text"
+                readOnly
+                value={inviteData.url}
+                className="flex-1 min-w-0 px-3 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-600 text-xs"
+              />
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard.writeText(inviteData.url)}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 font-medium text-sm hover:bg-slate-50"
+                >
+                  Copy
+                </button>
+                {!editingInviteSlug ? (
+                  <button
+                    type="button"
+                    onClick={() => { setInviteSlugInput(inviteData.slug); setEditingInviteSlug(true); }}
+                    className="text-slate-400 hover:text-slate-600 text-xs underline"
+                  >
+                    Edit
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text"
+                      value={inviteSlugInput}
+                      onChange={(e) => setInviteSlugInput(e.target.value)}
+                      placeholder="my-name"
+                      className="px-2 py-1 border border-slate-300 rounded text-xs w-28"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => updateInviteMutation.mutate(inviteSlugInput)}
+                      disabled={updateInviteMutation.isPending || !inviteSlugInput.trim() || inviteSlugInput.trim().length < 2}
+                      className="px-2 py-1 rounded bg-brand-500 text-white text-xs font-medium hover:bg-brand-600 disabled:opacity-50"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setEditingInviteSlug(false); setInviteSlugInput(""); }}
+                      className="text-slate-400 hover:text-slate-600 text-xs"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+            {updateInviteMutation.isError && (
+              <p className="text-danger-600 text-xs mt-2">{updateInviteMutation.error?.message ?? "Failed"}</p>
+            )}
+          </section>
+        ) : null}
 
         <GettingStartedChecklist
           coach={coach}
           hasAvailability={(rules.length > 0 || oneOffSlots.length > 0)}
           inviteUrl={inviteData?.url ?? null}
+          invitedAthleteCount={athleteInvitesData?.length ?? 0}
+          connectedAthleteCount={athletesData?.length ?? 0}
         />
 
         {/* Grid: 1 col mobile, 2 cols desktop */}
@@ -1498,7 +1511,7 @@ export default function CoachDashboard() {
             {athletesLoading ? (
               <p className="text-slate-500 text-sm">Loading…</p>
             ) : recentAthletes.length === 0 ? (
-              <p className="text-slate-500 text-sm">No connected athletes yet. Share your invite link.</p>
+              <p className="text-slate-500 text-sm">No connected athletes yet. Invite one by email or share your profile link.</p>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {recentAthletes.map((a) => (
@@ -1647,6 +1660,14 @@ export default function CoachDashboard() {
           )}
         </div>
       </div>
+
+      {inviteAthleteModalOpen && (
+        <InviteAthleteModal
+          onClose={() => setInviteAthleteModalOpen(false)}
+          onSubmit={(payload) => createAthleteInviteMutation.mutateAsync(payload)}
+          isPending={createAthleteInviteMutation.isPending}
+        />
+      )}
       </>
     );
   }
@@ -1677,89 +1698,23 @@ export default function CoachDashboard() {
       return new Date(bDate).getTime() - new Date(aDate).getTime();
     });
 
+    const pendingInvites = athleteInvitesData ?? [];
+
     return (
-      <div className="max-w-4xl mx-auto px-4 py-8 sm:py-12">
-        <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-bold text-slate-900">Athletes</h1>
-            <span className="text-sm text-slate-500">{athletes.length} connected</span>
-          </div>
-          {athletes.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setBroadcastModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500 text-white text-sm font-medium hover:bg-brand-600 transition-colors shadow-sm"
-            >
-              <MessageSquare className="w-4 h-4" />
-              Send message
-            </button>
-          )}
+      <div className="max-w-6xl mx-auto px-4 py-8 sm:py-12">
+        <div className="flex items-center gap-3 flex-wrap mb-6">
+          <h1 className="text-2xl font-bold text-slate-900">Athletes</h1>
+          <span className="text-sm text-slate-500">
+            {athletes.length} connected
+            {pendingInvites.length > 0 && ` · ${pendingInvites.length} pending`}
+          </span>
         </div>
 
-        {/* Invite link - compact */}
-        <section id="invite-athletes" className="mb-6 p-4 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center gap-3">
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-slate-900 text-sm">Invite athletes</p>
-            <p className="text-slate-500 text-xs mt-0.5">Share your link so athletes can sign up and connect with you.</p>
-          </div>
-          {inviteData?.url ? (
-            <div className="flex items-center gap-2 shrink-0">
-              <input
-                type="text"
-                readOnly
-                value={inviteData.url}
-                className="w-48 sm:w-64 px-3 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-600 text-xs"
-              />
-              <button
-                type="button"
-                onClick={() => navigator.clipboard.writeText(inviteData.url)}
-                className="px-3 py-1.5 rounded-lg bg-brand-500 text-white font-medium text-sm hover:bg-brand-600"
-              >
-                Copy
-              </button>
-              {!editingInviteSlug ? (
-                <button
-                  type="button"
-                  onClick={() => { setInviteSlugInput(inviteData.slug); setEditingInviteSlug(true); }}
-                  className="text-slate-400 hover:text-slate-600 text-xs underline"
-                >
-                  Edit
-                </button>
-              ) : (
-                <div className="flex items-center gap-1">
-                  <input
-                    type="text"
-                    value={inviteSlugInput}
-                    onChange={(e) => setInviteSlugInput(e.target.value)}
-                    placeholder="my-name"
-                    className="px-2 py-1 border border-slate-300 rounded text-xs w-28"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => updateInviteMutation.mutate(inviteSlugInput)}
-                    disabled={updateInviteMutation.isPending || !inviteSlugInput.trim() || inviteSlugInput.trim().length < 2}
-                    className="px-2 py-1 rounded bg-brand-500 text-white text-xs font-medium hover:bg-brand-600 disabled:opacity-50"
-                  >
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setEditingInviteSlug(false); setInviteSlugInput(""); }}
-                    className="text-slate-400 hover:text-slate-600 text-xs"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-slate-400 text-xs">Loading…</p>
-          )}
-          {updateInviteMutation.isError && (
-            <p className="text-danger-600 text-xs">{updateInviteMutation.error?.message ?? "Failed"}</p>
-          )}
-        </section>
-
+        <div className="grid gap-6 lg:grid-cols-3">
+          <section className="lg:col-span-2">
+            {athletes.length > 0 || athletesLoading || athletesError ? (
+              <h2 className="text-sm font-semibold text-slate-700 mb-3">Connected athletes</h2>
+            ) : null}
         {athletesLoading ? (
           <div className="flex items-center justify-center py-16">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-500 border-t-transparent" />
@@ -1775,10 +1730,20 @@ export default function CoachDashboard() {
           <div className="p-8 bg-white rounded-xl border border-slate-200 text-center">
             <Users className="w-10 h-10 text-slate-300 mx-auto mb-3" />
             <p className="text-slate-600 font-medium">No connected athletes yet</p>
-            <p className="text-slate-400 text-sm mt-1">Share your invite link so athletes can sign up and appear here.</p>
+            <p className="text-slate-400 text-sm mt-1">
+              Invite an athlete by email or share your profile link to get started.
+            </p>
+            <button
+              type="button"
+              onClick={() => setInviteAthleteModalOpen(true)}
+              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand-500 text-white text-sm font-bold hover:bg-brand-600 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Invite an athlete
+            </button>
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 xl:grid-cols-2">
             {sortedAthletes.map((a) => {
               const stats = athleteStats.get(a.athleteProfileId);
               return (
@@ -1845,15 +1810,112 @@ export default function CoachDashboard() {
             })}
           </div>
         )}
+          </section>
 
-        {broadcastModalOpen && (
-          <BroadcastMessageModal
-            athletes={athletes}
-            onClose={() => setBroadcastModalOpen(false)}
-            onConversationCreated={(conversationId) => {
-              setBroadcastModalOpen(false);
-              navigate(`/messages/${conversationId}`);
-            }}
+          <aside className="lg:col-span-1">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <h2 className="text-sm font-semibold text-slate-700">
+                Pending invites
+                {pendingInvites.length > 0 && (
+                  <span className="ml-1.5 text-slate-400 font-normal">({pendingInvites.length})</span>
+                )}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setInviteAthleteModalOpen(true)}
+                className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500 text-white text-sm font-bold hover:bg-brand-600 transition-colors shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+                Invite by email
+              </button>
+            </div>
+
+            {athleteInvitesLoading ? (
+              <div className="p-4 bg-white rounded-xl border border-slate-200 text-center text-slate-400 text-sm">
+                Loading…
+              </div>
+            ) : pendingInvites.length === 0 ? (
+              <div className="p-4 bg-white rounded-xl border border-slate-200 text-center">
+                <p className="text-slate-500 text-sm">No pending invites.</p>
+                <p className="text-slate-400 text-xs mt-1">
+                  Invite an athlete and they'll appear here until they accept.
+                </p>
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {pendingInvites.map((inv) => {
+                  const sinceLastSent = Date.now() - new Date(inv.lastSentAt).getTime();
+                  const canResend = sinceLastSent >= 5 * 60 * 1000;
+                  const isResending =
+                    resendAthleteInviteMutation.isPending &&
+                    resendAthleteInviteMutation.variables === inv.id;
+                  const isCancelling =
+                    cancelAthleteInviteMutation.isPending &&
+                    cancelAthleteInviteMutation.variables === inv.id;
+                  return (
+                    <li
+                      key={inv.id}
+                      className="p-3 bg-white rounded-xl border border-slate-200"
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-slate-900 text-sm truncate">
+                            {inv.athleteName}
+                          </p>
+                          <p className="text-xs text-slate-500 truncate">{inv.athleteEmail}</p>
+                          {inv.parentName && (
+                            <p className="text-xs text-slate-400 truncate">
+                              Parent: {inv.parentName}
+                            </p>
+                          )}
+                          <p className="text-[11px] text-slate-400 mt-1">
+                            Invited {new Date(inv.invitedAt).toLocaleDateString([], { month: "short", day: "numeric" })}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-end gap-2 mt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`Cancel invite to ${inv.athleteName}?`)) {
+                              cancelAthleteInviteMutation.mutate(inv.id);
+                            }
+                          }}
+                          disabled={isCancelling}
+                          className="text-xs text-slate-500 hover:text-danger-600 disabled:opacity-50"
+                        >
+                          {isCancelling ? "Cancelling…" : "Cancel"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => resendAthleteInviteMutation.mutate(inv.id)}
+                          disabled={!canResend || isResending}
+                          title={!canResend ? "Available again in a few minutes" : "Resend invite email"}
+                          className="text-xs font-semibold text-brand-600 hover:text-brand-700 disabled:text-slate-300 disabled:cursor-not-allowed"
+                        >
+                          {isResending ? "Sending…" : "Resend"}
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {(resendAthleteInviteMutation.isError || cancelAthleteInviteMutation.isError) && (
+              <p className="mt-2 text-xs text-danger-600">
+                {resendAthleteInviteMutation.error?.message ??
+                  cancelAthleteInviteMutation.error?.message ??
+                  "Action failed"}
+              </p>
+            )}
+          </aside>
+        </div>
+
+        {inviteAthleteModalOpen && (
+          <InviteAthleteModal
+            isPending={createAthleteInviteMutation.isPending}
+            onClose={() => setInviteAthleteModalOpen(false)}
+            onSubmit={(payload) => createAthleteInviteMutation.mutateAsync(payload)}
           />
         )}
       </div>

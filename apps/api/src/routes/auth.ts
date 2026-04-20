@@ -123,11 +123,117 @@ router.get("/me", authMiddleware(), async (req, res) => {
   });
 });
 
+/**
+ * Promote a CoachAthleteInvite to a real CoachAthlete connection.
+ * - Returns true if a new link was created or the invite was promoted.
+ * - Returns false if the invite was missing/invalid/expired.
+ * - Idempotent: if the link already exists we still mark the invite promoted.
+ * - Notifies the coach by email on the first successful connection.
+ */
+async function promoteInviteToken(
+  rawToken: string,
+  athleteProfileId: string,
+  athleteDisplayNameFallback: string | null,
+): Promise<{ ok: boolean; alreadyConnected?: boolean; coachProfileId?: string }> {
+  const token = rawToken.trim();
+  if (!token) return { ok: false };
+
+  const invite = await prisma.coachAthleteInvite.findUnique({
+    where: { token },
+  });
+  if (!invite) return { ok: false };
+  if (invite.status === "cancelled") return { ok: false };
+
+  let createdNew = false;
+  let connectionId: string;
+  const existingLink = await prisma.coachAthlete.findUnique({
+    where: {
+      coachProfileId_athleteProfileId: {
+        coachProfileId: invite.coachProfileId,
+        athleteProfileId,
+      },
+    },
+  });
+  if (existingLink) {
+    connectionId = existingLink.id;
+  } else {
+    const created = await prisma.coachAthlete.create({
+      data: {
+        coachProfileId: invite.coachProfileId,
+        athleteProfileId,
+        status: "active",
+      },
+    });
+    connectionId = created.id;
+    createdNew = true;
+  }
+
+  if (invite.status !== "promoted") {
+    await prisma.coachAthleteInvite.update({
+      where: { id: invite.id },
+      data: {
+        status: "promoted",
+        promotedAt: new Date(),
+        promotedToCoachAthleteId: connectionId,
+      },
+    });
+  }
+
+  if (createdNew) {
+    const coach = await prisma.coachProfile.findUnique({
+      where: { id: invite.coachProfileId },
+      select: { user: { select: { email: true } } },
+    });
+    const coachEmail = coach?.user?.email;
+    if (coachEmail?.trim()) {
+      const athlete = await prisma.athleteProfile.findUnique({
+        where: { id: athleteProfileId },
+        select: { displayName: true },
+      });
+      queueEmail("new_athlete_connected", {
+        coachEmail: coachEmail.trim(),
+        athleteDisplayName:
+          athlete?.displayName ?? athleteDisplayNameFallback ?? invite.athleteName ?? "An athlete",
+      }).catch((err) => console.error("[auth] queueEmail new_athlete_connected (token) failed:", err));
+    }
+  }
+
+  return { ok: true, alreadyConnected: !createdNew, coachProfileId: invite.coachProfileId };
+}
+
+// Public: look up an invite by token so the claim page can render coach context
+router.get("/claim/:token", async (req, res) => {
+  const token = typeof req.params.token === "string" ? req.params.token.trim() : "";
+  if (!token) return res.status(400).json({ error: "token is required" });
+
+  const invite = await prisma.coachAthleteInvite.findUnique({
+    where: { token },
+    include: {
+      coach: { select: { displayName: true, avatarUrl: true } },
+    },
+  });
+  if (!invite) return res.status(404).json({ error: "Invite not found", code: "INVITE_NOT_FOUND" });
+  if (invite.status === "cancelled") {
+    return res.status(410).json({ error: "This invite was cancelled", code: "INVITE_CANCELLED" });
+  }
+
+  res.json({
+    status: invite.status, // "invited" | "promoted"
+    athleteEmail: invite.athleteEmail,
+    athleteName: invite.athleteName,
+    parentName: invite.parentName,
+    coach: {
+      displayName: invite.coach.displayName,
+      avatarUrl: invite.coach.avatarUrl,
+    },
+  });
+});
+
 router.patch("/me", authMiddleware(), async (req, res) => {
   const user = (req as { user?: { id: string } }).user;
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
-  const body = req.body as { signupRole?: string; inviteSlug?: string };
+  const body = req.body as { signupRole?: string; inviteToken?: string };
   const signupRole = body.signupRole === "coach" || body.signupRole === "athlete" ? body.signupRole : null;
   if (!signupRole) return res.status(400).json({ error: "signupRole must be 'coach' or 'athlete'" });
 
@@ -165,113 +271,47 @@ router.patch("/me", authMiddleware(), async (req, res) => {
     }
   }
 
-  if (signupRole === "athlete" && athleteProfileId && typeof body.inviteSlug === "string" && body.inviteSlug.trim()) {
-    const slug = body.inviteSlug.trim().toLowerCase();
-    const invite = await prisma.coachInvite.findUnique({
-      where: { slug },
-      select: { coachProfileId: true },
-    });
-    if (invite) {
-      const existingLink = await prisma.coachAthlete.findUnique({
-        where: {
-          coachProfileId_athleteProfileId: {
-            coachProfileId: invite.coachProfileId,
-            athleteProfileId,
-          },
-        },
-      });
-      if (!existingLink) {
-        await prisma.coachAthlete.create({
-          data: {
-            coachProfileId: invite.coachProfileId,
-            athleteProfileId,
-            status: "active",
-          },
-        });
-        const [coach, athlete] = await Promise.all([
-          prisma.coachProfile.findUnique({
-            where: { id: invite.coachProfileId },
-            select: { user: { select: { email: true } } },
-          }),
-          prisma.athleteProfile.findUnique({
-            where: { id: athleteProfileId },
-            select: { displayName: true },
-          }),
-        ]);
-        const coachEmail = coach?.user?.email;
-        if (coachEmail?.trim()) {
-          queueEmail("new_athlete_connected", {
-            coachEmail: coachEmail.trim(),
-            athleteDisplayName: athlete?.displayName ?? dbUser.name ?? "An athlete",
-          }).catch((err) => console.error("[auth] queueEmail new_athlete_connected failed:", err));
-        }
-      }
-    }
+  if (signupRole === "athlete" && athleteProfileId && typeof body.inviteToken === "string" && body.inviteToken.trim()) {
+    await promoteInviteToken(body.inviteToken, athleteProfileId, dbUser.name).catch((err) =>
+      console.error("[auth] promoteInviteToken (PATCH /me) failed:", err),
+    );
   }
 
   res.json({ signupRole });
 });
 
-/** Link existing athlete to coach via invite slug and notify coach. Used when an existing account follows a coach link. */
-router.post("/me/connect-invite", authMiddleware(), async (req, res) => {
+/** Link existing athlete to coach via an invite token (Version A+ flow). */
+router.post("/me/connect-invite-token", authMiddleware(), async (req, res) => {
   const user = (req as { user?: { id: string } }).user;
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
-  const body = req.body as { inviteSlug?: string };
-  const rawSlug = typeof body.inviteSlug === "string" ? body.inviteSlug.trim() : "";
-  if (!rawSlug) return res.status(400).json({ error: "inviteSlug is required" });
-  const slug = rawSlug.toLowerCase();
+  const body = req.body as { inviteToken?: string };
+  const token = typeof body.inviteToken === "string" ? body.inviteToken.trim() : "";
+  if (!token) return res.status(400).json({ error: "inviteToken is required" });
 
   const dbUser = await prisma.user.findUnique({
     where: { id: user.id },
     select: {
       name: true,
-      athleteProfiles: { select: { id: true, displayName: true }, take: 1 },
+      athleteProfiles: { select: { id: true }, take: 1 },
       signupRole: true,
     },
   });
   if (!dbUser) return res.status(404).json({ error: "User not found" });
+
   const athleteProfile = dbUser.athleteProfiles[0];
-  if (!athleteProfile)
-    return res.status(400).json({ error: "Athlete profile required to connect via invite" });
-
-  const invite = await prisma.coachInvite.findUnique({
-    where: { slug },
-    select: { coachProfileId: true },
-  });
-  if (!invite) return res.status(404).json({ error: "Invite not found" });
-
-  const existingLink = await prisma.coachAthlete.findUnique({
-    where: {
-      coachProfileId_athleteProfileId: {
-        coachProfileId: invite.coachProfileId,
-        athleteProfileId: athleteProfile.id,
-      },
-    },
-  });
-  if (existingLink) return res.json({ linked: true, alreadyLinked: true });
-
-  await prisma.coachAthlete.create({
-    data: {
-      coachProfileId: invite.coachProfileId,
-      athleteProfileId: athleteProfile.id,
-      status: "active",
-    },
-  });
-
-  const coach = await prisma.coachProfile.findUnique({
-    where: { id: invite.coachProfileId },
-    select: { user: { select: { email: true } } },
-  });
-  const coachEmail = coach?.user?.email;
-  if (coachEmail?.trim()) {
-    queueEmail("new_athlete_connected", {
-      coachEmail: coachEmail.trim(),
-      athleteDisplayName: athleteProfile.displayName ?? dbUser.name ?? "An athlete",
-    }).catch((err) => console.error("[auth] queueEmail new_athlete_connected failed:", err));
+  if (!athleteProfile) {
+    return res
+      .status(400)
+      .json({ error: "Athlete profile required to accept this invite", code: "ATHLETE_PROFILE_REQUIRED" });
   }
 
-  res.json({ linked: true });
+  const result = await promoteInviteToken(token, athleteProfile.id, dbUser.name);
+  if (!result.ok) {
+    return res.status(404).json({ error: "Invite not found or no longer valid", code: "INVITE_INVALID" });
+  }
+
+  res.json({ linked: true, alreadyLinked: !!result.alreadyConnected });
 });
 
 // Test cleanup: delete a user by email from DB + Cognito (dev stage only)

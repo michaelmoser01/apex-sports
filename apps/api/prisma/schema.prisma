@@ -56,6 +56,7 @@ model CoachProfile {
   reviews            Review[]
   invite             CoachInvite?
   coachAthletes     CoachAthlete[]    @relation("CoachAthletes")
+  athleteInvites    CoachAthleteInvite[]
   phoneOptIns       CoachAthletePhoneOptIn[]
   favoritedBy       FavoriteCoach[]   @relation("FavoritedBy")
 
@@ -222,6 +223,26 @@ model CoachAthlete {
 
   @@unique([coachProfileId, athleteProfileId])
   @@map("coach_athletes")
+}
+
+/// Pending email invitations sent by a coach to a person who isn't on Apex yet.
+/// On signup-via-claim-link, this row is marked promoted and a real CoachAthlete is created.
+model CoachAthleteInvite {
+  id                       String       @id @default(uuid())
+  coachProfileId           String       @map("coach_profile_id")
+  coach                    CoachProfile @relation(fields: [coachProfileId], references: [id], onDelete: Cascade)
+  athleteEmail             String       @map("athlete_email") // stored lowercased
+  athleteName              String       @map("athlete_name")
+  parentName               String?      @map("parent_name")
+  token                    String       @unique
+  status                   String       @default("invited") // invited | promoted | cancelled
+  invitedAt                DateTime     @default(now()) @map("invited_at")
+  lastSentAt               DateTime     @default(now()) @map("last_sent_at")
+  promotedAt               DateTime?    @map("promoted_at")
+  promotedToCoachAthleteId String?      @map("promoted_to_coach_athlete_id")
+
+  @@unique([coachProfileId, athleteEmail])
+  @@map("coach_athlete_invites")
 }
 
 model CoachAthletePhoneOptIn {

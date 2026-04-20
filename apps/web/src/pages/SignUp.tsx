@@ -10,6 +10,24 @@ import { setDeepLink, consumeDeepLink } from "@/utils/deepLink";
 import { useQueryClient } from "@tanstack/react-query";
 import { Trophy, Users, ArrowRight, Eye, EyeOff } from "lucide-react";
 import { trackEvent } from "@/lib/analytics";
+import {
+  getStoredInviteToken,
+  getStoredInviteTokenEmail,
+  clearStoredInviteToken,
+} from "./Claim";
+
+/** Read invite token + pre-filled email from the current URL (preferred) or sessionStorage. */
+function readInviteContext(searchParams: URLSearchParams): {
+  inviteToken: string | null;
+  inviteEmail: string | null;
+} {
+  const urlToken = searchParams.get("inviteToken");
+  const urlEmail = searchParams.get("email");
+  return {
+    inviteToken: urlToken && urlToken.trim() ? urlToken.trim() : getStoredInviteToken(),
+    inviteEmail: urlEmail && urlEmail.trim() ? urlEmail.trim() : getStoredInviteTokenEmail(),
+  };
+}
 
 function waitForSignIn(): Promise<void> {
   return new Promise((resolve) => {
@@ -38,9 +56,13 @@ function DevSignUp() {
   const location = useLocation();
   const { setDevUser } = useAuth();
   const queryClient = useQueryClient();
-  const [email, setEmail] = useState("");
+  const { inviteToken, inviteEmail } = readInviteContext(searchParams);
+  const [email, setEmail] = useState(inviteEmail ?? "");
   const [name, setName] = useState("");
-  const [role, setRole] = useState<Role>(searchParams.get("role") === "coach" ? "coach" : "athlete");
+  // When arriving via invite, force athlete role (the invite is for that role).
+  const [role, setRole] = useState<Role>(
+    inviteToken ? "athlete" : searchParams.get("role") === "coach" ? "coach" : "athlete",
+  );
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -62,8 +84,12 @@ function DevSignUp() {
       await new Promise((r) => setTimeout(r, 100));
       await api("/auth/me", {
         method: "PATCH",
-        body: JSON.stringify({ signupRole: role }),
+        body: JSON.stringify({
+          signupRole: role,
+          ...(role === "athlete" && inviteToken ? { inviteToken } : {}),
+        }),
       });
+      if (inviteToken) clearStoredInviteToken();
       await queryClient.refetchQueries({ queryKey: ["auth", "me"] });
       trackEvent("sign_up", { method: "dev", role });
       navigate(role === "coach" ? "/coach/onboarding/basic" : "/athlete/onboarding", { replace: true });
@@ -82,14 +108,26 @@ function DevSignUp() {
           <p className="mt-2 text-slate-500 text-sm">Dev mode — no password required</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-5 bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm">
-          <RoleSelector role={role} onChange={setRole} />
+          {!inviteToken && <RoleSelector role={role} onChange={setRole} />}
           <div>
             <label htmlFor="name" className="block text-sm font-medium text-slate-700 mb-1">Name</label>
             <input id="name" type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition" placeholder="Your name" />
           </div>
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-            <input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition" placeholder="you@example.com" />
+            <input
+              id="email"
+              type="email"
+              required
+              value={email}
+              readOnly={!!(inviteToken && inviteEmail)}
+              onChange={(e) => setEmail(e.target.value)}
+              className={`w-full px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition ${inviteToken && inviteEmail ? "bg-slate-50 text-slate-600" : ""}`}
+              placeholder="you@example.com"
+            />
+            {inviteToken && inviteEmail && (
+              <p className="mt-1 text-xs text-slate-500">Using the email your coach invited.</p>
+            )}
           </div>
           {error && <p className="text-sm text-danger-600">{error}</p>}
           <button type="submit" disabled={loading} className="w-full py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 hover:shadow-glow-brand disabled:opacity-50 transition-all flex items-center justify-center gap-2">
@@ -110,12 +148,15 @@ function CognitoSignUp() {
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const queryClient = useQueryClient();
+  const { inviteToken, inviteEmail } = readInviteContext(searchParams);
   const [step, setStep] = useState<Step>("form");
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(inviteEmail ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [role, setRole] = useState<Role>(searchParams.get("role") === "coach" ? "coach" : "athlete");
+  const [role, setRole] = useState<Role>(
+    inviteToken ? "athlete" : searchParams.get("role") === "coach" ? "coach" : "athlete",
+  );
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -211,10 +252,26 @@ function CognitoSignUp() {
     try {
       await api("/auth/me", {
         method: "PATCH",
-        body: JSON.stringify({ signupRole: role }),
+        body: JSON.stringify({
+          signupRole: role,
+          ...(role === "athlete" && inviteToken ? { inviteToken } : {}),
+        }),
       });
     } catch {
       // Role may already be set if this is a retry
+    }
+    if (inviteToken && role === "athlete") {
+      // Best-effort: if PATCH /me failed (e.g. role already set on a retry),
+      // explicitly try the token-based connect to make sure the link is created.
+      try {
+        await api("/auth/me/connect-invite-token", {
+          method: "POST",
+          body: JSON.stringify({ inviteToken }),
+        });
+      } catch {
+        // ignore — invite may already be promoted
+      }
+      clearStoredInviteToken();
     }
     await queryClient.refetchQueries({ queryKey: ["auth", "me"] });
     trackEvent("sign_up", { method: "cognito", role });
@@ -255,14 +312,26 @@ function CognitoSignUp() {
           <p className="mt-2 text-slate-500 text-sm">Get started with ApexSports</p>
         </div>
         <form onSubmit={handleSignUp} className="space-y-5 bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm">
-          <RoleSelector role={role} onChange={setRole} />
+          {!inviteToken && <RoleSelector role={role} onChange={setRole} />}
           <div>
             <label htmlFor="name" className="block text-sm font-medium text-slate-700 mb-1">Name</label>
             <input id="name" type="text" required value={name} onChange={(e) => setName(e.target.value)} className="w-full px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition" placeholder="Your name" />
           </div>
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-            <input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition" placeholder="you@example.com" />
+            <input
+              id="email"
+              type="email"
+              required
+              value={email}
+              readOnly={!!(inviteToken && inviteEmail)}
+              onChange={(e) => setEmail(e.target.value)}
+              className={`w-full px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition ${inviteToken && inviteEmail ? "bg-slate-50 text-slate-600" : ""}`}
+              placeholder="you@example.com"
+            />
+            {inviteToken && inviteEmail && (
+              <p className="mt-1 text-xs text-slate-500">Using the email your coach invited.</p>
+            )}
           </div>
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1">Password</label>

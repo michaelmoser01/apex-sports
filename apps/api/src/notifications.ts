@@ -283,6 +283,63 @@ export async function sendNewAthleteConnectedToCoach(params: NewAthleteConnected
   }
 }
 
+// ---------------------------------------------------------------------------
+// Coach -> athlete (or parent) invite to join Apex and connect with the coach.
+// Sent when a coach manually adds someone by name + email; the recipient
+// receives a personal claim link that pre-fills signup and auto-connects.
+// ---------------------------------------------------------------------------
+
+export interface CoachAthleteInviteParams {
+  athleteEmail: string;
+  athleteName: string;
+  parentName: string | null;
+  coachDisplayName: string;
+  claimUrl: string;
+}
+
+export async function sendCoachAthleteInvite(params: CoachAthleteInviteParams): Promise<void> {
+  const { athleteEmail, athleteName, parentName, coachDisplayName, claimUrl } = params;
+  const coach = coachDisplayName?.trim() || "Your coach";
+  const athlete = athleteName?.trim() || "an athlete";
+  const parent = parentName?.trim() || null;
+  const greeting = parent ? `Hi ${parent},` : `Hi,`;
+  const audienceLine = parent
+    ? `${coach} added ${athlete} to their roster on Apex Sports and would like you to set up an account so you can schedule sessions and stay in touch.`
+    : `${coach} added you to their roster on Apex Sports and would like you to set up an account so you can schedule sessions and stay in touch.`;
+
+  const subject = `${coach} invited ${parent ? athlete : "you"} to Apex Sports`;
+  const bodyText = [
+    greeting,
+    "",
+    audienceLine,
+    "",
+    "Use the link below to accept the invite and create your account. It only takes a minute.",
+    claimUrl,
+    "",
+    "If you weren't expecting this email you can safely ignore it.",
+    "",
+    "Apex Sports",
+  ].join("\n");
+
+  const bodyHtml = htmlEmail(
+    [
+      `<p style="margin: 0 0 4px; font-size: 14px; color: ${SLATE_500};">You're invited</p>`,
+      `<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: ${SLATE_900};">${escapeHtml(coach)} invited ${parent ? escapeHtml(athlete) : "you"} to Apex Sports</p>`,
+      `<p style="margin: 0 0 16px; font-size: 15px; color: ${SLATE_700};">${escapeHtml(audienceLine)}</p>`,
+      `<p style="margin: 0; font-size: 14px; color: ${SLATE_500};">If you weren't expecting this email you can safely ignore it.</p>`,
+    ].join("\n"),
+    "Accept invite & sign up",
+    claimUrl,
+  );
+
+  try {
+    await sendEmail({ to: athleteEmail, subject, text: bodyText, html: bodyHtml });
+  } catch (err) {
+    console.error("[notifications] sendCoachAthleteInvite failed:", err, "to:", athleteEmail);
+    throw err;
+  }
+}
+
 export interface BookingRequestedToCoachParams {
   coachEmail: string;
   coachPhone?: string | null;

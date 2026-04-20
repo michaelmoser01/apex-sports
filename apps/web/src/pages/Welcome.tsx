@@ -1,28 +1,20 @@
 import { useNavigate, Navigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import {
-  getStoredInviteSlug,
-  getStoredInviteCoachId,
-  getStoredInviteCoachName,
-  clearStoredInviteSlug,
-} from "./Join";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { hasCompletedAthleteOnboarding } from "@/lib/athleteProfile";
 import { consumeDeepLink } from "@/utils/deepLink";
-import { Trophy, Users, ArrowRight } from "lucide-react";
+import { Trophy, Users } from "lucide-react";
 
 export default function Welcome() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: currentUser, isLoading: currentUserLoading } = useCurrentUser(true);
   const setRoleMutation = useMutation({
-    mutationFn: (payload: { signupRole: "coach" | "athlete"; coachId?: string | null }) => {
-      const { signupRole, coachId: _ } = payload;
-      const inviteSlug = signupRole === "athlete" ? getStoredInviteSlug() : undefined;
+    mutationFn: (payload: { signupRole: "coach" | "athlete" }) => {
       return api("/auth/me", {
         method: "PATCH",
-        body: JSON.stringify({ signupRole, ...(inviteSlug ? { inviteSlug } : {}) }),
+        body: JSON.stringify({ signupRole: payload.signupRole }),
       }).then(() => payload);
     },
     onSuccess: async (payload) => {
@@ -32,18 +24,12 @@ export default function Welcome() {
       if (signupRole === "athlete") {
         navigate("/athlete/onboarding", { replace: true });
       } else if (signupRole === "coach") {
-        clearStoredInviteSlug();
         navigate("/coach/onboarding/basic", { replace: true });
       } else {
-        clearStoredInviteSlug();
         navigate("/athlete/profile", { replace: true });
       }
     },
   });
-
-  const fromInvite = !!getStoredInviteSlug();
-  const coachName = getStoredInviteCoachName();
-  const inviteCoachId = getStoredInviteCoachId();
 
   if (currentUserLoading) {
     return (
@@ -53,7 +39,6 @@ export default function Welcome() {
     );
   }
 
-  // Coach check first — prevents coaches with dual profiles from hitting athlete flow
   if (currentUser?.signupRole === "coach" || currentUser?.coachProfile) {
     const dest = consumeDeepLink();
     return <Navigate to={dest ?? "/dashboard"} replace />;
@@ -64,56 +49,11 @@ export default function Welcome() {
   const athleteProfileComplete = hasCompletedAthleteOnboarding(currentUser?.athleteProfile ?? null);
 
   if (isAlreadyAthlete) {
-    if (fromInvite && inviteCoachId && athleteProfileComplete) {
-      const dest = consumeDeepLink();
-      return <Navigate to={dest ?? `/coaches/${inviteCoachId}`} replace />;
-    }
-    if (fromInvite && inviteCoachId && !athleteProfileComplete) {
-      return <Navigate to="/athlete/onboarding" replace />;
-    }
     if (athleteProfileComplete) {
       const dest = consumeDeepLink();
       return <Navigate to={dest ?? "/athlete"} replace />;
     }
     return <Navigate to="/athlete/onboarding" replace />;
-  }
-
-  if (fromInvite) {
-    return (
-      <div className="min-h-[70vh] flex items-center justify-center px-4">
-        <div className="max-w-md w-full text-center">
-          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-500/10 text-brand-600 mb-6">
-            <Users className="w-8 h-8" />
-          </div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 mb-3">
-            Welcome to Apex Sports
-          </h1>
-          <p className="text-slate-600 text-lg mb-10 leading-relaxed">
-            {coachName
-              ? `You're signing up to train with ${coachName}. Continue as an athlete to get connected and book sessions.`
-              : "You're signing up via your coach's link. Continue as an athlete to get connected and book sessions."}
-          </p>
-          <button
-            type="button"
-            onClick={() =>
-              setRoleMutation.mutate({
-                signupRole: "athlete",
-                coachId: getStoredInviteCoachId(),
-              })
-            }
-            disabled={setRoleMutation.isPending}
-            className="w-full px-8 py-4 rounded-2xl bg-brand-500 text-white font-bold text-lg hover:bg-brand-600 hover:shadow-glow-brand disabled:opacity-50 transition-all inline-flex items-center justify-center gap-2"
-          >
-            {setRoleMutation.isPending ? "Setting up…" : (
-              <>Continue as athlete <ArrowRight className="w-5 h-5" /></>
-            )}
-          </button>
-          {setRoleMutation.isError && (
-            <p className="text-danger-600 text-sm mt-4">{setRoleMutation.error?.message}</p>
-          )}
-        </div>
-      </div>
-    );
   }
 
   return (

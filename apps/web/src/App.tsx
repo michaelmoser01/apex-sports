@@ -26,7 +26,7 @@ import CoachOnboardingBio from "./pages/CoachOnboardingBio";
 import CoachAthleteDetail from "./pages/CoachAthleteDetail";
 import Messages from "./pages/Messages";
 import Welcome from "./pages/Welcome";
-import Join from "./pages/Join";
+import Claim from "./pages/Claim";
 import GroupInvite from "./pages/GroupInvite";
 import SignUpPage from "./pages/SignUp";
 import SignInPage from "./pages/SignIn";
@@ -64,7 +64,7 @@ function AppContent() {
         <Route path="admin/coaches" element={<AdminCoaches />} />
         <Route path="pricing" element={<Navigate to="/coaches#pricing" replace />} />
         <Route path="find" element={<Coaches />} />
-        <Route path="join/:slug" element={<Join />} />
+        <Route path="claim/:token" element={<Claim />} />
         <Route path="group/:inviteCode" element={<GroupInvite />} />
         <Route path="coaches/:id" element={<CoachDetailErrorBoundary><Outlet /></CoachDetailErrorBoundary>}>
           <Route index element={<CoachDetail />} />

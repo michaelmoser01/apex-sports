@@ -3,7 +3,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, ApiRequestError } from "@/lib/api";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { ArrowLeft, Send, MessageSquare, Users, ChevronDown, Lock } from "lucide-react";
+import { ArrowLeft, Send, MessageSquare, Users, ChevronDown, Lock, Plus } from "lucide-react";
+import { BroadcastMessageModal, type ConnectedAthlete } from "@/components/BroadcastMessageModal";
 
 interface ConversationListItem {
   id: string;
@@ -547,6 +548,14 @@ export default function Messages() {
     refetchInterval: 15000,
   });
 
+  const isCoach = !!currentUser?.coachProfile;
+  const { data: coachAthletes = [] } = useQuery({
+    queryKey: ["coachAthletes"],
+    queryFn: () => api<ConnectedAthlete[]>("/coaches/me/athletes"),
+    enabled: isCoach,
+  });
+
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [mobileShowThread, setMobileShowThread] = useState(!!conversationId);
 
   useEffect(() => {
@@ -614,8 +623,18 @@ export default function Messages() {
           : "max-w-6xl mx-auto px-4 py-6"
       }
     >
-      <div className={mobileOverlay ? "hidden md:block md:mb-4" : "mb-4"}>
+      <div className={mobileOverlay ? "hidden md:flex md:items-center md:justify-between md:gap-3 md:mb-4" : "flex items-center justify-between gap-3 mb-4"}>
         <h1 className="text-2xl font-bold text-slate-900">Messages</h1>
+        {isCoach && (
+          <button
+            type="button"
+            onClick={() => setBroadcastOpen(true)}
+            className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500 text-white text-sm font-bold hover:bg-brand-600 transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            New message
+          </button>
+        )}
       </div>
 
       <div
@@ -666,6 +685,17 @@ export default function Messages() {
           </div>
         </div>
       </div>
+
+      {broadcastOpen && (
+        <BroadcastMessageModal
+          athletes={coachAthletes}
+          onClose={() => setBroadcastOpen(false)}
+          onConversationCreated={(conversationId) => {
+            setBroadcastOpen(false);
+            navigate(`/messages/${conversationId}`);
+          }}
+        />
+      )}
     </div>
   );
 }

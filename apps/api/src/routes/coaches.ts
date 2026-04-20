@@ -16,7 +16,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import { queueEmail } from "../emailQueue.js";
 import { stripe, isStripeEnabled, createPlanCheckoutSession, createCoachPlanSubscription, getOrCreateStripeCustomerId } from "../stripe.js";
 import { invokeBioDraft, isBedrockConfigured } from "../bedrock.js";
@@ -1035,11 +1035,11 @@ router.get("/me/invites", authMiddleware(), async (req, res) => {
       data: { coachProfileId: profile.id, slug },
     });
     const appUrl = process.env.APP_URL || "http://localhost:5173";
-    return res.json({ slug: invite.slug, url: `${appUrl}/join/${invite.slug}` });
+    return res.json({ slug: invite.slug, url: `${appUrl}/coaches/${invite.slug}` });
   }
 
   const appUrl = process.env.APP_URL || "http://localhost:5173";
-  res.json({ slug: profile.invite.slug, url: `${appUrl}/join/${profile.invite.slug}` });
+  res.json({ slug: profile.invite.slug, url: `${appUrl}/coaches/${profile.invite.slug}` });
 });
 
 // Update invite slug (coach can customize their link)
@@ -1069,7 +1069,7 @@ router.patch("/me/invites", authMiddleware(), async (req, res) => {
     data: { slug },
   });
   const appUrl = process.env.APP_URL || "http://localhost:5173";
-  res.json({ slug, url: `${appUrl}/join/${slug}` });
+  res.json({ slug, url: `${appUrl}/coaches/${slug}` });
 });
 
 // List connected athletes (invite-link signups).
@@ -1190,6 +1190,223 @@ router.get("/me/athletes/:athleteProfileId", authMiddleware(), async (req, res) 
       totalRevenue,
     },
   });
+});
+
+// ---------------------------------------------------------------------------
+// Athlete invites (Version A+: invite by email; appears as a pending row until
+// the invitee signs up via /claim/:token, at which point a real CoachAthlete is
+// created and this row is marked promoted).
+// ---------------------------------------------------------------------------
+
+const RESEND_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+const INVITE_NAME_MAX = 100;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function generateInviteToken(): string {
+  return randomBytes(24).toString("base64url");
+}
+
+function buildClaimUrl(token: string): string {
+  const appUrl = (process.env.APP_URL || "http://localhost:5173").replace(/\/$/, "");
+  return `${appUrl}/claim/${token}`;
+}
+
+// List this coach's pending athlete invites (most recent first)
+router.get("/me/athlete-invites", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  const invites = await prisma.coachAthleteInvite.findMany({
+    where: { coachProfileId: profile.id, status: "invited" },
+    orderBy: { invitedAt: "desc" },
+  });
+
+  res.json(
+    invites.map((i) => ({
+      id: i.id,
+      athleteEmail: i.athleteEmail,
+      athleteName: i.athleteName,
+      parentName: i.parentName,
+      invitedAt: i.invitedAt.toISOString(),
+      lastSentAt: i.lastSentAt.toISOString(),
+    })),
+  );
+});
+
+// Create or revive an invite. If an active invite already exists for this
+// (coach, email), this acts as a resend (new email, bump lastSentAt) and the
+// 200 response includes the existing row.
+router.post("/me/athlete-invites", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const body = (req.body ?? {}) as {
+    athleteEmail?: string;
+    athleteName?: string;
+    parentName?: string | null;
+  };
+
+  const email = typeof body.athleteEmail === "string" ? body.athleteEmail.trim().toLowerCase() : "";
+  const athleteName = typeof body.athleteName === "string" ? body.athleteName.trim() : "";
+  const parentName =
+    typeof body.parentName === "string" && body.parentName.trim()
+      ? body.parentName.trim().slice(0, INVITE_NAME_MAX)
+      : null;
+
+  if (!EMAIL_REGEX.test(email) || email.length > 254) {
+    return res.status(400).json({ error: "Please enter a valid email address" });
+  }
+  if (!athleteName) return res.status(400).json({ error: "Athlete name is required" });
+  if (athleteName.length > INVITE_NAME_MAX) {
+    return res.status(400).json({ error: `Athlete name must be ${INVITE_NAME_MAX} characters or fewer` });
+  }
+
+  const profile = await prisma.coachProfile.findUnique({
+    where: { userId: user.id },
+    include: { user: { select: { email: true } } },
+  });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  if (profile.user.email && profile.user.email.trim().toLowerCase() === email) {
+    return res.status(400).json({ error: "You can't invite yourself" });
+  }
+
+  // Reject if this email already belongs to a connected athlete for this coach.
+  const existingUser = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: "insensitive" } },
+    select: {
+      athleteProfiles: { select: { id: true }, take: 1 },
+    },
+  });
+  if (existingUser?.athleteProfiles.length) {
+    const athleteProfileId = existingUser.athleteProfiles[0].id;
+    const existingLink = await prisma.coachAthlete.findUnique({
+      where: {
+        coachProfileId_athleteProfileId: {
+          coachProfileId: profile.id,
+          athleteProfileId,
+        },
+      },
+    });
+    if (existingLink) {
+      return res
+        .status(409)
+        .json({ error: "This athlete is already connected to you", code: "ALREADY_CONNECTED" });
+    }
+  }
+
+  // Upsert: same (coach, email) → revive/refresh. Generate a fresh token so
+  // cancelled/promoted rows don't leak old links.
+  const token = generateInviteToken();
+  const now = new Date();
+  const invite = await prisma.coachAthleteInvite.upsert({
+    where: {
+      coachProfileId_athleteEmail: {
+        coachProfileId: profile.id,
+        athleteEmail: email,
+      },
+    },
+    update: {
+      athleteName,
+      parentName,
+      status: "invited",
+      lastSentAt: now,
+      promotedAt: null,
+      promotedToCoachAthleteId: null,
+      token,
+    },
+    create: {
+      coachProfileId: profile.id,
+      athleteEmail: email,
+      athleteName,
+      parentName,
+      token,
+    },
+  });
+
+  void queueEmail("coach_invite_athlete", {
+    athleteEmail: invite.athleteEmail,
+    athleteName: invite.athleteName,
+    parentName: invite.parentName,
+    coachDisplayName: profile.displayName,
+    claimUrl: buildClaimUrl(invite.token),
+  });
+
+  res.status(201).json({
+    id: invite.id,
+    athleteEmail: invite.athleteEmail,
+    athleteName: invite.athleteName,
+    parentName: invite.parentName,
+    invitedAt: invite.invitedAt.toISOString(),
+    lastSentAt: invite.lastSentAt.toISOString(),
+  });
+});
+
+// Resend an invite email (rate-limited to once per 5 minutes per invite)
+router.post("/me/athlete-invites/:id/resend", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  const invite = await prisma.coachAthleteInvite.findUnique({ where: { id: req.params.id } });
+  if (!invite || invite.coachProfileId !== profile.id) {
+    return res.status(404).json({ error: "Invite not found" });
+  }
+  if (invite.status !== "invited") {
+    return res.status(409).json({ error: "This invite is no longer active" });
+  }
+
+  const sinceLast = Date.now() - invite.lastSentAt.getTime();
+  if (sinceLast < RESEND_COOLDOWN_MS) {
+    const waitSeconds = Math.ceil((RESEND_COOLDOWN_MS - sinceLast) / 1000);
+    return res
+      .status(429)
+      .json({ error: `Please wait ${waitSeconds}s before resending`, retryAfterSeconds: waitSeconds });
+  }
+
+  const updated = await prisma.coachAthleteInvite.update({
+    where: { id: invite.id },
+    data: { lastSentAt: new Date() },
+  });
+
+  void queueEmail("coach_invite_athlete", {
+    athleteEmail: updated.athleteEmail,
+    athleteName: updated.athleteName,
+    parentName: updated.parentName,
+    coachDisplayName: profile.displayName,
+    claimUrl: buildClaimUrl(updated.token),
+  });
+
+  res.json({
+    id: updated.id,
+    lastSentAt: updated.lastSentAt.toISOString(),
+  });
+});
+
+// Cancel an invite (soft delete; preserves the unique constraint and audit trail)
+router.delete("/me/athlete-invites/:id", authMiddleware(), async (req, res) => {
+  const user = (req as { user?: { id: string } }).user;
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const profile = await prisma.coachProfile.findUnique({ where: { userId: user.id } });
+  if (!profile) return res.status(404).json({ error: "Coach profile not found" });
+
+  const invite = await prisma.coachAthleteInvite.findUnique({ where: { id: req.params.id } });
+  if (!invite || invite.coachProfileId !== profile.id) {
+    return res.status(404).json({ error: "Invite not found" });
+  }
+
+  await prisma.coachAthleteInvite.update({
+    where: { id: invite.id },
+    data: { status: "cancelled" },
+  });
+
+  res.status(204).end();
 });
 
 // Coach locations CRUD

@@ -7,7 +7,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { api } from "@/lib/api";
-import { getStoredInviteSlug } from "@/pages/Join";
 import { isCoachAssistantOnboardingEnabled } from "@/config/onboarding";
 import { Menu, X, ChevronRight, MessageSquare } from "lucide-react";
 
@@ -533,15 +532,12 @@ export default function Layout() {
 
   const authPages = ["/sign-in", "/sign-up"];
   const isOnAuthPage = authPages.includes(location.pathname);
-  const onAthleteOnboardingWithInvite =
-    location.pathname === "/athlete/onboarding" && !!getStoredInviteSlug();
 
   const redirectToWelcome =
     isAuthenticated &&
     !currentUserLoading &&
     !isOnAuthPage &&
     location.pathname !== "/welcome" &&
-    !onAthleteOnboardingWithInvite &&
     (!currentUser || !currentUser.signupRole);
 
   const showCoachDashboard = !!currentUser?.coachProfile;
