@@ -282,9 +282,7 @@ export default function CoachAthleteDetail() {
                         </span>
                       )}
                     </div>
-                    {b.slot.location && (
-                      <p className="text-xs text-gray-400 mt-0.5">{b.slot.location.name}</p>
-                    )}
+                    <p className="text-xs text-gray-400 mt-0.5">{b.slot.location?.name ?? "Location TBD"}</p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
@@ -338,11 +336,9 @@ export default function CoachAthleteDetail() {
                           <Clock className="h-3.5 w-3.5" />
                           {formatDate(b.slot.startTime)} at {formatTime(b.slot.startTime)}
                         </span>
-                        {b.slot.location && (
-                          <span className="flex items-center gap-1">
-                            <MapPin className="h-3.5 w-3.5" /> {b.slot.location.name}
-                          </span>
-                        )}
+                        <span className="flex items-center gap-1">
+                          <MapPin className="h-3.5 w-3.5" /> {b.slot.location?.name ?? "Location TBD"}
+                        </span>
                         {b.amountCents != null && (
                           <span className="flex items-center gap-1">
                             <DollarSign className="h-3.5 w-3.5" /> ${(b.amountCents / 100).toFixed(2)}

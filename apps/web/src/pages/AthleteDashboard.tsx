@@ -398,12 +398,10 @@ function UpcomingSessions({ bookings }: { bookings: AthleteBooking[] }) {
                         {formatDate(b.slot.startTime)} at{" "}
                         {formatTime(b.slot.startTime)}
                       </span>
-                      {b.slot.location && (
-                        <span className="flex items-center gap-1">
-                          <MapPin className="h-3.5 w-3.5" />
-                          {b.slot.location.name}
-                        </span>
-                      )}
+                      <span className="flex items-center gap-1">
+                        <MapPin className="h-3.5 w-3.5" />
+                        {b.slot.location?.name ?? "Location TBD"}
+                      </span>
                       {b.coach.sports.length > 0 && (
                         <span>{b.coach.sports[0]}</span>
                       )}

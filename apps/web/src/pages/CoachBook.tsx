@@ -373,7 +373,7 @@ export default function CoachBook() {
             )}
           </div>
 
-          {slot?.location && (
+          {slot?.location ? (
             <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/30">
               <h2 className="text-sm font-semibold text-slate-900 mb-1">Session location</h2>
               <p className="text-slate-700 font-medium">{slot.location.name}</p>
@@ -385,7 +385,13 @@ export default function CoachBook() {
                 <CoachDetailMap locations={[slot.location]} />
               </div>
             </div>
-          )}
+          ) : slot ? (
+            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/30">
+              <h2 className="text-sm font-semibold text-slate-900 mb-1">Session location</h2>
+              <p className="text-slate-700 font-medium">Location TBD</p>
+              <p className="text-slate-600 text-sm mt-0.5">Coach will coordinate the location with you before the session.</p>
+            </div>
+          ) : null}
 
           <div className="p-5 sm:p-6 space-y-5">
             {!isAuthenticated && (

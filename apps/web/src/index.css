@@ -175,10 +175,24 @@ body {
   color: rgb(146 64 14);
   border-left: 3px solid rgb(245 158 11);
 }
+/* Coach availability calendar: month-cell tint when the day has any availability */
+.availability-calendar:not(.booking-calendar) .rbc-day-bg.rbc-day-has-availability {
+  background: rgb(219 234 254);
+}
+.availability-calendar:not(.booking-calendar) .rbc-day-bg.rbc-day-has-availability.rbc-today {
+  background: rgb(191 219 254);
+}
 /* Public booking calendar: slot you have a confirmed or completed booking for */
-/* Public booking calendar: entire day cell clickable (number + white space + slots) */
+/* Public booking calendar: entire day cell clickable (number + white space + slots).
+ * flex: 1 0 0% mirrors the sizing rbc normally applies to .rbc-day-bg as a
+ * direct child of .rbc-row-bg. Our custom dateCellWrapper REPLACES that direct
+ * child, so without claiming the flex sizing here the wrapper collapses to 0
+ * width and any background fill (and the absolute .rbc-day-bg child) becomes
+ * a sliver in the corner. */
 .availability-calendar.booking-calendar .rbc-public-date-cell {
   position: relative;
+  flex: 1 0 0%;
+  min-width: 0;
   min-height: 100%;
   cursor: pointer;
   display: block;
@@ -188,6 +202,19 @@ body {
   inset: 0;
   z-index: 0;
   pointer-events: auto;
+}
+/* Custom dateCellWrapper makes .rbc-day-bg a *child* of .rbc-public-date-cell
+ * instead of a direct flex item of .rbc-row-bg. Without these rules the
+ * .rbc-day-bg element collapses to 0 height (no flex parent), which means any
+ * background painted via dayPropGetter's className becomes invisible. Pinning
+ * it absolute-fill restores the full-cell paint surface. pointer-events: none
+ * keeps clicks bubbling to the wrapper's onClick (the overlay still owns
+ * keyboard/pointer focus). */
+.availability-calendar.booking-calendar .rbc-public-date-cell > .rbc-day-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
 }
 .availability-calendar.booking-calendar .rbc-public-date-cell .rbc-date-cell,
 .availability-calendar.booking-calendar .rbc-public-date-cell .rbc-row-segment {
@@ -220,26 +247,48 @@ body {
   border-left: 3px solid rgb(245 158 11);
 }
 
-/* Public booking calendar: day has open slots (green = availability) */
-.availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-has-open-slots {
-  background: rgb(204 251 241);
-  border-bottom: 3px solid rgb(20 184 166);
+/* Public booking calendar day-state fills.
+ *
+ * react-big-calendar's month view renders TWO row layers per week:
+ *   - .rbc-row-bg  -> .rbc-day-bg (background)
+ *   - .rbc-row-content -> .rbc-date-cell + events (foreground / text)
+ *
+ * dayPropGetter's className lands on .rbc-day-bg, while the custom
+ * dateCellWrapper lands its className on .rbc-public-date-cell (which wraps
+ * the .rbc-day-bg child). The .rbc-day-bg child is pinned absolute inset-0
+ * by the rule above so it actually paints the full cell — without that, the
+ * background fills are invisible because the wrapper collapses .rbc-day-bg.
+ * Date-number text styling stays on .rbc-public-date-cell since that's where
+ * the foreground content lives.
+ */
+.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-has-open-slots {
+  background: rgb(219 234 254);
 }
-.availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-has-open-slots.rbc-today {
-  background: rgb(153 246 228);
-  border-bottom-color: rgb(13 148 136);
+.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-has-open-slots.rbc-today {
+  background: rgb(191 219 254);
 }
 .availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-has-open-slots .rbc-date-cell {
   font-weight: 600;
   color: rgb(15 23 42);
 }
-/* Public booking calendar: day has slots but all booked (grey) */
-.availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-all-booked {
-  background: rgb(241 245 249);
-  border-bottom: 2px solid rgb(203 213 225);
+.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-all-booked {
+  background: rgb(226 232 240);
+}
+.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-all-booked.rbc-today {
+  background: rgb(203 213 225);
 }
 .availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-all-booked .rbc-date-cell {
   color: rgb(100 116 139);
+}
+.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-i-booked {
+  background: rgb(254 215 170);
+}
+.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-i-booked.rbc-today {
+  background: rgb(253 186 116);
+}
+.availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-i-booked .rbc-date-cell {
+  font-weight: 700;
+  color: rgb(15 23 42);
 }
 .availability-calendar .rbc-show-more {
   font-size: 0.6875rem;
@@ -315,22 +364,13 @@ body {
   .availability-calendar .rbc-month-view .rbc-row-content {
     min-height: 2.5rem;
   }
-  /* Mobile: strong fill + bold underline so availability is unmistakable */
-  .availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-has-open-slots {
-    background: rgb(204 251 241);
-    border-bottom: 4px solid rgb(20 184 166);
-  }
-  .availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-has-open-slots.rbc-today {
-    background: rgb(153 246 228);
-    border-bottom-color: rgb(13 148 136);
-  }
-  .availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-has-open-slots .rbc-date-cell {
-    font-weight: 700;
-    color: rgb(15 23 42);
-  }
-  .availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-all-booked {
-    background: rgb(226 232 240);
-    border-bottom: 2px solid rgb(203 213 225);
+  /* Mobile: hide month-view event chips on the public booking calendar.
+   * Day cell color already conveys availability state; tapping the day still
+   * opens the day-detail overlay where times are listed. Removes the clipped
+   * chip stripe that was bleeding through under each date number. */
+  .availability-calendar.booking-calendar .rbc-month-view .rbc-row-segment .rbc-event,
+  .availability-calendar.booking-calendar .rbc-month-view .rbc-show-more {
+    display: none;
   }
 }
 

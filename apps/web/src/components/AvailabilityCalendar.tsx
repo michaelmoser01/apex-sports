@@ -1,10 +1,17 @@
-import { useMemo, useState, useEffect, useCallback, createContext, useContext } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef, useLayoutEffect, createContext, useContext } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { Calendar, dateFnsLocalizer, type EventProps } from "react-big-calendar";
 import { format, getDay, startOfWeek, isWithinInterval, setHours, setMinutes, isSameDay, addDays } from "date-fns";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info } from "lucide-react";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import { DURATION_MINUTES_OPTIONS } from "@apex-sports/shared";
+import {
+  TBD_LOCATION_LABEL,
+  TBD_LOCATION_HELPER,
+  TBD_LOCATION_OPTION_LABEL,
+} from "@/lib/location";
+import { AddLocationModal } from "@/components/CoachLocations";
 
 type CalView = "month" | "week" | "day" | "agenda" | "work_week";
 const AvailCalViewContext = createContext<CalView>("month");
@@ -43,6 +50,119 @@ function useIsMobile(): boolean {
   }, []);
   return isMobile;
 }
+
+/**
+ * Small info-icon trigger that shows an explanatory bubble.
+ *
+ * The popover is rendered into a body-level portal and positioned against the
+ * icon's bounding rect, so it can't be clipped by parent `overflow:hidden`
+ * containers (e.g. modals). It clamps to the viewport horizontally and flips
+ * above the icon if there isn't enough room below.
+ *
+ * - Desktop: native `title` attribute also exposes hover tooltip for free.
+ * - Touch: tap toggles the popover; tapping outside, scrolling, resizing,
+ *   or pressing Escape dismisses it.
+ *
+ * Used for the "Allow private booking" checkbox to explain that an athlete
+ * can request the slot as a 1-on-1 at the full hourly rate, but only while
+ * no one else has booked yet.
+ */
+function InfoTooltip({ label, text }: { label: string; text: string }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLSpanElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  const POP_WIDTH = 256;
+  const GUTTER = 8;
+  const GAP = 8;
+
+  const updatePosition = useCallback(() => {
+    const btn = btnRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const popHeight = popRef.current?.offsetHeight ?? 80;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    let left = rect.left + rect.width / 2 - POP_WIDTH / 2;
+    left = Math.max(GUTTER, Math.min(left, vw - POP_WIDTH - GUTTER));
+
+    const spaceBelow = vh - rect.bottom;
+    const placeAbove = spaceBelow < popHeight + GAP + GUTTER && rect.top > popHeight + GAP + GUTTER;
+    const top = placeAbove ? rect.top - popHeight - GAP : rect.bottom + GAP;
+
+    setPos({ top, left });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updatePosition();
+  }, [open, updatePosition]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: Event) => {
+      const target = e.target as Node;
+      if (btnRef.current?.contains(target)) return;
+      if (popRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onResize = () => updatePosition();
+    const onScroll = () => setOpen(false);
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("touchstart", onDoc);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("touchstart", onDoc);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open, updatePosition]);
+
+  return (
+    <span className="relative inline-flex items-center">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen((v) => !v); }}
+        aria-label={label}
+        aria-expanded={open}
+        title={text}
+        className="inline-flex items-center justify-center text-slate-400 hover:text-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-500 rounded-full"
+      >
+        <Info className="w-4 h-4" />
+      </button>
+      {open && typeof document !== "undefined" && createPortal(
+        <span
+          ref={popRef}
+          role="tooltip"
+          style={{
+            position: "fixed",
+            top: pos?.top ?? -9999,
+            left: pos?.left ?? -9999,
+            width: POP_WIDTH,
+            visibility: pos ? "visible" : "hidden",
+          }}
+          className="z-[10000] rounded-lg bg-slate-900 text-white text-xs leading-snug p-3 shadow-lg pointer-events-none"
+        >
+          {text}
+        </span>,
+        document.body,
+      )}
+    </span>
+  );
+}
+
+const ALLOW_PRIVATE_HELP =
+  "An athlete can request this slot as a private 1-on-1 at your full hourly rate — but only while no one else has booked yet. Once someone joins the group session, private booking is no longer offered.";
 
 export interface AvailabilityRule {
   id: string;
@@ -210,6 +330,22 @@ export function AvailabilityCalendar({
     return [...recurring, ...oneOff];
   }, [rules, oneOffSlots, rangeStart, rangeEnd]);
 
+  const datesWithAvailability = useMemo(() => {
+    const set = new Set<string>();
+    for (const ev of events) set.add(format(ev.start, "yyyy-MM-dd"));
+    return set;
+  }, [events]);
+
+  const dayPropGetter = useCallback(
+    (date: Date) => {
+      const key = format(date, "yyyy-MM-dd");
+      return datesWithAvailability.has(key)
+        ? { className: "rbc-day-has-availability" }
+        : {};
+    },
+    [datesWithAvailability]
+  );
+
   const [dateOverride, setDateOverride] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -248,6 +384,7 @@ export function AvailabilityCalendar({
   const [inlineTime, setInlineTime] = useState({ hour: 9, minute: 0 });
   const [inlineDuration, setInlineDuration] = useState(60);
   const [inlineLocationId, setInlineLocationId] = useState<string | "">(locations[0]?.id ?? "");
+  const [addLocationOpen, setAddLocationOpen] = useState(false);
   const [inlineRecurring, setInlineRecurring] = useState(false);
   const [qfFromHour, setQfFromHour] = useState(9);
   const [qfToHour, setQfToHour] = useState(17);
@@ -283,6 +420,44 @@ export function AvailabilityCalendar({
         under your hourly rate on Profile.
       </p>
     ) : null;
+
+  // Location picker is rendered identically in 4 places (desktop+mobile × single+quickfill).
+  // Always renders — when the coach has no saved locations we still show the TBD option
+  // and a hint linking to the Profile page so they can add real locations.
+  const renderLocationField = (idPrefix: string, isMobile: boolean) => {
+    const selectClass = isMobile
+      ? "w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-800 touch-manipulation"
+      : "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800";
+    return (
+      <div>
+        <label htmlFor={`${idPrefix}-location`} className="block text-xs font-medium text-slate-500 mb-1">Location</label>
+        <select
+          id={`${idPrefix}-location`}
+          value={inlineLocationId}
+          onChange={(e) => setInlineLocationId(e.target.value)}
+          className={selectClass}
+        >
+          <option value="">{TBD_LOCATION_OPTION_LABEL}</option>
+          {locations.map((loc) => (<option key={loc.id} value={loc.id}>{loc.name}</option>))}
+        </select>
+        {locations.length === 0 ? (
+          <p className="text-xs text-slate-500 mt-1">
+            No saved locations yet.{" "}
+            <button
+              type="button"
+              onClick={() => setAddLocationOpen(true)}
+              className="font-medium text-brand-600 underline hover:text-brand-700"
+            >
+              Add a location
+            </button>{" "}
+            to pin sessions to a place.
+          </p>
+        ) : inlineLocationId === "" ? (
+          <p className="text-xs text-slate-500 mt-1">{TBD_LOCATION_HELPER}</p>
+        ) : null}
+      </div>
+    );
+  };
 
   const handleSelectSlot = (slotInfo: { start: Date }) => {
     const start = slotInfo.start;
@@ -349,14 +524,34 @@ export function AvailabilityCalendar({
 
   const qfSlotCount = qfFromHour < qfToHour ? Math.floor((qfToHour - qfFromHour) / (inlineDuration / 60)) : 0;
 
-  const [calView, setCalView] = useState<CalView>("week");
+  const [calView, setCalView] = useState<CalView>(() => (isMobile ? "month" : "week"));
   const handleViewChange = useCallback((v: CalView) => setCalView(v), []);
 
   const showDesktopDayModal = !isMobile && inlineAddSlot && baseDate;
   const showMobileDayView = isMobile && inlineAddSlot && baseDate;
 
+  useEffect(() => {
+    if (!showMobileDayView) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCloseInlineAdd?.();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [showMobileDayView, onCloseInlineAdd]);
+
   return (
     <div className="availability-calendar">
+      {addLocationOpen && (
+        <AddLocationModal
+          onClose={() => setAddLocationOpen(false)}
+          onCreated={(loc) => setInlineLocationId(loc.id)}
+        />
+      )}
       {/* Desktop: day-detail modal (click day or "+ more") — full day schedule + add form */}
       {showDesktopDayModal && (
         <div className="hidden sm:flex fixed inset-0 z-50 items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="day-detail-title">
@@ -414,9 +609,9 @@ export function AvailabilityCalendar({
                             />
                             <div className="min-w-0 flex-1">
                               <span className="font-medium text-slate-800">{ev.title}</span>
-                              {ev.resource?.locationName && (
-                                <span className="block text-xs text-slate-500 truncate">📍 {ev.resource.locationName}</span>
-                              )}
+                              <span className="block text-xs text-slate-500 truncate">
+                                📍 {ev.resource?.locationName ?? TBD_LOCATION_LABEL}
+                              </span>
                             </div>
                             <span className="text-slate-500 text-sm ml-auto flex items-center gap-2 shrink-0">
                               {isBooked && (
@@ -439,7 +634,7 @@ export function AvailabilityCalendar({
                     <p className="text-sm font-medium text-slate-700">Add availability</p>
                     <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs">
                       <button type="button" onClick={() => setAddMode("single")} className={`px-3 py-1.5 font-medium transition-colors ${addMode === "single" ? "bg-brand-500 text-white" : "text-slate-600 hover:bg-slate-50"}`}>Single</button>
-                      <button type="button" onClick={() => setAddMode("quickfill")} className={`px-3 py-1.5 font-medium transition-colors ${addMode === "quickfill" ? "bg-brand-500 text-white" : "text-slate-600 hover:bg-slate-50"}`}>Quick fill</button>
+                      <button type="button" onClick={() => setAddMode("quickfill")} className={`px-3 py-1.5 font-medium transition-colors ${addMode === "quickfill" ? "bg-brand-500 text-white" : "text-slate-600 hover:bg-slate-50"}`}>Time block</button>
                     </div>
                   </div>
 
@@ -464,15 +659,7 @@ export function AvailabilityCalendar({
                         </select>
                       </div>
                     </div>
-                    {locations.length > 0 && (
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Location</label>
-                        <select value={inlineLocationId} onChange={(e) => setInlineLocationId(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800">
-                          <option value="">No location</option>
-                          {locations.map((loc) => (<option key={loc.id} value={loc.id}>{loc.name}</option>))}
-                        </select>
-                      </div>
-                    )}
+                    {renderLocationField("desktop-single", false)}
                     <div>
                       <label className="block text-xs font-medium text-slate-500 mb-1">Session capacity</label>
                       <select value={inlineMaxCapacity} onChange={(e) => setInlineMaxCapacity(Number(e.target.value))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800">
@@ -485,6 +672,7 @@ export function AvailabilityCalendar({
                       <div className="flex items-center gap-2">
                         <input type="checkbox" id="desktop-inline-allow-private" checked={inlineAllowPrivate} onChange={(e) => setInlineAllowPrivate(e.target.checked)} className="rounded border-slate-300" />
                         <label htmlFor="desktop-inline-allow-private" className="text-sm text-slate-700">Allow private booking</label>
+                        <InfoTooltip label="What is private booking?" text={ALLOW_PRIVATE_HELP} />
                       </div>
                     )}
                     <div className="flex items-center gap-2">
@@ -534,15 +722,7 @@ export function AvailabilityCalendar({
                         {DURATION_MINUTES_OPTIONS.map((m) => (<option key={m} value={m}>{m === 60 ? "1 hr" : m < 60 ? `${m} min` : `${m / 60} hr`}</option>))}
                       </select>
                     </div>
-                    {locations.length > 0 && (
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Location</label>
-                        <select value={inlineLocationId} onChange={(e) => setInlineLocationId(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800">
-                          <option value="">No location</option>
-                          {locations.map((loc) => (<option key={loc.id} value={loc.id}>{loc.name}</option>))}
-                        </select>
-                      </div>
-                    )}
+                    {renderLocationField("desktop-qf", false)}
                     <div>
                       <label className="block text-xs font-medium text-slate-500 mb-1">Session capacity</label>
                       <select value={inlineMaxCapacity} onChange={(e) => setInlineMaxCapacity(Number(e.target.value))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800">
@@ -555,6 +735,7 @@ export function AvailabilityCalendar({
                       <div className="flex items-center gap-2">
                         <input type="checkbox" id="desktop-qf-allow-private" checked={inlineAllowPrivate} onChange={(e) => setInlineAllowPrivate(e.target.checked)} className="rounded border-slate-300" />
                         <label htmlFor="desktop-qf-allow-private" className="text-sm text-slate-700">Allow private booking</label>
+                        <InfoTooltip label="What is private booking?" text={ALLOW_PRIVATE_HELP} />
                       </div>
                     )}
                     <div className="flex items-center gap-2">
@@ -594,9 +775,14 @@ export function AvailabilityCalendar({
         </div>
       )}
 
-      {/* Mobile: tap a day → full-day view with schedule list + add form */}
+      {/* Mobile: tap a day → full-screen overlay with schedule list + add form */}
       {showMobileDayView ? (
-        <div className="sm:hidden flex flex-col rounded-xl border border-slate-200 bg-white overflow-hidden">
+        <div
+          className="sm:hidden fixed inset-0 z-[60] bg-white flex flex-col overscroll-contain"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="mobile-day-detail-title"
+        >
           <div className="flex items-center gap-3 p-4 border-b border-slate-200 bg-slate-50/80">
             <button
               type="button"
@@ -612,7 +798,7 @@ export function AvailabilityCalendar({
               <ChevronLeft className="w-5 h-5" />
             </button>
             <div className="flex-1 text-center">
-              <h2 className="text-lg font-semibold text-slate-900">{format(baseDate!, "EEEE, MMMM d")}</h2>
+              <h2 id="mobile-day-detail-title" className="text-lg font-semibold text-slate-900">{format(baseDate!, "EEEE, MMMM d")}</h2>
               <input
                 type="date"
                 value={format(baseDate!, "yyyy-MM-dd")}
@@ -650,9 +836,9 @@ export function AvailabilityCalendar({
                           />
                           <div className="min-w-0 flex-1">
                             <span className="font-medium text-slate-800">{ev.title}</span>
-                            {ev.resource?.locationName && (
-                              <span className="block text-xs text-slate-500 truncate">📍 {ev.resource.locationName}</span>
-                            )}
+                            <span className="block text-xs text-slate-500 truncate">
+                              📍 {ev.resource?.locationName ?? TBD_LOCATION_LABEL}
+                            </span>
                           </div>
                           <span className="text-slate-500 text-sm ml-auto flex items-center gap-2 shrink-0">
                             {isBooked && (
@@ -675,7 +861,7 @@ export function AvailabilityCalendar({
                   <p className="text-sm font-medium text-slate-700">Add availability</p>
                   <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs">
                     <button type="button" onClick={() => setAddMode("single")} className={`px-3 py-1.5 font-medium transition-colors ${addMode === "single" ? "bg-brand-500 text-white" : "text-slate-600 hover:bg-slate-50"}`}>Single</button>
-                    <button type="button" onClick={() => setAddMode("quickfill")} className={`px-3 py-1.5 font-medium transition-colors ${addMode === "quickfill" ? "bg-brand-500 text-white" : "text-slate-600 hover:bg-slate-50"}`}>Quick fill</button>
+                    <button type="button" onClick={() => setAddMode("quickfill")} className={`px-3 py-1.5 font-medium transition-colors ${addMode === "quickfill" ? "bg-brand-500 text-white" : "text-slate-600 hover:bg-slate-50"}`}>Time block</button>
                   </div>
                 </div>
 
@@ -698,15 +884,7 @@ export function AvailabilityCalendar({
                       {DURATION_MINUTES_OPTIONS.map((m) => (<option key={m} value={m}>{m === 60 ? "1 hr" : m < 60 ? `${m} min` : `${m / 60} hr`}</option>))}
                     </select>
                   </div>
-                  {locations.length > 0 && (
-                    <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Location</label>
-                      <select value={inlineLocationId} onChange={(e) => setInlineLocationId(e.target.value)} className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-800 touch-manipulation">
-                        <option value="">No location</option>
-                        {locations.map((loc) => (<option key={loc.id} value={loc.id}>{loc.name}</option>))}
-                      </select>
-                    </div>
-                  )}
+                  {renderLocationField("mobile-single", true)}
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">Session capacity</label>
                     <select value={inlineMaxCapacity} onChange={(e) => setInlineMaxCapacity(Number(e.target.value))} className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-800 touch-manipulation">
@@ -716,10 +894,13 @@ export function AvailabilityCalendar({
                     {groupRatesHintBlock}
                   </div>
                   {inlineMaxCapacity > 1 && (
-                    <label className="flex items-center gap-2 min-h-[44px] cursor-pointer">
-                      <input type="checkbox" checked={inlineAllowPrivate} onChange={(e) => setInlineAllowPrivate(e.target.checked)} className="w-5 h-5 rounded border-slate-300 touch-manipulation" />
-                      <span className="text-base text-slate-700">Allow private booking</span>
-                    </label>
+                    <div className="flex items-center gap-2 min-h-[44px]">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={inlineAllowPrivate} onChange={(e) => setInlineAllowPrivate(e.target.checked)} className="w-5 h-5 rounded border-slate-300 touch-manipulation" />
+                        <span className="text-base text-slate-700">Allow private booking</span>
+                      </label>
+                      <InfoTooltip label="What is private booking?" text={ALLOW_PRIVATE_HELP} />
+                    </div>
                   )}
                   <label className="flex items-center gap-2 min-h-[44px] cursor-pointer">
                     <input type="checkbox" checked={inlineRecurring} onChange={(e) => setInlineRecurring(e.target.checked)} className="w-5 h-5 rounded border-slate-300 touch-manipulation" />
@@ -768,15 +949,7 @@ export function AvailabilityCalendar({
                       {DURATION_MINUTES_OPTIONS.map((m) => (<option key={m} value={m}>{m === 60 ? "1 hr" : m < 60 ? `${m} min` : `${m / 60} hr`}</option>))}
                     </select>
                   </div>
-                  {locations.length > 0 && (
-                    <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Location</label>
-                      <select value={inlineLocationId} onChange={(e) => setInlineLocationId(e.target.value)} className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-800 touch-manipulation">
-                        <option value="">No location</option>
-                        {locations.map((loc) => (<option key={loc.id} value={loc.id}>{loc.name}</option>))}
-                      </select>
-                    </div>
-                  )}
+                  {renderLocationField("mobile-qf", true)}
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">Session capacity</label>
                     <select value={inlineMaxCapacity} onChange={(e) => setInlineMaxCapacity(Number(e.target.value))} className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-800 touch-manipulation">
@@ -786,10 +959,13 @@ export function AvailabilityCalendar({
                     {groupRatesHintBlock}
                   </div>
                   {inlineMaxCapacity > 1 && (
-                    <label className="flex items-center gap-2 min-h-[44px] cursor-pointer">
-                      <input type="checkbox" checked={inlineAllowPrivate} onChange={(e) => setInlineAllowPrivate(e.target.checked)} className="w-5 h-5 rounded border-slate-300 touch-manipulation" />
-                      <span className="text-base text-slate-700">Allow private booking</span>
-                    </label>
+                    <div className="flex items-center gap-2 min-h-[44px]">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={inlineAllowPrivate} onChange={(e) => setInlineAllowPrivate(e.target.checked)} className="w-5 h-5 rounded border-slate-300 touch-manipulation" />
+                        <span className="text-base text-slate-700">Allow private booking</span>
+                      </label>
+                      <InfoTooltip label="What is private booking?" text={ALLOW_PRIVATE_HELP} />
+                    </div>
                   )}
                   <label className="flex items-center gap-2 min-h-[44px] cursor-pointer">
                     <input type="checkbox" checked={inlineRecurring} onChange={(e) => setInlineRecurring(e.target.checked)} className="w-5 h-5 rounded border-slate-300 touch-manipulation" />
@@ -845,6 +1021,7 @@ export function AvailabilityCalendar({
           defaultView="week"
           scrollToTime={SCROLL_TO_6AM}
           components={{ event: AvailCalEvent }}
+          dayPropGetter={dayPropGetter}
           eventPropGetter={(event: CalendarEvent) => {
             const isRecurring = event.resource?.type === "recurring";
             const slotId = event.resource?.slotId ?? event.id;
@@ -972,6 +1149,7 @@ export function EventDetailModal({ event, onClose, onRemove, isRemoving, onUpdat
   const [editCapacity, setEditCapacity] = useState(1);
   const [editAllowPrivate, setEditAllowPrivate] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
+  const [addLocationOpen, setAddLocationOpen] = useState(false);
 
   useEffect(() => {
     if (event) {
@@ -1005,6 +1183,12 @@ export function EventDetailModal({ event, onClose, onRemove, isRemoving, onUpdat
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="event-detail-title">
+      {addLocationOpen && (
+        <AddLocationModal
+          onClose={() => setAddLocationOpen(false)}
+          onCreated={(loc) => setEditLocationId(loc.id)}
+        />
+      )}
       <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-lg p-6 max-w-md w-full max-h-[85vh] overflow-auto">
         <h3 id="event-detail-title" className="text-lg font-semibold text-slate-900 mb-2">
           {isRecurring ? "Recurring (weekly)" : "Session slot"}
@@ -1013,9 +1197,9 @@ export function EventDetailModal({ event, onClose, onRemove, isRemoving, onUpdat
         {isRecurring && (
           <>
             <p className="text-slate-600 text-base sm:text-sm mb-1">{timeRange}</p>
-            {event.resource?.locationName && (
-              <p className="text-slate-600 text-sm mb-1 flex items-center gap-1">📍 {event.resource.locationName}</p>
-            )}
+            <p className="text-slate-600 text-sm mb-1 flex items-center gap-1">
+              📍 {event.resource?.locationName ?? TBD_LOCATION_LABEL}
+            </p>
             {event.resource?.ruleEndDate && (
               <p className="text-slate-500 text-sm mb-4">Until {event.resource.ruleEndDate}</p>
             )}
@@ -1025,9 +1209,9 @@ export function EventDetailModal({ event, onClose, onRemove, isRemoving, onUpdat
         {isOneOff && !isEditing && (
           <>
             <p className="text-slate-600 text-base sm:text-sm mb-1">{timeRange}</p>
-            {event.resource?.locationName && (
-              <p className="text-slate-600 text-sm mb-1 flex items-center gap-1">📍 {event.resource.locationName}</p>
-            )}
+            <p className="text-slate-600 text-sm mb-1 flex items-center gap-1">
+              📍 {event.resource?.locationName ?? TBD_LOCATION_LABEL}
+            </p>
             {(event.resource?.maxCapacity ?? 1) > 1 && (
               <p className="text-slate-600 text-sm mb-1">Capacity: {event.resource?.maxCapacity} athletes{event.resource?.allowPrivate === false ? " (group only)" : ""}</p>
             )}
@@ -1059,17 +1243,30 @@ export function EventDetailModal({ event, onClose, onRemove, isRemoving, onUpdat
                 ))}
               </select>
             </div>
-            {locations && locations.length > 0 && (
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">Location</label>
-                <select value={editLocationId} onChange={(e) => setEditLocationId(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
-                  <option value="">No location</option>
-                  {locations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>{loc.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+            <div>
+              <label htmlFor="edit-location" className="block text-xs font-medium text-slate-500 mb-1">Location</label>
+              <select id="edit-location" value={editLocationId} onChange={(e) => setEditLocationId(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+                <option value="">{TBD_LOCATION_OPTION_LABEL}</option>
+                {(locations ?? []).map((loc) => (
+                  <option key={loc.id} value={loc.id}>{loc.name}</option>
+                ))}
+              </select>
+              {(!locations || locations.length === 0) ? (
+                <p className="text-xs text-slate-500 mt-1">
+                  No saved locations yet.{" "}
+                  <button
+                    type="button"
+                    onClick={() => setAddLocationOpen(true)}
+                    className="font-medium text-brand-600 underline hover:text-brand-700"
+                  >
+                    Add a location
+                  </button>{" "}
+                  to pin sessions to a place.
+                </p>
+              ) : editLocationId === "" ? (
+                <p className="text-xs text-slate-500 mt-1">{TBD_LOCATION_HELPER}</p>
+              ) : null}
+            </div>
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1">Session capacity</label>
               <select value={editCapacity} onChange={(e) => setEditCapacity(Number(e.target.value))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
@@ -1082,6 +1279,7 @@ export function EventDetailModal({ event, onClose, onRemove, isRemoving, onUpdat
               <div className="flex items-center gap-2">
                 <input type="checkbox" id="edit-allow-private" checked={editAllowPrivate} onChange={(e) => setEditAllowPrivate(e.target.checked)} className="rounded border-slate-300" />
                 <label htmlFor="edit-allow-private" className="text-sm text-slate-700">Allow private booking</label>
+                <InfoTooltip label="What is private booking?" text={ALLOW_PRIVATE_HELP} />
               </div>
             )}
           </div>

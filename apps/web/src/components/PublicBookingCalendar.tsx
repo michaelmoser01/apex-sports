@@ -177,14 +177,25 @@ export function PublicBookingCalendar({
     return allBooked;
   }, [events, datesWithOpenSlots]);
 
+  /** Dates (yyyy-MM-dd) where the current viewer has a confirmed booking */
+  const datesIBookedOn = useMemo(() => {
+    const set = new Set<string>();
+    if (!bookedSlotIds || bookedSlotIds.size === 0) return set;
+    for (const ev of events) {
+      if (bookedSlotIds.has(ev.id)) set.add(format(ev.start, "yyyy-MM-dd"));
+    }
+    return set;
+  }, [events, bookedSlotIds]);
+
   const dayPropGetter = useMemo(
     () => (date: Date) => {
       const key = format(date, "yyyy-MM-dd");
+      if (datesIBookedOn.has(key)) return { className: "rbc-day-i-booked" };
       if (datesWithOpenSlots.has(key)) return { className: "rbc-day-has-open-slots" };
       if (datesWithAllBooked.has(key)) return { className: "rbc-day-all-booked" };
       return {};
     },
-    [datesWithOpenSlots, datesWithAllBooked]
+    [datesIBookedOn, datesWithOpenSlots, datesWithAllBooked]
   );
 
   const handleRangeChange = (range: Date[] | { start: Date; end: Date }) => {
@@ -231,8 +242,9 @@ export function PublicBookingCalendar({
         children: React.ReactNode;
       }) {
         const key = format(value, "yyyy-MM-dd");
-        const hasOpenSlots = datesWithOpenSlots.has(key);
-        const hasAllBooked = datesWithAllBooked.has(key);
+        const iBooked = datesIBookedOn.has(key);
+        const hasOpenSlots = !iBooked && datesWithOpenSlots.has(key);
+        const hasAllBooked = !iBooked && !hasOpenSlots && datesWithAllBooked.has(key);
         const isTodayDate = isToday(value);
         const handleCellClick = (e: React.MouseEvent) => {
           if ((e.target as HTMLElement).closest?.(".rbc-event")) return;
@@ -240,7 +252,7 @@ export function PublicBookingCalendar({
         };
         return (
           <div
-            className={`rbc-public-date-cell${hasOpenSlots ? " rbc-day-has-open-slots" : ""}${hasAllBooked ? " rbc-day-all-booked" : ""}${isTodayDate ? " rbc-today" : ""}`}
+            className={`rbc-public-date-cell${iBooked ? " rbc-day-i-booked" : ""}${hasOpenSlots ? " rbc-day-has-open-slots" : ""}${hasAllBooked ? " rbc-day-all-booked" : ""}${isTodayDate ? " rbc-today" : ""}`}
             onClick={handleCellClick}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
@@ -257,7 +269,7 @@ export function PublicBookingCalendar({
           </div>
         );
       },
-    [handleDrillDown, datesWithOpenSlots, datesWithAllBooked]
+    [handleDrillDown, datesIBookedOn, datesWithOpenSlots, datesWithAllBooked]
   );
 
   const calendarWrapRef = useRef<HTMLDivElement>(null);
@@ -375,9 +387,9 @@ export function PublicBookingCalendar({
                             />
                             <div className="min-w-0 flex-1">
                               <span className="font-medium text-slate-800">{ev.title}</span>
-                              {ev.locationName && (
-                                <span className="block text-xs text-slate-500 truncate">📍 {ev.locationName}</span>
-                              )}
+                              <span className="block text-xs text-slate-500 truncate">
+                                📍 {ev.locationName ?? "Location TBD — coach will coordinate"}
+                              </span>
                               {ev.maxCapacity > 1 && !isUnavailable && !ev.isLocked && (
                                 <span className="block text-xs text-brand-600 font-medium">
                                   {ev.currentHeadcount > 0
@@ -492,9 +504,9 @@ export function PublicBookingCalendar({
                           <span className={`shrink-0 w-2 h-10 rounded-sm ${isBooked ? "bg-green-500" : isRequested ? "bg-amber-500" : isFull ? "bg-slate-400" : "bg-brand-500"}`} />
                           <div className="min-w-0 flex-1">
                             <span className="font-medium text-slate-800">{ev.title}</span>
-                            {ev.locationName && (
-                              <span className="block text-xs text-slate-500 truncate">📍 {ev.locationName}</span>
-                            )}
+                            <span className="block text-xs text-slate-500 truncate">
+                              📍 {ev.locationName ?? "Location TBD — coach will coordinate"}
+                            </span>
                             {ev.maxCapacity > 1 && !isUnavailable && !ev.isLocked && (
                               <span className="block text-xs text-brand-600 font-medium">
                                 {ev.currentHeadcount > 0

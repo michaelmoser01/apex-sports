@@ -204,11 +204,23 @@ export default function CoachDetail() {
     [slots]
   );
 
-  /** Slot IDs from API that are booked (by anyone) - for "Booked" badge on events */
-  const bookedSlotIds = useMemo(
-    () => new Set(slots.filter((s) => s.status === "booked").map((s) => s.id)),
-    [slots]
-  );
+  /** Slot IDs where the *current viewer* has a confirmed/completed booking with this coach.
+   * Drives the orange "I booked" day-cell tint and the green "Booked" badge in the slot list.
+   * Empty for logged-out viewers (myBookings query is gated on isAuthenticated).
+   * NOT the same as "any slot taken by anyone" — that signal is captured by availableSlotIds
+   * (a slot missing from availableSlotIds is taken by someone). */
+  const bookedSlotIds = useMemo(() => {
+    if (!coach?.id || !myBookings?.asAthlete) return new Set<string>();
+    return new Set(
+      myBookings.asAthlete
+        .filter(
+          (b) =>
+            b.coach.id === coach.id &&
+            (b.status === "confirmed" || b.status === "completed")
+        )
+        .map((b) => b.slot.id)
+    );
+  }, [coach?.id, myBookings]);
 
   const locations = useMemo(() => Array.isArray(coach?.locations) ? coach.locations : [], [coach?.locations]);
 

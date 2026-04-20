@@ -395,9 +395,9 @@ export default function BookingDetail() {
                 </div>
               );
             })()}
-            {booking.slot.location && (
-              <div className="flex items-start gap-3 text-slate-600">
-                <MapPin className="w-5 h-5 shrink-0 mt-0.5 text-slate-400" />
+            <div className="flex items-start gap-3 text-slate-600">
+              <MapPin className="w-5 h-5 shrink-0 mt-0.5 text-slate-400" />
+              {booking.slot.location ? (
                 <div>
                   <p className="font-medium text-slate-700">{booking.slot.location.name}</p>
                   <p className="text-sm">{booking.slot.location.address}</p>
@@ -405,8 +405,13 @@ export default function BookingDetail() {
                     <p className="text-sm text-slate-500 mt-0.5">{booking.slot.location.notes}</p>
                   )}
                 </div>
-              </div>
-            )}
+              ) : (
+                <div>
+                  <p className="font-medium text-slate-700">Location TBD</p>
+                  <p className="text-sm">Coach will coordinate before the session.</p>
+                </div>
+              )}
+            </div>
             {booking.slot.location && isUpcoming && (
               <div className="mt-3">
                 <div className="w-full h-48 sm:h-56 rounded-xl overflow-hidden border border-slate-200 bg-slate-100">

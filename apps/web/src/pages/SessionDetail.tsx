@@ -308,16 +308,21 @@ export default function SessionDetail() {
               </span>
             </div>
           )}
-          {session.location && (
-            <div className="flex items-start gap-3 text-slate-700">
-              <MapPin className="w-5 h-5 shrink-0 text-slate-400 mt-0.5" />
+          <div className="flex items-start gap-3 text-slate-700">
+            <MapPin className="w-5 h-5 shrink-0 text-slate-400 mt-0.5" />
+            {session.location ? (
               <div>
                 <p className="font-medium">{session.location.name}</p>
                 <p className="text-sm text-slate-500">{session.location.address}</p>
                 {session.location.notes && <p className="text-sm text-slate-500 italic">{session.location.notes}</p>}
               </div>
-            </div>
-          )}
+            ) : (
+              <div>
+                <p className="font-medium">Location TBD</p>
+                <p className="text-sm text-slate-500">Coach will coordinate before the session.</p>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Locked Private callout */}

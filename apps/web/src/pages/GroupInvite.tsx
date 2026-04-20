@@ -190,15 +190,20 @@ export default function GroupInvite() {
               </div>
             </div>
 
-            {session.slot.location && (
-              <div className="flex items-center gap-3 text-sm">
-                <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+            <div className="flex items-center gap-3 text-sm">
+              <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+              {session.slot.location ? (
                 <div>
                   <p className="font-medium text-slate-900">{session.slot.location.name}</p>
                   <p className="text-slate-500">{session.slot.location.address}</p>
                 </div>
-              </div>
-            )}
+              ) : (
+                <div>
+                  <p className="font-medium text-slate-900">Location TBD</p>
+                  <p className="text-slate-500">Coach will coordinate before the session.</p>
+                </div>
+              )}
+            </div>
 
             <div className="flex items-center gap-3 text-sm">
               <Users className="w-4 h-4 text-slate-400 shrink-0" />

@@ -16,6 +16,14 @@ export interface CoachLocationItem {
   longitude: number | null;
 }
 
+type CoachLocationInput = {
+  name: string;
+  address: string;
+  notes: string | null;
+  latitude: number | null;
+  longitude: number | null;
+};
+
 function LocationForm({
   initial,
   onSave,
@@ -290,6 +298,53 @@ export function CoachLocations() {
   );
 }
 
+/**
+ * Standalone "Add location" modal. Owns its own create mutation and invalidates
+ * the shared ["coachLocations"] query on success. Used by CoachLocationsCompact
+ * and by the availability calendar (so a coach setting up a slot with no saved
+ * locations can add one inline without navigating away).
+ */
+export function AddLocationModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated?: (loc: CoachLocationItem) => void;
+}) {
+  const queryClient = useQueryClient();
+  const createMutation = useMutation({
+    mutationFn: (data: CoachLocationInput) =>
+      api<CoachLocationItem>("/coaches/me/locations", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: (loc) => {
+      queryClient.invalidateQueries({ queryKey: ["coachLocations"] });
+      onCreated?.(loc);
+      onClose();
+    },
+  });
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+      <div className="bg-white rounded-xl shadow-lg max-w-lg w-full max-h-[90vh] overflow-auto p-6 relative z-[10000]">
+        <h3 className="text-lg font-semibold text-slate-900 mb-4">Add location</h3>
+        <LocationForm
+          onSave={(data) => createMutation.mutate(data)}
+          onCancel={onClose}
+          isSaving={createMutation.isPending}
+        />
+        {createMutation.isError && (
+          <p className="text-danger-600 text-sm mt-2" role="alert">
+            {createMutation.error instanceof Error ? createMutation.error.message : "Failed to add location."}
+          </p>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export function CoachLocationsCompact() {
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(true);
@@ -301,17 +356,8 @@ export function CoachLocationsCompact() {
     queryFn: () => api<CoachLocationItem[]>("/coaches/me/locations"),
   });
 
-  const createMutation = useMutation({
-    mutationFn: (data: { name: string; address: string; notes: string | null; latitude: number | null; longitude: number | null }) =>
-      api<CoachLocationItem>("/coaches/me/locations", { method: "POST", body: JSON.stringify(data) }),
-    onSuccess: () => {
-      setModalMode(null);
-      queryClient.invalidateQueries({ queryKey: ["coachLocations"] });
-    },
-  });
-
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { name: string; address: string; notes: string | null; latitude: number | null; longitude: number | null } }) =>
+    mutationFn: ({ id, data }: { id: string; data: CoachLocationInput }) =>
       api<CoachLocationItem>(`/coaches/me/locations/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     onSuccess: () => {
       setModalMode(null);
@@ -391,23 +437,19 @@ export function CoachLocationsCompact() {
         )}
       </div>
 
-      {modalMode && createPortal(
+      {modalMode === "add" && (
+        <AddLocationModal onClose={() => setModalMode(null)} />
+      )}
+
+      {modalMode === "edit" && editTarget && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
           <div className="bg-white rounded-xl shadow-lg max-w-lg w-full max-h-[90vh] overflow-auto p-6 relative z-[10000]">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">
-              {modalMode === "edit" ? "Edit location" : "Add location"}
-            </h3>
+            <h3 className="text-lg font-semibold text-slate-900 mb-4">Edit location</h3>
             <LocationForm
-              initial={editTarget ? { name: editTarget.name, address: editTarget.address, notes: editTarget.notes, latitude: editTarget.latitude, longitude: editTarget.longitude } : undefined}
-              onSave={(data) => {
-                if (modalMode === "edit" && editTarget) {
-                  updateMutation.mutate({ id: editTarget.id, data });
-                } else {
-                  createMutation.mutate(data);
-                }
-              }}
+              initial={{ name: editTarget.name, address: editTarget.address, notes: editTarget.notes, latitude: editTarget.latitude, longitude: editTarget.longitude }}
+              onSave={(data) => updateMutation.mutate({ id: editTarget.id, data })}
               onCancel={() => { setModalMode(null); setEditTarget(null); }}
-              isSaving={createMutation.isPending || updateMutation.isPending}
+              isSaving={updateMutation.isPending}
             />
           </div>
         </div>,

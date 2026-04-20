@@ -420,9 +420,7 @@ export default function Bookings() {
                     <p className="text-slate-500 text-sm mt-1">
                       {new Date(b.slot.startTime).toLocaleString()}
                     </p>
-                    {b.slot.location && (
-                      <p className="text-slate-500 text-sm mt-0.5">{b.slot.location.name}</p>
-                    )}
+                    <p className="text-slate-500 text-sm mt-0.5">{b.slot.location?.name ?? "Location TBD"}</p>
                     {b.sessionType === "group" && (
                       <p className="text-indigo-600 text-sm mt-1 flex items-center gap-1">
                         <Users className="w-3.5 h-3.5" />
@@ -500,9 +498,7 @@ export default function Bookings() {
                       <p className="text-slate-600 text-sm mt-0.5">
                         {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                       </p>
-                      {b.slot.location && (
-                        <p className="text-slate-500 text-sm mt-1">{b.slot.location.name}</p>
-                      )}
+                      <p className="text-slate-500 text-sm mt-1">{b.slot.location?.name ?? "Location TBD"}</p>
                       {b.amountCents != null && (
                         <p className="text-amber-800 font-semibold text-sm mt-2">
                           ${(b.amountCents / 100).toFixed(2)} due
@@ -642,9 +638,7 @@ export default function Bookings() {
                           </span>
                           <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-brand-500 shrink-0" />
                         </div>
-                        {slot.location && (
-                          <p className="text-slate-500 text-sm mt-1 ml-6">{slot.location.name}</p>
-                        )}
+                        <p className="text-slate-500 text-sm mt-1 ml-6">{slot.location?.name ?? "Location TBD"}</p>
                         <div className="mt-2 ml-6">
                           {isGroup ? (
                             <p className="text-sm text-slate-700 flex items-center gap-1.5">
@@ -737,9 +731,7 @@ export default function Bookings() {
                       <p className="text-slate-500 text-sm">
                         {new Date(b.slot.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                       </p>
-                      {b.slot.location && (
-                        <p className="text-slate-500 text-sm mt-0.5">{b.slot.location.name}</p>
-                      )}
+                      <p className="text-slate-500 text-sm mt-0.5">{b.slot.location?.name ?? "Location TBD"}</p>
                       <Link
                         to={`/bookings/${b.id}`}
                         className="text-brand-600 text-sm font-medium hover:underline mt-1 inline-block"
