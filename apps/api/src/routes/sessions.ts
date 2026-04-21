@@ -113,8 +113,10 @@ router.get("/:slotId", auth, async (req, res) => {
       stripeOnboardingComplete: slot.coach.stripeOnboardingComplete,
       billingMode: slot.coach.billingMode,
     },
+    locationId: slot.locationId ?? null,
     location: slot.location
       ? {
+          id: slot.location.id,
           name: slot.location.name,
           address: slot.location.address,
           notes: slot.location.notes ?? null,

@@ -2221,7 +2221,20 @@ export default function CoachDashboard() {
                   setAddOneOffError(null);
                   setAddOneOffModalStart(start);
                 }}
-                onEventClick={setSelectedEvent}
+                onEventClick={(event) => {
+                  // For real (materialized) slots, open the full Session Detail
+                  // page so the coach sees participants, attendance, payment
+                  // status, and can edit/remove from one consistent place.
+                  // Recurring rule projections that don't have a slot row yet
+                  // still fall through to the inline modal (rule-level info /
+                  // remove-rule UX).
+                  const slotId = event.resource?.slotId;
+                  if (slotId) {
+                    navigate(`/sessions/${slotId}`);
+                    return;
+                  }
+                  setSelectedEvent(event);
+                }}
                 onRangeChange={handleCalendarRangeChange}
                 locations={coachLocations}
                 inlineAddSlot={addOneOffModalStart}

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { Calendar, dateFnsLocalizer, type EventProps } from "react-big-calendar";
 import { format, getDay, startOfWeek, isWithinInterval, setHours, setMinutes, isSameDay, addDays } from "date-fns";
-import { ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, Repeat } from "lucide-react";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import { DURATION_MINUTES_OPTIONS } from "@apex-sports/shared";
 import {
@@ -603,19 +603,24 @@ export function AvailabilityCalendar({
                             className="w-full text-left flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-3 hover:bg-slate-100"
                           >
                             <span
-                              className={`shrink-0 w-2 h-10 rounded-sm ${
-                                ev.resource?.type === "recurring" ? "bg-green-500" : "bg-blue-500"
+                              className={`shrink-0 w-2 h-10 rounded-sm bg-info-500 ${
+                                ev.resource?.type === "recurring" ? "border border-dashed border-info-700" : ""
                               }`}
                             />
                             <div className="min-w-0 flex-1">
-                              <span className="font-medium text-slate-800">{ev.title}</span>
+                              <span className="font-medium text-slate-800 inline-flex items-center gap-1.5">
+                                {ev.title}
+                                {ev.resource?.type === "recurring" && (
+                                  <Repeat className="w-3.5 h-3.5 text-info-700" aria-label="Recurring weekly" />
+                                )}
+                              </span>
                               <span className="block text-xs text-slate-500 truncate">
                                 📍 {ev.resource?.locationName ?? TBD_LOCATION_LABEL}
                               </span>
                             </div>
                             <span className="text-slate-500 text-sm ml-auto flex items-center gap-2 shrink-0">
                               {isBooked && (
-                                <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-800">
+                                <span className="px-2 py-0.5 text-xs font-medium rounded bg-success-100 text-success-800">
                                   Booked
                                 </span>
                               )}
@@ -828,21 +833,24 @@ export function AvailabilityCalendar({
                           className="w-full text-left flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-3 min-h-[48px] touch-manipulation active:bg-slate-100"
                         >
                           <span
-                            className={`shrink-0 w-2 h-10 rounded-sm ${
-                              ev.resource?.type === "recurring"
-                                ? "bg-green-500"
-                                : "bg-blue-500"
+                            className={`shrink-0 w-2 h-10 rounded-sm bg-info-500 ${
+                              ev.resource?.type === "recurring" ? "border border-dashed border-info-700" : ""
                             }`}
                           />
                           <div className="min-w-0 flex-1">
-                            <span className="font-medium text-slate-800">{ev.title}</span>
+                            <span className="font-medium text-slate-800 inline-flex items-center gap-1.5">
+                              {ev.title}
+                              {ev.resource?.type === "recurring" && (
+                                <Repeat className="w-3.5 h-3.5 text-info-700" aria-label="Recurring weekly" />
+                              )}
+                            </span>
                             <span className="block text-xs text-slate-500 truncate">
                               📍 {ev.resource?.locationName ?? TBD_LOCATION_LABEL}
                             </span>
                           </div>
                           <span className="text-slate-500 text-sm ml-auto flex items-center gap-2 shrink-0">
                             {isBooked && (
-                              <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-800">
+                              <span className="px-2 py-0.5 text-xs font-medium rounded bg-success-100 text-success-800">
                                 Booked
                               </span>
                             )}

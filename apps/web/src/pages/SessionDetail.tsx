@@ -1,6 +1,6 @@
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import {
   ArrowLeft,
@@ -13,8 +13,11 @@ import {
   Share2,
   Lock,
   MessageSquare,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
+import { TBD_LOCATION_HELPER, TBD_LOCATION_OPTION_LABEL } from "@/lib/location";
 
 interface Participant {
   id: string;
@@ -52,7 +55,9 @@ interface SessionData {
     stripeOnboardingComplete: boolean;
     billingMode: string;
   };
+  locationId: string | null;
   location: {
+    id: string;
     name: string;
     address: string;
     notes: string | null;
@@ -62,6 +67,13 @@ interface SessionData {
   participants: Participant[];
   viewerRole: "coach" | "athlete";
 }
+
+interface CoachLocationOption {
+  id: string;
+  name: string;
+}
+
+const DURATION_MINUTES_OPTIONS = [30, 45, 60, 75, 90, 120, 150, 180];
 
 export default function SessionDetail() {
   const { slotId } = useParams<{ slotId: string }>();
@@ -175,6 +187,93 @@ export default function SessionDetail() {
     onError: (err: Error) => setUpdateError(err.message ?? "Failed to start conversation"),
   });
 
+  // Coach-side slot edit / remove. Only meaningful when there are no active
+  // participants — once anyone has booked, the appropriate destructive action
+  // is "Cancel session" (which notifies athletes), not silently delete.
+  const isCoachView = session?.viewerRole === "coach";
+  const noActiveParticipants = (session?.participants.filter((p) => p.status !== "cancelled").length ?? 0) === 0;
+  const canEditOrRemoveSlot = isCoachView && noActiveParticipants && session?.sessionStatus !== "cancelled" && session?.sessionStatus !== "completed";
+
+  const { data: coachLocations } = useQuery({
+    queryKey: ["coachLocations"],
+    queryFn: () => api<CoachLocationOption[]>("/coaches/me/locations"),
+    enabled: !!isCoachView,
+  });
+
+  const [isEditingSlot, setIsEditingSlot] = useState(false);
+  const [editHour, setEditHour] = useState(0);
+  const [editMinute, setEditMinute] = useState(0);
+  const [editDuration, setEditDuration] = useState(60);
+  const [editLocationId, setEditLocationId] = useState<string>("");
+  const [editCapacity, setEditCapacity] = useState(1);
+  const [editAllowPrivate, setEditAllowPrivate] = useState(true);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+
+  // Hydrate edit form whenever session loads / refreshes.
+  useEffect(() => {
+    if (!session) return;
+    const start = new Date(session.startTime);
+    const end = new Date(session.endTime);
+    setEditHour(start.getHours());
+    setEditMinute(start.getMinutes());
+    setEditDuration(Math.round((end.getTime() - start.getTime()) / 60000));
+    setEditLocationId(session.locationId ?? "");
+    setEditCapacity(session.maxCapacity);
+    setEditAllowPrivate(session.allowPrivate);
+  }, [session]);
+
+  const updateSlotMutation = useMutation({
+    mutationFn: (data: { startTime?: string; durationMinutes?: number; locationId?: string | null; maxCapacity?: number; allowPrivate?: boolean }) =>
+      api(`/coaches/me/availability/${slotId}`, { method: "PATCH", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      setSuccessMessage("Slot updated.");
+      setIsEditingSlot(false);
+      setTimeout(() => setSuccessMessage(null), 4000);
+      queryClient.invalidateQueries({ queryKey: ["session", slotId] });
+      queryClient.invalidateQueries({ queryKey: ["availability"] });
+    },
+    onError: (err: Error) => setUpdateError(err.message ?? "Failed to update slot"),
+  });
+
+  const removeSlotMutation = useMutation({
+    mutationFn: () => api(`/coaches/me/availability/${slotId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["availability"] });
+      navigate("/dashboard");
+    },
+    onError: (err: Error) => {
+      setUpdateError(err.message ?? "Failed to remove slot");
+      setConfirmRemove(false);
+    },
+  });
+
+  const handleSaveEdit = () => {
+    if (!session) return;
+    const newStart = new Date(session.startTime);
+    newStart.setHours(editHour, editMinute, 0, 0);
+    updateSlotMutation.mutate({
+      startTime: newStart.toISOString(),
+      durationMinutes: editDuration,
+      locationId: editLocationId || null,
+      maxCapacity: editCapacity,
+      allowPrivate: editCapacity > 1 ? editAllowPrivate : true,
+    });
+  };
+
+  const editPanelOriginalValues = useMemo(() => {
+    if (!session) return null;
+    const s = new Date(session.startTime);
+    const e = new Date(session.endTime);
+    return {
+      hour: s.getHours(),
+      minute: s.getMinutes(),
+      duration: Math.round((e.getTime() - s.getTime()) / 60000),
+      locationId: session.locationId ?? "",
+      capacity: session.maxCapacity,
+      allowPrivate: session.allowPrivate,
+    };
+  }, [session]);
+
   if (isLoading) {
     return (
       <div className="max-w-3xl mx-auto p-6">
@@ -217,7 +316,7 @@ export default function SessionDetail() {
       status === "confirmed" ? "bg-success-100 text-success-700 ring-success-600/10"
       : status === "completed" ? "bg-slate-100 text-slate-700 ring-slate-600/10"
       : status === "cancelled" ? "bg-danger-100 text-danger-700 ring-danger-600/10"
-      : status === "available" ? "bg-brand-100 text-brand-700 ring-brand-600/10"
+      : status === "available" ? "bg-info-100 text-info-700 ring-info-600/10"
       : "bg-amber-100 text-amber-700 ring-amber-600/10";
     return (
       <span className={`px-3 py-1 rounded-full text-xs font-semibold ring-1 ${cls}`}>
@@ -325,6 +424,92 @@ export default function SessionDetail() {
           </div>
         </div>
 
+        {/* Coach-only inline edit panel.
+         * Only shown when the slot has no active participants — once anyone has
+         * booked, edits to time/capacity/location should go through a deliberate
+         * communication flow, not a silent in-place update. */}
+        {canEditOrRemoveSlot && isEditingSlot && (
+          <div className="px-4 sm:px-6 py-4 border-t border-slate-100 space-y-3">
+            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Edit slot</h2>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Time</label>
+              <div className="flex gap-2">
+                <select value={editHour} onChange={(e) => setEditHour(Number(e.target.value))} className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>{h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`}</option>
+                  ))}
+                </select>
+                <select value={editMinute} onChange={(e) => setEditMinute(Number(e.target.value))} className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+                  {[0, 15, 30, 45].map((m) => (
+                    <option key={m} value={m}>{m.toString().padStart(2, "0")}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Duration</label>
+              <select value={editDuration} onChange={(e) => setEditDuration(Number(e.target.value))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+                {DURATION_MINUTES_OPTIONS.map((d) => (
+                  <option key={d} value={d}>{d >= 60 ? `${d / 60}h` : `${d}m`}{d >= 60 && d % 60 > 0 ? ` ${d % 60}m` : ""}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="sd-edit-location" className="block text-xs font-medium text-slate-500 mb-1">Location</label>
+              <select id="sd-edit-location" value={editLocationId} onChange={(e) => setEditLocationId(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+                <option value="">{TBD_LOCATION_OPTION_LABEL}</option>
+                {(coachLocations ?? []).map((loc) => (
+                  <option key={loc.id} value={loc.id}>{loc.name}</option>
+                ))}
+              </select>
+              {editLocationId === "" && (
+                <p className="text-xs text-slate-500 mt-1">{TBD_LOCATION_HELPER}</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Session capacity</label>
+              <select value={editCapacity} onChange={(e) => setEditCapacity(Number(e.target.value))} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+                {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>{n} athlete{n !== 1 ? "s" : ""}</option>
+                ))}
+              </select>
+            </div>
+            {editCapacity > 1 && (
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="sd-edit-allow-private" checked={editAllowPrivate} onChange={(e) => setEditAllowPrivate(e.target.checked)} className="rounded border-slate-300" />
+                <label htmlFor="sd-edit-allow-private" className="text-sm text-slate-700">Allow private booking</label>
+              </div>
+            )}
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditingSlot(false);
+                  if (editPanelOriginalValues) {
+                    setEditHour(editPanelOriginalValues.hour);
+                    setEditMinute(editPanelOriginalValues.minute);
+                    setEditDuration(editPanelOriginalValues.duration);
+                    setEditLocationId(editPanelOriginalValues.locationId);
+                    setEditCapacity(editPanelOriginalValues.capacity);
+                    setEditAllowPrivate(editPanelOriginalValues.allowPrivate);
+                  }
+                }}
+                className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={updateSlotMutation.isPending}
+                className="flex-1 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+              >
+                {updateSlotMutation.isPending ? "Saving…" : "Save changes"}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Locked Private callout */}
         {session.lockedPrivate && (
           <div className="mx-4 sm:mx-6 mb-4 p-4 rounded-xl bg-violet-50 border border-violet-200 flex gap-3">
@@ -358,6 +543,12 @@ export default function SessionDetail() {
           {session.spotsRemaining > 0 && session.sessionStatus !== "cancelled" && session.sessionStatus !== "completed" && (
             <p className="text-xs text-brand-600 mb-3">
               {session.spotsRemaining} {session.spotsRemaining === 1 ? "spot" : "spots"} remaining — share to drop the per-person price
+            </p>
+          )}
+
+          {activeParticipants.length === 0 && (
+            <p className="text-sm text-slate-500 mb-4">
+              No bookings yet. {session.viewerRole === "coach" && session.spotsRemaining > 0 ? "Share the link above so athletes can book this slot." : ""}
             </p>
           )}
 
@@ -540,7 +731,63 @@ export default function SessionDetail() {
             </div>
           </div>
         )}
+
+        {/* Coach actions for an empty slot — Edit / Remove. We only surface
+         * these when nobody has booked yet; once there are participants the
+         * destructive flow is "Cancel session" (above), which notifies them. */}
+        {canEditOrRemoveSlot && !isEditingSlot && (
+          <div className="px-4 sm:px-6 py-5 border-t border-slate-200">
+            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Slot actions</h2>
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:gap-3">
+              <button
+                type="button"
+                onClick={() => setIsEditingSlot(true)}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-brand-300 text-brand-700 hover:bg-brand-50 text-sm font-semibold"
+              >
+                <Pencil className="w-4 h-4" />
+                Edit slot
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmRemove(true)}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-white border border-danger-200 text-danger-600 hover:bg-danger-50 text-sm font-semibold"
+              >
+                <Trash2 className="w-4 h-4" />
+                Remove slot
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Confirm slot removal */}
+      {confirmRemove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Remove this slot?</h2>
+            <p className="text-slate-600 text-sm mb-4">
+              This will permanently delete this availability slot. Nobody has booked it yet, so no athletes will be notified.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setConfirmRemove(false)}
+                className="px-4 py-2 rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 font-medium text-sm"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={() => removeSlotMutation.mutate()}
+                disabled={removeSlotMutation.isPending}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-danger-600 text-white hover:bg-danger-700 disabled:opacity-50"
+              >
+                {removeSlotMutation.isPending ? "Removing…" : "Yes, remove slot"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Needs Stripe modal */}
       {confirmAction && confirmAction.type === "needs_stripe" && (

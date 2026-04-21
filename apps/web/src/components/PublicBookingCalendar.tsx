@@ -370,7 +370,7 @@ export function PublicBookingCalendar({
                             onClick={() => handleSlotClickFromList(ev.id)}
                             className={`w-full text-left flex items-center gap-3 rounded-lg border px-4 py-3 transition ${
                               isBooked
-                                ? "border-green-200 bg-green-50/80 text-slate-700 cursor-not-allowed"
+                                ? "border-success-200 bg-success-50/80 text-slate-700 cursor-not-allowed"
                                 : isRequested
                                   ? "border-amber-200 bg-amber-50/80 text-slate-700 cursor-not-allowed"
                                   : isFull
@@ -382,7 +382,7 @@ export function PublicBookingCalendar({
                           >
                             <span
                               className={`shrink-0 w-2 h-10 rounded-sm ${
-                                isBooked ? "bg-green-500" : isRequested ? "bg-amber-500" : isFull ? "bg-slate-400" : "bg-brand-500"
+                                isBooked ? "bg-success-500" : isRequested ? "bg-amber-500" : isFull ? "bg-slate-400" : "bg-info-500"
                               }`}
                             />
                             <div className="min-w-0 flex-1">
@@ -407,7 +407,7 @@ export function PublicBookingCalendar({
                               </span>
                             )}
                             {isBooked && (
-                              <span className="ml-auto text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded shrink-0">
+                              <span className="ml-auto text-xs font-medium text-success-700 bg-success-100 px-2 py-0.5 rounded shrink-0">
                                 Booked
                               </span>
                             )}
@@ -491,7 +491,7 @@ export function PublicBookingCalendar({
                           onClick={() => handleSlotClickFromList(ev.id)}
                           className={`w-full text-left flex items-center gap-3 rounded-lg border px-4 py-3 min-h-[48px] touch-manipulation ${
                             isBooked
-                              ? "border-green-200 bg-green-50/80 text-slate-700 cursor-not-allowed"
+                              ? "border-success-200 bg-success-50/80 text-slate-700 cursor-not-allowed"
                               : isRequested
                                 ? "border-amber-200 bg-amber-50/80 text-slate-700 cursor-not-allowed"
                                 : isFull
@@ -501,7 +501,7 @@ export function PublicBookingCalendar({
                                     : "border-slate-200 bg-slate-50/50 active:bg-slate-100"
                           }`}
                         >
-                          <span className={`shrink-0 w-2 h-10 rounded-sm ${isBooked ? "bg-green-500" : isRequested ? "bg-amber-500" : isFull ? "bg-slate-400" : "bg-brand-500"}`} />
+                          <span className={`shrink-0 w-2 h-10 rounded-sm ${isBooked ? "bg-success-500" : isRequested ? "bg-amber-500" : isFull ? "bg-slate-400" : "bg-info-500"}`} />
                           <div className="min-w-0 flex-1">
                             <span className="font-medium text-slate-800">{ev.title}</span>
                             <span className="block text-xs text-slate-500 truncate">
@@ -524,7 +524,7 @@ export function PublicBookingCalendar({
                             </span>
                           )}
                           {isBooked && (
-                            <span className="ml-auto text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded shrink-0">
+                            <span className="ml-auto text-xs font-medium text-success-700 bg-success-100 px-2 py-0.5 rounded shrink-0">
                               Booked
                             </span>
                           )}

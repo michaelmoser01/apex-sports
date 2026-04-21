@@ -73,15 +73,20 @@ function formatTime(iso: string) {
 }
 
 function statusBadge(status: string) {
+  // Color contract:
+  //   confirmed -> success (live, all-set)
+  //   pending   -> warning (needs action / awaiting)
+  //   completed -> slate   (past, neutral history)
+  //   cancelled -> slate-light (past, dead)
   const styles: Record<string, string> = {
-    confirmed: "bg-green-100 text-green-800",
-    pending: "bg-yellow-100 text-yellow-800",
-    completed: "bg-blue-100 text-blue-800",
-    cancelled: "bg-gray-100 text-gray-500",
+    confirmed: "bg-success-100 text-success-800",
+    pending: "bg-amber-100 text-amber-800",
+    completed: "bg-slate-200 text-slate-700",
+    cancelled: "bg-slate-100 text-slate-500",
   };
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${styles[status] ?? "bg-gray-100 text-gray-700"}`}
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${styles[status] ?? "bg-slate-100 text-slate-700"}`}
     >
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
@@ -92,25 +97,25 @@ function paymentBadge(paymentStatus: string | null, amountCents: number | null) 
   if (!amountCents) return null;
   if (paymentStatus === "succeeded")
     return (
-      <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+      <span className="inline-flex items-center rounded-full bg-success-100 px-2.5 py-0.5 text-xs font-medium text-success-800">
         Paid ${(amountCents / 100).toFixed(2)}
       </span>
     );
   if (paymentStatus === "paid_offline")
     return (
-      <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+      <span className="inline-flex items-center rounded-full bg-success-100 px-2.5 py-0.5 text-xs font-medium text-success-800">
         Paid (offline) ${(amountCents / 100).toFixed(2)}
       </span>
     );
   if (paymentStatus === "deferred" || paymentStatus === "payment_link_sent")
     return (
-      <span className="inline-flex items-center rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-medium text-orange-800">
+      <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
         ${(amountCents / 100).toFixed(2)} due
       </span>
     );
   if (paymentStatus === "authorized")
     return (
-      <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
+      <span className="inline-flex items-center rounded-full bg-info-100 px-2.5 py-0.5 text-xs font-medium text-info-800">
         ${(amountCents / 100).toFixed(2)} held
       </span>
     );
