@@ -299,6 +299,11 @@ interface AvailabilityCalendarProps {
   /** Slot IDs with ONLY pending booking requests (no confirmed yet) –
    * show amber "needs your action" indicator on the coach calendar. */
   pendingSlotIds?: Set<string> | ReadonlySet<string>;
+  /** Group-session slot IDs with BOTH at least one confirmed AND at least one
+   * pending booking. Always a subset of `bookedSlotIds`. The pill stays green;
+   * an amber dot is overlaid via `.rbc-event-mixed-pending` so the coach sees
+   * the action-needed signal without losing the confirmed state. */
+  mixedPendingSlotIds?: Set<string> | ReadonlySet<string>;
   /** Whether the coach has configured group pricing rates */
   hasGroupRates?: boolean;
 }
@@ -325,6 +330,7 @@ export function AvailabilityCalendar({
   addError,
   bookedSlotIds,
   pendingSlotIds,
+  mixedPendingSlotIds,
   hasGroupRates = false,
 }: AvailabilityCalendarProps) {
   const isMobile = useIsMobile();
@@ -602,6 +608,7 @@ export function AvailabilityCalendar({
                       const slotId = ev.resource?.slotId ?? ev.id;
                       const isBooked = bookedSlotIds?.has(slotId);
                       const isPending = !isBooked && (pendingSlotIds?.has(slotId) ?? false);
+                      const isMixedPending = isBooked && (mixedPendingSlotIds?.has(slotId) ?? false);
                       return (
                         <li key={ev.id}>
                           <button
@@ -631,7 +638,7 @@ export function AvailabilityCalendar({
                                   Booked
                                 </span>
                               )}
-                              {isPending && (
+                              {(isPending || isMixedPending) && (
                                 <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-800">
                                   Pending
                                 </span>
@@ -838,6 +845,7 @@ export function AvailabilityCalendar({
                     const slotId = ev.resource?.slotId ?? ev.id;
                     const isBooked = bookedSlotIds?.has(slotId);
                     const isPending = !isBooked && (pendingSlotIds?.has(slotId) ?? false);
+                    const isMixedPending = isBooked && (mixedPendingSlotIds?.has(slotId) ?? false);
                     return (
                       <li key={ev.id}>
                         <button
@@ -867,7 +875,7 @@ export function AvailabilityCalendar({
                                 Booked
                               </span>
                             )}
-                            {isPending && (
+                            {(isPending || isMixedPending) && (
                               <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-800">
                                 Pending
                               </span>
@@ -1057,10 +1065,15 @@ export function AvailabilityCalendar({
             // bookedSlotIds). The ?? false keeps the class off the element
             // entirely when the prop isn't provided.
             const isPending = !isBooked && (pendingSlotIds?.has(slotId) ?? false);
+            // Group session with confirmed + pending: pill stays green; we
+            // tack on a class that renders an amber dot overlay so the coach
+            // still sees "action needed" without losing the green "this is on".
+            const isMixedPending = isBooked && (mixedPendingSlotIds?.has(slotId) ?? false);
             const classes = [
               isRecurring ? "rbc-event-recurring" : "rbc-event-oneoff",
               isBooked ? "rbc-event-booked" : "",
               isPending ? "rbc-event-pending" : "",
+              isMixedPending ? "rbc-event-mixed-pending" : "",
             ].filter(Boolean);
             return { className: classes.join(" ") };
           }}

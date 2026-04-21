@@ -188,6 +188,26 @@ body {
   color: rgb(146 64 14); /* warning-700 deepened */
   border-left: 3px solid rgb(245 158 11); /* warning-500 */
 }
+/* Coach availability calendar: group session with BOTH a confirmed booking
+ * AND a pending request. Pill stays green (`.rbc-event-booked` rule above);
+ * we overlay a small amber dot in the top-right corner so the coach sees the
+ * "needs your action" signal without losing the green "this is on" state.
+ * Scoped to the coach calendar only — public booking calendar is unaffected. */
+.availability-calendar:not(.booking-calendar) .rbc-event-booked.rbc-event-mixed-pending {
+  position: relative;
+}
+.availability-calendar:not(.booking-calendar) .rbc-event-booked.rbc-event-mixed-pending::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: rgb(245 158 11); /* warning-500 */
+  box-shadow: 0 0 0 1.5px rgb(255 255 255);
+  pointer-events: none;
+}
 
 /* Neutralize react-big-calendar's default selected-event treatment.
  *

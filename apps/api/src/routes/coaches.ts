@@ -1640,28 +1640,47 @@ router.get("/me/availability", authMiddleware(), async (req, res) => {
     }),
   ]);
 
-  // Two parallel sets so the calendar can color slots semantically:
-  //   bookedSlotIds  -> at least one confirmed/completed booking (green chip)
-  //   pendingSlotIds -> ONLY pending bookings, none confirmed yet (amber chip,
-  //                     "needs your action")
-  // A slot with both confirmed + pending counts as booked (green) so the coach
-  // doesn't lose the "this is on" signal; the pending request still surfaces
-  // in their bookings list / session detail page.
+  // Three parallel sets so the calendar can color slots semantically:
+  //   bookedSlotIds        -> at least one confirmed/completed booking (green chip)
+  //   pendingSlotIds       -> ONLY pending bookings, none confirmed yet (amber chip,
+  //                           "needs your action")
+  //   mixedPendingSlotIds  -> group session (capacity > 1) with BOTH at least one
+  //                           confirmed AND at least one pending. Always also in
+  //                           bookedSlotIds (so the pill stays green for the
+  //                           "this is on" signal); the calendar overlays a small
+  //                           amber dot to surface the pending action without
+  //                           hiding the confirmed state.
+  // 1-on-1 slots cannot reach the mixed state under normal flow (capacity 1 means
+  // a confirmed booking blocks new pending requests), so the new set is gated on
+  // maxCapacity > 1 to avoid noisy overlays for edge cases.
   const bookedSlotIds: string[] = [];
   const pendingSlotIds: string[] = [];
-  const isBooked = (bookings: { status: string }[]) =>
+  const mixedPendingSlotIds: string[] = [];
+  const hasConfirmed = (bookings: { status: string }[]) =>
     bookings.some((b) => b.status === "confirmed" || b.status === "completed");
+  const hasPending = (bookings: { status: string }[]) =>
+    bookings.some((b) => b.status === "pending");
   const isPendingOnly = (bookings: { status: string }[]) =>
     bookings.length > 0 && bookings.every((b) => b.status === "pending");
   for (const r of rules) {
     for (const s of r.slots) {
-      if (isBooked(s.bookings)) bookedSlotIds.push(s.id);
-      else if (isPendingOnly(s.bookings)) pendingSlotIds.push(s.id);
+      const confirmed = hasConfirmed(s.bookings);
+      if (confirmed) {
+        bookedSlotIds.push(s.id);
+        if (r.maxCapacity > 1 && hasPending(s.bookings)) mixedPendingSlotIds.push(s.id);
+      } else if (isPendingOnly(s.bookings)) {
+        pendingSlotIds.push(s.id);
+      }
     }
   }
   for (const s of oneOffSlots) {
-    if (isBooked(s.bookings)) bookedSlotIds.push(s.id);
-    else if (isPendingOnly(s.bookings)) pendingSlotIds.push(s.id);
+    const confirmed = hasConfirmed(s.bookings);
+    if (confirmed) {
+      bookedSlotIds.push(s.id);
+      if (s.maxCapacity > 1 && hasPending(s.bookings)) mixedPendingSlotIds.push(s.id);
+    } else if (isPendingOnly(s.bookings)) {
+      pendingSlotIds.push(s.id);
+    }
   }
 
   res.json({
@@ -1693,6 +1712,7 @@ router.get("/me/availability", authMiddleware(), async (req, res) => {
     })),
     bookedSlotIds,
     pendingSlotIds,
+    mixedPendingSlotIds,
   });
 });
 

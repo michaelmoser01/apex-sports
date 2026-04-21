@@ -98,6 +98,7 @@ interface AvailabilityResponse {
   oneOffSlots: OneOffSlot[];
   bookedSlotIds?: string[];
   pendingSlotIds?: string[];
+  mixedPendingSlotIds?: string[];
 }
 
 function GettingStartedChecklist({
@@ -889,6 +890,10 @@ export default function CoachDashboard() {
   const pendingSlotIds = useMemo(
     () => new Set(availability?.pendingSlotIds ?? []),
     [availability?.pendingSlotIds]
+  );
+  const mixedPendingSlotIds = useMemo(
+    () => new Set(availability?.mixedPendingSlotIds ?? []),
+    [availability?.mixedPendingSlotIds]
   );
 
   const updateProfileMutation = useMutation({
@@ -2221,6 +2226,7 @@ export default function CoachDashboard() {
                 oneOffSlots={oneOffSlots}
                 bookedSlotIds={bookedSlotIds}
                 pendingSlotIds={pendingSlotIds}
+                mixedPendingSlotIds={mixedPendingSlotIds}
                 rangeStart={calendarRange.start}
                 rangeEnd={calendarRange.end}
                 onSlotClick={(start) => {
