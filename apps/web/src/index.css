@@ -357,6 +357,21 @@ body {
   font-weight: 700;
   color: rgb(15 23 42);
 }
+/* Day where the viewer has a pending request awaiting coach confirmation.
+ * Amber = "needs action / awaiting" — same semantic as the slot-list pending
+ * pill (warning-100 / warning-700). Sits between i-booked (green) and
+ * has-open-slots (blue) in priority so the athlete's own pending day stands
+ * out instead of falling into the grey "all booked" tint. */
+.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-i-requested {
+  background: rgb(254 243 199); /* warning-100 */
+}
+.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-i-requested.rbc-today {
+  background: rgb(253 230 138); /* warning-200 */
+}
+.availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-i-requested .rbc-date-cell {
+  font-weight: 600;
+  color: rgb(15 23 42);
+}
 .availability-calendar .rbc-show-more {
   font-size: 0.6875rem;
   font-weight: 500;

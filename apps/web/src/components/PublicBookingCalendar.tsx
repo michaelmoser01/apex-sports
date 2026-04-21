@@ -109,7 +109,10 @@ export interface PublicBookingCalendarProps {
   requestedSlotIds?: Set<string> | ReadonlySet<string>;
   /** Slot IDs where the current user has a confirmed or completed booking – show "Booked". */
   bookedSlotIds?: Set<string> | ReadonlySet<string>;
-  /** Slot IDs from API (actually available). When provided, green = day has at least one of these; grey = day has slots but none of these. */
+  /** Slot IDs from API marked `status: "available"`. Currently unused for day-cell
+   * tinting (the API marks 1-on-1 slots booked-by-others as `"booked"`, which would
+   * incorrectly grey out the day even though the pill renders blue). Kept on the
+   * props for future capacity-aware features (e.g. distinguishing "Full" group sessions). */
   availableSlotIds?: Set<string> | ReadonlySet<string>;
 }
 
@@ -123,7 +126,7 @@ export function PublicBookingCalendar({
   onCloseModal,
   requestedSlotIds,
   bookedSlotIds,
-  availableSlotIds,
+  availableSlotIds: _availableSlotIds,
 }: PublicBookingCalendarProps) {
   const isMobile = useIsMobile();
   const [rangeStart, setRangeStart] = useState<Date>(() =>
@@ -147,26 +150,30 @@ export function PublicBookingCalendar({
       .sort((a, b) => a.start.getTime() - b.start.getTime());
   }, [events, selectedDay]);
 
-  /** Dates (yyyy-MM-dd) that have at least one open slot. When availableSlotIds provided: day has slot in that set. Otherwise: exclude booked/requested (backward compat). */
+  /** Dates (yyyy-MM-dd) that have at least one slot the viewer can act on (i.e. the
+   * pill renders blue/bookable from the viewer's perspective). A slot is "openable
+   * from the viewer's POV" when it is NOT booked by the viewer and NOT requested by
+   * the viewer. Note: `availableSlotIds` (API "available" status) is intentionally
+   * NOT required here — when another athlete books a 1-on-1 slot the API marks it
+   * `status: "booked"`, but the pill still renders blue (eventPropGetter only marks
+   * pills booked/requested for the viewer). The day tint must agree with the pill,
+   * otherwise we get blue pills sitting on a grey "all booked" cell. */
   const datesWithOpenSlots = useMemo(() => {
     const set = new Set<string>();
-    if (availableSlotIds) {
-      events.forEach((ev) => {
-        if (availableSlotIds.has(ev.id)) set.add(format(ev.start, "yyyy-MM-dd"));
-      });
-    } else {
-      const booked = bookedSlotIds ?? new Set<string>();
-      const requested = requestedSlotIds ?? new Set<string>();
-      events.forEach((ev) => {
-        if (!booked.has(ev.id) && !requested.has(ev.id)) {
-          set.add(format(ev.start, "yyyy-MM-dd"));
-        }
-      });
-    }
+    const booked = bookedSlotIds ?? new Set<string>();
+    const requested = requestedSlotIds ?? new Set<string>();
+    events.forEach((ev) => {
+      if (!booked.has(ev.id) && !requested.has(ev.id)) {
+        set.add(format(ev.start, "yyyy-MM-dd"));
+      }
+    });
     return set;
-  }, [events, availableSlotIds, bookedSlotIds, requestedSlotIds]);
+  }, [events, bookedSlotIds, requestedSlotIds]);
 
-  /** Dates (yyyy-MM-dd) that have slots but all are booked or requested */
+  /** Dates (yyyy-MM-dd) where every slot is booked or requested by the viewer (so
+   * the viewer has nothing actionable left). These get the grey "all booked" tint.
+   * Days where slots are taken by *other* athletes are NOT here — those still
+   * show as openable from the viewer's POV (their pills are blue). */
   const datesWithAllBooked = useMemo(() => {
     const withSlots = new Set<string>();
     events.forEach((ev) => withSlots.add(format(ev.start, "yyyy-MM-dd")));
@@ -187,15 +194,26 @@ export function PublicBookingCalendar({
     return set;
   }, [events, bookedSlotIds]);
 
+  /** Dates (yyyy-MM-dd) where the current viewer has a pending request awaiting coach action */
+  const datesIRequestedOn = useMemo(() => {
+    const set = new Set<string>();
+    if (!requestedSlotIds || requestedSlotIds.size === 0) return set;
+    for (const ev of events) {
+      if (requestedSlotIds.has(ev.id)) set.add(format(ev.start, "yyyy-MM-dd"));
+    }
+    return set;
+  }, [events, requestedSlotIds]);
+
   const dayPropGetter = useMemo(
     () => (date: Date) => {
       const key = format(date, "yyyy-MM-dd");
       if (datesIBookedOn.has(key)) return { className: "rbc-day-i-booked" };
+      if (datesIRequestedOn.has(key)) return { className: "rbc-day-i-requested" };
       if (datesWithOpenSlots.has(key)) return { className: "rbc-day-has-open-slots" };
       if (datesWithAllBooked.has(key)) return { className: "rbc-day-all-booked" };
       return {};
     },
-    [datesIBookedOn, datesWithOpenSlots, datesWithAllBooked]
+    [datesIBookedOn, datesIRequestedOn, datesWithOpenSlots, datesWithAllBooked]
   );
 
   const handleRangeChange = (range: Date[] | { start: Date; end: Date }) => {
@@ -243,8 +261,9 @@ export function PublicBookingCalendar({
       }) {
         const key = format(value, "yyyy-MM-dd");
         const iBooked = datesIBookedOn.has(key);
-        const hasOpenSlots = !iBooked && datesWithOpenSlots.has(key);
-        const hasAllBooked = !iBooked && !hasOpenSlots && datesWithAllBooked.has(key);
+        const iRequested = !iBooked && datesIRequestedOn.has(key);
+        const hasOpenSlots = !iBooked && !iRequested && datesWithOpenSlots.has(key);
+        const hasAllBooked = !iBooked && !iRequested && !hasOpenSlots && datesWithAllBooked.has(key);
         const isTodayDate = isToday(value);
         const handleCellClick = (e: React.MouseEvent) => {
           if ((e.target as HTMLElement).closest?.(".rbc-event")) return;
@@ -252,7 +271,7 @@ export function PublicBookingCalendar({
         };
         return (
           <div
-            className={`rbc-public-date-cell${iBooked ? " rbc-day-i-booked" : ""}${hasOpenSlots ? " rbc-day-has-open-slots" : ""}${hasAllBooked ? " rbc-day-all-booked" : ""}${isTodayDate ? " rbc-today" : ""}`}
+            className={`rbc-public-date-cell${iBooked ? " rbc-day-i-booked" : ""}${iRequested ? " rbc-day-i-requested" : ""}${hasOpenSlots ? " rbc-day-has-open-slots" : ""}${hasAllBooked ? " rbc-day-all-booked" : ""}${isTodayDate ? " rbc-today" : ""}`}
             onClick={handleCellClick}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
@@ -269,7 +288,7 @@ export function PublicBookingCalendar({
           </div>
         );
       },
-    [handleDrillDown, datesIBookedOn, datesWithOpenSlots, datesWithAllBooked]
+    [handleDrillDown, datesIBookedOn, datesIRequestedOn, datesWithOpenSlots, datesWithAllBooked]
   );
 
   const calendarWrapRef = useRef<HTMLDivElement>(null);
