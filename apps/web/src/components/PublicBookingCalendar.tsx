@@ -232,9 +232,13 @@ export function PublicBookingCalendar({
   };
 
   const handleSelectEvent = (event: BookingEvent) => {
-    if (bookedSlotIds?.has(event.id)) return;
+    // Open the day view in every case so the athlete sees the day's full
+    // context (other slots, their own bookings, etc.). For slots they've
+    // already booked we stop there — don't fire onSelectSlot, which would
+    // open the booking sheet for a slot they already own. For openable
+    // slots on desktop we still go straight to the booking sheet.
     setSelectedDay(event.start);
-    // On mobile, always show the slot list first; don't go straight to booking
+    if (bookedSlotIds?.has(event.id)) return;
     if (!isMobile) {
       onSelectSlot(event.id);
     }

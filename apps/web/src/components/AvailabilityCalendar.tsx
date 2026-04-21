@@ -346,6 +346,59 @@ export function AvailabilityCalendar({
     return set;
   }, [events]);
 
+  /**
+   * Per-day status sets used by `CoachDateCell` to paint up to three dots
+   * (open / booked / pending) on the mobile month view. Always computed (cheap
+   * sets keyed by yyyy-MM-dd) so the wrapper can read them without prop
+   * gymnastics; the wrapper itself is only mounted on mobile month view.
+   *
+   * Classification mirrors `eventPropGetter` so the dots agree with what
+   * desktop pills would show:
+   *   - open   = slot NOT in bookedSlotIds AND NOT in pendingSlotIds
+   *   - booked = slot in bookedSlotIds (covers mixed-pending group sessions
+   *              too — those are confirmed-AND-pending; the amber dot
+   *              picks up the pending half)
+   *   - pending = slot in pendingSlotIds (pending-only) OR in
+   *               mixedPendingSlotIds (group session with confirmed +
+   *               pending bookings, where the coach still needs to act
+   *               on the pending request)
+   */
+  const datesWithOpen = useMemo(() => {
+    const set = new Set<string>();
+    const booked = bookedSlotIds ?? new Set<string>();
+    const pending = pendingSlotIds ?? new Set<string>();
+    for (const ev of events) {
+      const slotId = ev.resource?.slotId ?? ev.id;
+      if (!booked.has(slotId) && !pending.has(slotId)) {
+        set.add(format(ev.start, "yyyy-MM-dd"));
+      }
+    }
+    return set;
+  }, [events, bookedSlotIds, pendingSlotIds]);
+
+  const datesWithBooked = useMemo(() => {
+    const set = new Set<string>();
+    if (!bookedSlotIds) return set;
+    for (const ev of events) {
+      const slotId = ev.resource?.slotId ?? ev.id;
+      if (bookedSlotIds.has(slotId)) set.add(format(ev.start, "yyyy-MM-dd"));
+    }
+    return set;
+  }, [events, bookedSlotIds]);
+
+  const datesWithPending = useMemo(() => {
+    const set = new Set<string>();
+    const pending = pendingSlotIds ?? new Set<string>();
+    const mixed = mixedPendingSlotIds ?? new Set<string>();
+    for (const ev of events) {
+      const slotId = ev.resource?.slotId ?? ev.id;
+      if (pending.has(slotId) || mixed.has(slotId)) {
+        set.add(format(ev.start, "yyyy-MM-dd"));
+      }
+    }
+    return set;
+  }, [events, pendingSlotIds, mixedPendingSlotIds]);
+
   const dayPropGetter = useCallback(
     (date: Date) => {
       const key = format(date, "yyyy-MM-dd");
@@ -354,6 +407,42 @@ export function AvailabilityCalendar({
         : {};
     },
     [datesWithAvailability]
+  );
+
+  /**
+   * Custom dateCellWrapper for the mobile month view. Wraps rbc's
+   * `.rbc-day-bg` background cell and appends up to three small status
+   * dots (open / booked / pending) at the bottom-center. Only rendered
+   * on `isMobile && calView === "month"` (see `calendarComponents` below);
+   * elsewhere we hand `undefined` to rbc so the default cell is used and
+   * desktop / week view are completely untouched.
+   *
+   * NOTE: rbc passes `value` (the Date) and `children` (the `.rbc-day-bg`
+   * element). We must keep `.rbc-day-bg` as a direct child for the
+   * `.rbc-coach-date-cell > .rbc-day-bg` absolute-fill CSS to apply,
+   * otherwise the day tint paints into a 0-height sliver.
+   */
+  const coachDateCellWrapper = useMemo(
+    () =>
+      function CoachDateCell({ value, children }: { value: Date; children: React.ReactNode }) {
+        const key = format(value, "yyyy-MM-dd");
+        const hasOpen = datesWithOpen.has(key);
+        const hasBooked = datesWithBooked.has(key);
+        const hasPending = datesWithPending.has(key);
+        return (
+          <div className="rbc-coach-date-cell">
+            {children}
+            {(hasOpen || hasBooked || hasPending) && (
+              <span className="rbc-coach-day-dots" aria-hidden="true">
+                {hasOpen && <span className="dot dot-open" />}
+                {hasBooked && <span className="dot dot-booked" />}
+                {hasPending && <span className="dot dot-pending" />}
+              </span>
+            )}
+          </div>
+        );
+      },
+    [datesWithOpen, datesWithBooked, datesWithPending]
   );
 
   const [dateOverride, setDateOverride] = useState<Date | null>(null);
@@ -1054,7 +1143,15 @@ export function AvailabilityCalendar({
           onView={handleViewChange}
           defaultView="week"
           scrollToTime={SCROLL_TO_6AM}
-          components={{ event: AvailCalEvent }}
+          components={
+            // Only mount CoachDateCell on the mobile month view. On week
+            // view and on desktop we omit it so rbc uses its default cell
+            // (no flex/absolute gymnastics, no extra DOM, no behavior
+            // change). Keeps the dot UI strictly opt-in to one surface.
+            isMobile && calView === "month"
+              ? { event: AvailCalEvent, dateCellWrapper: coachDateCellWrapper }
+              : { event: AvailCalEvent }
+          }
           dayPropGetter={dayPropGetter}
           eventPropGetter={(event: CalendarEvent) => {
             const isRecurring = event.resource?.type === "recurring";
@@ -1079,6 +1176,82 @@ export function AvailabilityCalendar({
           }}
         />
         </div>
+        {/* Legend: documents the visual states the coach sees on this calendar.
+         * Mobile month view shows status DOTS (no pills — those are hidden by
+         * CSS to avoid clipped-pill stripes), so we render a dot legend there.
+         * Everywhere else (week view, desktop month, desktop week) shows the
+         * full event PILLS, so we render the four-pill legend that includes
+         * the mixed-pending dot overlay. Lives only on the coach availability
+         * view (not the public booking calendar — athletes have their own
+         * day-cell tints + day-detail modal). */}
+        {isMobile && calView === "month" ? (
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600" aria-label="Calendar legend">
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="inline-block w-1.5 h-1.5 rounded-full"
+                style={{ background: "rgb(59 130 246)" }}
+              />
+              Open slot
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="inline-block w-1.5 h-1.5 rounded-full"
+                style={{ background: "rgb(34 197 94)" }}
+              />
+              Booked
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="inline-block w-1.5 h-1.5 rounded-full"
+                style={{ background: "rgb(245 158 11)" }}
+              />
+              Pending request
+            </span>
+          </div>
+        ) : (
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600" aria-label="Calendar legend">
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="inline-block w-3 h-3 rounded-sm border-l-[3px]"
+                style={{ background: "rgb(219 234 254)", borderLeftColor: "rgb(59 130 246)" }}
+              />
+              Open slot
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="inline-block w-3 h-3 rounded-sm border-l-[3px]"
+                style={{ background: "rgb(254 252 232)", borderLeftColor: "rgb(245 158 11)" }}
+              />
+              Pending request
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="inline-block w-3 h-3 rounded-sm border-l-[3px]"
+                style={{ background: "rgb(220 252 231)", borderLeftColor: "rgb(34 197 94)" }}
+              />
+              Booked
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="relative inline-block w-3 h-3 rounded-sm border-l-[3px]"
+                style={{ background: "rgb(220 252 231)", borderLeftColor: "rgb(34 197 94)" }}
+              >
+                <span
+                  className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full"
+                  style={{ background: "rgb(245 158 11)", boxShadow: "0 0 0 1px rgb(255 255 255)" }}
+                />
+              </span>
+              Booked + pending request
+            </span>
+          </div>
+        )}
         </AvailCalViewContext.Provider>
       )}
     </div>

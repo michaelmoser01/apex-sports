@@ -253,12 +253,18 @@ body {
   background: rgb(254 252 232); /* warning-50 */
   color: rgb(180 83 9); /* warning-700 */
 }
-/* Coach availability calendar: month-cell tint when the day has any availability. */
-.availability-calendar:not(.booking-calendar) .rbc-day-bg.rbc-day-has-availability {
-  background: rgb(219 234 254); /* info-100 */
-}
-.availability-calendar:not(.booking-calendar) .rbc-day-bg.rbc-day-has-availability.rbc-today {
-  background: rgb(191 219 254); /* info-200 */
+/* Coach availability calendar: month-cell tint when the day has any availability.
+ * Mobile-only: on desktop the slot pills already make availability obvious; on
+ * mobile pills are tiny so the cell tint adds glanceable scanning. The
+ * .rbc-day-has-availability class is still applied by `dayPropGetter` at every
+ * viewport — desktop just no-ops the fill. */
+@media (max-width: 639px) {
+  .availability-calendar:not(.booking-calendar) .rbc-day-bg.rbc-day-has-availability {
+    background: rgb(219 234 254); /* info-100 */
+  }
+  .availability-calendar:not(.booking-calendar) .rbc-day-bg.rbc-day-has-availability.rbc-today {
+    background: rgb(191 219 254); /* info-200 */
+  }
 }
 /* Public booking calendar: slot you have a confirmed or completed booking for */
 /* Public booking calendar: entire day cell clickable (number + white space + slots).
@@ -311,13 +317,17 @@ body {
   border-left: 3px solid rgb(59 130 246); /* info-500 */
 }
 /* Public booking calendar: slot the viewer has a confirmed/completed booking
- * for. Green = "you're in / confirmed" semantic. Non-clickable since you
- * already booked it. */
+ * for. Green = "you're in / confirmed" semantic. Clickable — opens the
+ * day-view modal so the athlete can see the day's full context — but does
+ * NOT re-trigger the booking sheet (handleSelectEvent early-returns on
+ * bookedSlotIds before calling onSelectSlot). Cursor stays the default
+ * pointer (inherited from .rbc-day-bg / parent) instead of not-allowed,
+ * since the click *does* do something. */
 .availability-calendar.booking-calendar .rbc-event-booked {
   background: rgb(220 252 231); /* success-100 */
   color: rgb(22 101 52); /* success-800 */
   border-left: 3px solid rgb(34 197 94); /* success-500 */
-  cursor: not-allowed;
+  cursor: pointer;
   pointer-events: auto;
 }
 /* Public booking calendar: slot the viewer has a pending request for
@@ -341,56 +351,65 @@ body {
  * background fills are invisible because the wrapper collapses .rbc-day-bg.
  * Date-number text styling stays on .rbc-public-date-cell since that's where
  * the foreground content lives.
+ *
+ * Mobile-only: on desktop the slot pills carry the state (blue/green/amber)
+ * and the day-detail modal explains personal context. On mobile pills are
+ * tiny so the cell tint provides glanceable scanning. The classes are still
+ * applied by `dayPropGetter` and `dateCellWrapper` at every viewport — desktop
+ * just no-ops the visual fills. The structural `.rbc-day-bg` pinning above
+ * stays outside this media query (layout depends on it everywhere).
  */
-/* Day has at least one open/bookable slot. Blue = "available". */
-.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-has-open-slots {
-  background: rgb(219 234 254); /* info-100 */
-}
-.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-has-open-slots.rbc-today {
-  background: rgb(191 219 254); /* info-200 */
-}
-.availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-has-open-slots .rbc-date-cell {
-  font-weight: 600;
-  color: rgb(15 23 42);
-}
-/* Day has slots but they're all taken (by other athletes, not the viewer). */
-.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-all-booked {
-  background: rgb(226 232 240); /* slate-200 */
-}
-.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-all-booked.rbc-today {
-  background: rgb(203 213 225); /* slate-300 */
-}
-.availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-all-booked .rbc-date-cell {
-  color: rgb(100 116 139);
-}
-/* Day where the viewer has a confirmed booking. Green = "you're in / confirmed".
- * Wins over has-open-slots in the dayPropGetter priority — personal context
- * trumps "still has openings" in the cell color (open slots still surface in
- * the day-detail list). */
-.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-i-booked {
-  background: rgb(187 247 208); /* success-200 */
-}
-.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-i-booked.rbc-today {
-  background: rgb(134 239 172); /* emerald-300 */
-}
-.availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-i-booked .rbc-date-cell {
-  font-weight: 700;
-  color: rgb(15 23 42);
-}
-/* Day where the viewer has a pending request awaiting coach confirmation.
- * Amber = "needs action / awaiting" — same semantic as the slot-list pending
- * pill (warning-100 / warning-700). Sits between i-booked (green) and
- * has-open-slots (blue) in priority so the athlete's own pending day stands
- * out instead of falling into the grey "all booked" tint. */
-.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-i-requested {
-  background: rgb(254 243 199); /* warning-100 */
-}
-.availability-calendar.booking-calendar .rbc-day-bg.rbc-day-i-requested.rbc-today {
-  background: rgb(253 230 138); /* warning-200 */
-}
-.availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-i-requested .rbc-date-cell {
-  font-weight: 600;
-  color: rgb(15 23 42);
+@media (max-width: 639px) {
+  /* Day has at least one open/bookable slot. Blue = "available". */
+  .availability-calendar.booking-calendar .rbc-day-bg.rbc-day-has-open-slots {
+    background: rgb(219 234 254); /* info-100 */
+  }
+  .availability-calendar.booking-calendar .rbc-day-bg.rbc-day-has-open-slots.rbc-today {
+    background: rgb(191 219 254); /* info-200 */
+  }
+  .availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-has-open-slots .rbc-date-cell {
+    font-weight: 600;
+    color: rgb(15 23 42);
+  }
+  /* Day has slots but they're all taken (by other athletes, not the viewer). */
+  .availability-calendar.booking-calendar .rbc-day-bg.rbc-day-all-booked {
+    background: rgb(226 232 240); /* slate-200 */
+  }
+  .availability-calendar.booking-calendar .rbc-day-bg.rbc-day-all-booked.rbc-today {
+    background: rgb(203 213 225); /* slate-300 */
+  }
+  .availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-all-booked .rbc-date-cell {
+    color: rgb(100 116 139);
+  }
+  /* Day where the viewer has a confirmed booking. Green = "you're in / confirmed".
+   * Wins over has-open-slots in the dayPropGetter priority — personal context
+   * trumps "still has openings" in the cell color (open slots still surface in
+   * the day-detail list). */
+  .availability-calendar.booking-calendar .rbc-day-bg.rbc-day-i-booked {
+    background: rgb(187 247 208); /* success-200 */
+  }
+  .availability-calendar.booking-calendar .rbc-day-bg.rbc-day-i-booked.rbc-today {
+    background: rgb(134 239 172); /* emerald-300 */
+  }
+  .availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-i-booked .rbc-date-cell {
+    font-weight: 700;
+    color: rgb(15 23 42);
+  }
+  /* Day where the viewer has a pending request awaiting coach confirmation.
+   * Amber = "needs action / awaiting" — same semantic as the slot-list pending
+   * pill (warning-100 / warning-700). Sits between i-booked (green) and
+   * has-open-slots (blue) in priority so the athlete's own pending day stands
+   * out instead of falling into the grey "all booked" tint. */
+  .availability-calendar.booking-calendar .rbc-day-bg.rbc-day-i-requested {
+    background: rgb(254 243 199); /* warning-100 */
+  }
+  .availability-calendar.booking-calendar .rbc-day-bg.rbc-day-i-requested.rbc-today {
+    background: rgb(253 230 138); /* warning-200 */
+  }
+  .availability-calendar.booking-calendar .rbc-public-date-cell.rbc-day-i-requested .rbc-date-cell {
+    font-weight: 600;
+    color: rgb(15 23 42);
+  }
 }
 .availability-calendar .rbc-show-more {
   font-size: 0.6875rem;
@@ -477,6 +496,62 @@ body {
   .availability-calendar.booking-calendar .rbc-month-view .rbc-row-segment .rbc-event,
   .availability-calendar.booking-calendar .rbc-month-view .rbc-show-more {
     display: none;
+  }
+  /* Mobile: hide month-view event chips on the COACH availability calendar
+   * for the same reason. Pills clip against the ~40px row-content cap and
+   * leave inconsistent peeking stripes (e.g. the bottom edge of a green
+   * `.rbc-event-booked` pill showing as a stray bar under the date number).
+   * The custom `CoachDateCell` wrapper paints up to three status dots
+   * (open/booked/pending) below the date number, and tapping the day opens
+   * the full mobile day-detail view — so the chips are redundant noise. */
+  .availability-calendar:not(.booking-calendar) .rbc-month-view .rbc-row-segment .rbc-event,
+  .availability-calendar:not(.booking-calendar) .rbc-month-view .rbc-show-more {
+    display: none;
+  }
+  /* Mobile: coach calendar status-dot row.
+   * Rendered by `CoachDateCell` (a custom `dateCellWrapper`) only on
+   * `isMobile && calView === "month"`. The wrapper sits in rbc's
+   * `.rbc-row-bg` background layer (NOT the foreground `.rbc-row-content`
+   * that holds the date number + events), so we need to claim the flex
+   * sizing rbc normally hands directly to `.rbc-day-bg` — otherwise the
+   * wrapper collapses to 0 width and the bg + dots become a sliver in the
+   * corner. Same trick the public calendar uses for `.rbc-public-date-cell`.
+   * Dots sit pinned to the bottom-center, behind the date number which
+   * lives in the foreground row, so they never overlap the digit. */
+  .availability-calendar:not(.booking-calendar) .rbc-coach-date-cell {
+    position: relative;
+    flex: 1 0 0%;
+    min-width: 0;
+    min-height: 100%;
+  }
+  .availability-calendar:not(.booking-calendar) .rbc-coach-date-cell > .rbc-day-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .availability-calendar:not(.booking-calendar) .rbc-coach-day-dots {
+    position: absolute;
+    left: 4px;
+    bottom: 4px;
+    display: flex;
+    justify-content: flex-start;
+    gap: 3px;
+    pointer-events: none;
+  }
+  .availability-calendar:not(.booking-calendar) .rbc-coach-day-dots .dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 9999px;
+  }
+  .availability-calendar:not(.booking-calendar) .rbc-coach-day-dots .dot-open {
+    background: rgb(59 130 246); /* info-500 */
+  }
+  .availability-calendar:not(.booking-calendar) .rbc-coach-day-dots .dot-booked {
+    background: rgb(34 197 94); /* success-500 */
+  }
+  .availability-calendar:not(.booking-calendar) .rbc-coach-day-dots .dot-pending {
+    background: rgb(245 158 11); /* warning-500 */
   }
 }
 
