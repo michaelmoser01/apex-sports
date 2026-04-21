@@ -233,12 +233,12 @@ export function PublicBookingCalendar({
 
   const handleSelectEvent = (event: BookingEvent) => {
     // Open the day view in every case so the athlete sees the day's full
-    // context (other slots, their own bookings, etc.). For slots they've
-    // already booked we stop there — don't fire onSelectSlot, which would
-    // open the booking sheet for a slot they already own. For openable
-    // slots on desktop we still go straight to the booking sheet.
+    // context (other slots, their own bookings, etc.). On desktop we also
+    // jump straight to the booking sheet via onSelectSlot — even for slots
+    // the athlete already owns; the destination route (CoachBook) renders
+    // the right read-only state for confirmed/pending bookings, so the
+    // athlete can view their own session, see status, and act on it.
     setSelectedDay(event.start);
-    if (bookedSlotIds?.has(event.id)) return;
     if (!isMobile) {
       onSelectSlot(event.id);
     }
@@ -250,7 +250,9 @@ export function PublicBookingCalendar({
   };
 
   const handleSlotClickFromList = (slotId: string) => {
-    if (bookedSlotIds?.has(slotId)) return;
+    // Always navigate. CoachBook handles open/booked/pending states itself
+    // (renders the booking form, the "you're booked" panel, or the
+    // "you've requested this session" panel as appropriate).
     onSelectSlot(slotId);
   };
 
@@ -384,18 +386,21 @@ export function PublicBookingCalendar({
                       const isBooked = bookedSlotIds?.has(ev.id);
                       const isMine = isBooked || isRequested;
                       const isFull = (ev.maxCapacity > 1 && ev.spotsRemaining <= 0) || ev.isLocked;
-                      const isUnavailable = isMine || isFull;
+                      // Booked + pending slots stay clickable now (CoachBook
+                      // route renders a read-only details panel for them).
+                      // Only truly-blocked slots (full / locked private)
+                      // disable the button and get the not-allowed cursor.
                       return (
                         <li key={ev.id}>
                           <button
                             type="button"
-                            disabled={isUnavailable}
+                            disabled={isFull}
                             onClick={() => handleSlotClickFromList(ev.id)}
                             className={`w-full text-left flex items-center gap-3 rounded-lg border px-4 py-3 transition ${
                               isBooked
-                                ? "border-success-200 bg-success-50/80 text-slate-700 cursor-not-allowed"
+                                ? "border-success-200 bg-success-50/80 text-slate-700 hover:bg-success-100/80"
                                 : isRequested
-                                  ? "border-amber-200 bg-amber-50/80 text-slate-700 cursor-not-allowed"
+                                  ? "border-amber-200 bg-amber-50/80 text-slate-700 hover:bg-amber-100/80"
                                   : isFull
                                     ? "border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed"
                                     : isSelected
@@ -413,14 +418,14 @@ export function PublicBookingCalendar({
                               <span className="block text-xs text-slate-500 truncate">
                                 📍 {ev.locationName ?? "Location TBD — coach will coordinate"}
                               </span>
-                              {ev.maxCapacity > 1 && !isUnavailable && !ev.isLocked && (
+                              {ev.maxCapacity > 1 && !isMine && !isFull && !ev.isLocked && (
                                 <span className="block text-xs text-brand-600 font-medium">
                                   {ev.currentHeadcount > 0
                                     ? `${ev.currentHeadcount} joined${ev.currentPerPersonRate ? ` · $${ev.currentPerPersonRate}/hr each` : ""}`
                                     : `Open session${ev.currentPerPersonRate ? ` · $${ev.currentPerPersonRate}/hr` : ""}`}
                                 </span>
                               )}
-                              {ev.isLocked && !isUnavailable && (
+                              {ev.isLocked && !isMine && !isFull && (
                                 <span className="block text-xs text-slate-500 font-medium">Private session</span>
                               )}
                             </div>
@@ -505,18 +510,21 @@ export function PublicBookingCalendar({
                     const isBooked = bookedSlotIds?.has(ev.id);
                     const isMine = isBooked || isRequested;
                     const isFull = (ev.maxCapacity > 1 && ev.spotsRemaining <= 0) || ev.isLocked;
-                    const isUnavailable = isMine || isFull;
+                    // Booked + pending slots stay clickable now (CoachBook
+                    // route renders a read-only details panel for them).
+                    // Only truly-blocked slots (full / locked private)
+                    // disable the button and get the not-allowed cursor.
                     return (
                       <li key={ev.id}>
                         <button
                           type="button"
-                          disabled={isUnavailable}
+                          disabled={isFull}
                           onClick={() => handleSlotClickFromList(ev.id)}
                           className={`w-full text-left flex items-center gap-3 rounded-lg border px-4 py-3 min-h-[48px] touch-manipulation ${
                             isBooked
-                              ? "border-success-200 bg-success-50/80 text-slate-700 cursor-not-allowed"
+                              ? "border-success-200 bg-success-50/80 text-slate-700 active:bg-success-100/80"
                               : isRequested
-                                ? "border-amber-200 bg-amber-50/80 text-slate-700 cursor-not-allowed"
+                                ? "border-amber-200 bg-amber-50/80 text-slate-700 active:bg-amber-100/80"
                                 : isFull
                                   ? "border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed"
                                   : isSelected
@@ -530,14 +538,14 @@ export function PublicBookingCalendar({
                             <span className="block text-xs text-slate-500 truncate">
                               📍 {ev.locationName ?? "Location TBD — coach will coordinate"}
                             </span>
-                            {ev.maxCapacity > 1 && !isUnavailable && !ev.isLocked && (
+                            {ev.maxCapacity > 1 && !isMine && !isFull && !ev.isLocked && (
                               <span className="block text-xs text-brand-600 font-medium">
                                 {ev.currentHeadcount > 0
                                   ? `${ev.currentHeadcount} joined${ev.currentPerPersonRate ? ` · $${ev.currentPerPersonRate}/hr` : ""}`
                                   : `Open session${ev.currentPerPersonRate ? ` · $${ev.currentPerPersonRate}/hr` : ""}`}
                               </span>
                             )}
-                            {ev.isLocked && !isUnavailable && (
+                            {ev.isLocked && !isMine && !isFull && (
                               <span className="block text-xs text-slate-500 font-medium">Private session</span>
                             )}
                           </div>
