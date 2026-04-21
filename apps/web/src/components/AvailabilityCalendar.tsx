@@ -387,14 +387,16 @@ export function AvailabilityCalendar({
   const [addMode, setAddMode] = useState<"single" | "quickfill">("single");
   const [inlineTime, setInlineTime] = useState({ hour: 9, minute: 0 });
   const [inlineDuration, setInlineDuration] = useState(60);
+  // Default to the coach's first saved location if any, otherwise TBD ("").
+  // We intentionally do NOT auto-snap empty -> first location after locations
+  // load: TBD is a legitimate user choice now, and the previous auto-correct
+  // made it impossible to pick TBD once any location existed (and also
+  // overrode TBD the moment a brand-new location was added).
   const [inlineLocationId, setInlineLocationId] = useState<string | "">(locations[0]?.id ?? "");
   const [addLocationOpen, setAddLocationOpen] = useState(false);
   const [inlineRecurring, setInlineRecurring] = useState(false);
   const [qfFromHour, setQfFromHour] = useState(9);
   const [qfToHour, setQfToHour] = useState(17);
-  useEffect(() => {
-    if (locations.length > 0 && !inlineLocationId) setInlineLocationId(locations[0].id);
-  }, [locations, inlineLocationId]);
   const [inlineEndDate, setInlineEndDate] = useState(() => {
     const d = new Date();
     d.setMonth(d.getMonth() + 2);

@@ -22,6 +22,9 @@ import { TBD_LOCATION_HELPER, TBD_LOCATION_OPTION_LABEL } from "@/lib/location";
 interface Participant {
   id: string;
   athleteProfileId: string;
+  /** Athlete's User id; only set when viewer is the coach (used to start a
+   * direct message thread). Undefined for athlete viewers. */
+  userId?: string;
   name: string | null;
   email?: string;
   status: string;
@@ -181,6 +184,18 @@ export default function SessionDetail() {
   const messageParticipantsMutation = useMutation({
     mutationFn: () =>
       api<{ conversationId: string }>(`/messages/conversations/session/${slotId}`, { method: "POST" }),
+    onSuccess: (data) => {
+      navigate(`/messages/${data.conversationId}`);
+    },
+    onError: (err: Error) => setUpdateError(err.message ?? "Failed to start conversation"),
+  });
+
+  // Start (or resume) a 1:1 thread with a single participant — used by the
+  // small message icon on each participant row. Distinct from the broadcast
+  // session conversation above so coaches can DM one athlete privately.
+  const directMessageMutation = useMutation({
+    mutationFn: (targetUserId: string) =>
+      api<{ conversationId: string }>(`/messages/conversations/direct/${targetUserId}`, { method: "POST" }),
     onSuccess: (data) => {
       navigate(`/messages/${data.conversationId}`);
     },
@@ -562,6 +577,9 @@ export default function SessionDetail() {
               const showConfirmedActions = p.status === "confirmed" && session.sessionStatus === "confirmed";
               const hasActions = showPendingActions || showConfirmedActions || needsPayment || isPaid;
 
+              const showCoachActions = hasActions && !isPaid && session.viewerRole === "coach";
+              const showMessageIcon = session.viewerRole === "coach" && !isCancelled && !!p.userId;
+
               return (
                 <div
                   key={p.id}
@@ -569,106 +587,132 @@ export default function SessionDetail() {
                     isCancelled ? "border-slate-200 bg-slate-50 opacity-60" : "border-slate-200 bg-white"
                   }`}
                 >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <Avatar displayName={p.name ?? "?"} src={null} size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm text-slate-900 truncate">{p.name ?? p.email ?? "Athlete"}</p>
-                      <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
-                        <span className={
-                          p.status === "confirmed" ? "text-success-600 font-medium"
-                          : p.status === "completed" ? "text-slate-600 font-medium"
-                          : p.status === "cancelled" ? "text-danger-600 font-medium"
-                          : "text-amber-600 font-medium"
-                        }>{p.status}</span>
-                        {(() => {
-                          // Only surface payment subtext when it adds value:
-                          // - hide entirely for pending/cancelled bookings (payment isn't relevant yet)
-                          // - hide values shown elsewhere (succeeded/paid_offline are in the "Paid" pill)
-                          // - hide pending/deferred (they're the default "pay after" posture)
-                          if (p.status === "pending" || p.status === "cancelled") return null;
-                          const label =
-                            p.paymentStatus === "payment_link_sent" ? "link sent"
-                            : p.paymentStatus === "authorized" ? "card on file"
-                            : p.paymentStatus === "failed" ? "payment issue"
-                            : p.paymentStatus === "requires_action" ? "payment issue"
-                            : null;
-                          return label ? <span>&middot; {label}</span> : null;
-                        })()}
+                  {/* Layout note: stacks vertically on mobile (action buttons
+                   * become a full-width row below the name with a divider for
+                   * touch clarity), but on sm+ the actions sit inline-right of
+                   * the avatar/name block in a single tight row. */}
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3 min-w-0">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <Avatar displayName={p.name ?? "?"} src={null} size="sm" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm text-slate-900 truncate">{p.name ?? p.email ?? "Athlete"}</p>
+                        <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+                          <span className={
+                            p.status === "confirmed" ? "text-success-600 font-medium"
+                            : p.status === "completed" ? "text-slate-600 font-medium"
+                            : p.status === "cancelled" ? "text-danger-600 font-medium"
+                            : "text-amber-600 font-medium"
+                          }>{p.status}</span>
+                          {(() => {
+                            // Only surface payment subtext when it adds value:
+                            // - hide entirely for pending/cancelled bookings (payment isn't relevant yet)
+                            // - hide values shown elsewhere (succeeded/paid_offline are in the "Paid" pill)
+                            // - hide pending/deferred (they're the default "pay after" posture)
+                            if (p.status === "pending" || p.status === "cancelled") return null;
+                            const label =
+                              p.paymentStatus === "payment_link_sent" ? "link sent"
+                              : p.paymentStatus === "authorized" ? "card on file"
+                              : p.paymentStatus === "failed" ? "payment issue"
+                              : p.paymentStatus === "requires_action" ? "payment issue"
+                              : null;
+                            return label ? <span>&middot; {label}</span> : null;
+                          })()}
+                        </div>
                       </div>
+                      {isPaid && (
+                        <span className="px-2 py-0.5 text-xs font-medium bg-success-100 text-success-700 rounded-full shrink-0">
+                          {p.paymentStatus === "paid_offline" ? "Paid (offline)" : "Paid"}
+                        </span>
+                      )}
                     </div>
-                    {isPaid && (
-                      <span className="px-2 py-0.5 text-xs font-medium bg-success-100 text-success-700 rounded-full shrink-0">
-                        {p.paymentStatus === "paid_offline" ? "Paid (offline)" : "Paid"}
-                      </span>
+
+                    {/* Per-participant action cluster (right side on desktop,
+                     * full-width row below on mobile with a divider for touch
+                     * clarity). */}
+                    {showCoachActions && (
+                      <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-100 sm:mt-0 sm:pt-0 sm:border-0 sm:shrink-0 sm:justify-end">
+                        {showPendingActions && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => confirmMutation.mutate({ bookingId: p.id, status: "confirmed" })}
+                              disabled={confirmMutation.isPending}
+                              className="flex-1 sm:flex-none px-3 py-1.5 text-xs font-semibold bg-success-100 text-success-700 rounded-lg hover:bg-success-200 disabled:opacity-50"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => confirmMutation.mutate({ bookingId: p.id, status: "cancelled" })}
+                              disabled={confirmMutation.isPending}
+                              className="flex-1 sm:flex-none px-3 py-1.5 text-xs font-medium text-danger-600 hover:text-danger-700 hover:bg-danger-50 rounded-lg"
+                            >
+                              Decline
+                            </button>
+                          </>
+                        )}
+                        {showConfirmedActions && (
+                          <>
+                            <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer mr-auto sm:mr-0">
+                              <input
+                                type="checkbox"
+                                checked={attendanceOverrides[p.id] ?? p.attended}
+                                onChange={(e) => setAttendanceOverrides((prev) => ({ ...prev, [p.id]: e.target.checked }))}
+                                className="rounded border-slate-300"
+                              />
+                              Attended
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => confirmMutation.mutate({ bookingId: p.id, status: "cancelled" })}
+                              disabled={confirmMutation.isPending}
+                              className="px-3 py-1.5 text-xs font-medium text-danger-600 bg-danger-50 rounded-lg hover:bg-danger-100 disabled:opacity-50"
+                            >
+                              Remove
+                            </button>
+                          </>
+                        )}
+                        {needsPayment && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => markPaidMutation.mutate(p.id)}
+                              disabled={markPaidMutation.isPending}
+                              className="flex-1 sm:flex-none px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+                            >
+                              Mark paid
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => paymentRequestMutation.mutate(p.id)}
+                              disabled={paymentRequestMutation.isPending}
+                              className="flex-1 sm:flex-none px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100 disabled:opacity-50"
+                            >
+                              Send link
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 1:1 message icon — pinned to the far right edge of the
+                     * row so it's the last thing in the line on desktop, past
+                     * any action buttons. On mobile it stays right-aligned on
+                     * its own short row below the name. Coach-only and only
+                     * for non-cancelled bookings. */}
+                    {showMessageIcon && (
+                      <button
+                        type="button"
+                        onClick={() => directMessageMutation.mutate(p.userId!)}
+                        disabled={directMessageMutation.isPending}
+                        aria-label={`Message ${p.name ?? "athlete"}`}
+                        title={`Message ${p.name ?? "athlete"}`}
+                        className="self-end sm:self-auto sm:ml-1 shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:text-brand-600 hover:bg-slate-100 disabled:opacity-50"
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                      </button>
                     )}
                   </div>
-
-                  {/* Action row — stacks below on mobile, no jamming */}
-                  {hasActions && !isPaid && session.viewerRole === "coach" && (
-                    <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2">
-                      {showPendingActions && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => confirmMutation.mutate({ bookingId: p.id, status: "confirmed" })}
-                            disabled={confirmMutation.isPending}
-                            className="flex-1 sm:flex-none px-3 py-1.5 text-xs font-semibold bg-success-100 text-success-700 rounded-lg hover:bg-success-200 disabled:opacity-50"
-                          >
-                            Confirm
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => confirmMutation.mutate({ bookingId: p.id, status: "cancelled" })}
-                            disabled={confirmMutation.isPending}
-                            className="flex-1 sm:flex-none px-3 py-1.5 text-xs font-medium text-danger-600 hover:text-danger-700 hover:bg-danger-50 rounded-lg"
-                          >
-                            Decline
-                          </button>
-                        </>
-                      )}
-                      {showConfirmedActions && (
-                        <>
-                          <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer mr-auto">
-                            <input
-                              type="checkbox"
-                              checked={attendanceOverrides[p.id] ?? p.attended}
-                              onChange={(e) => setAttendanceOverrides((prev) => ({ ...prev, [p.id]: e.target.checked }))}
-                              className="rounded border-slate-300"
-                            />
-                            Attended
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => confirmMutation.mutate({ bookingId: p.id, status: "cancelled" })}
-                            disabled={confirmMutation.isPending}
-                            className="px-3 py-1.5 text-xs font-medium text-danger-600 bg-danger-50 rounded-lg hover:bg-danger-100 disabled:opacity-50"
-                          >
-                            Remove
-                          </button>
-                        </>
-                      )}
-                      {needsPayment && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => markPaidMutation.mutate(p.id)}
-                            disabled={markPaidMutation.isPending}
-                            className="flex-1 sm:flex-none px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
-                          >
-                            Mark paid
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => paymentRequestMutation.mutate(p.id)}
-                            disabled={paymentRequestMutation.isPending}
-                            className="flex-1 sm:flex-none px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100 disabled:opacity-50"
-                          >
-                            Send link
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
                 </div>
               );
             })}

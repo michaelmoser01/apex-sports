@@ -65,7 +65,7 @@ router.get("/:slotId", auth, async (req, res) => {
       location: true,
       bookings: {
         include: {
-          athleteProfile: { include: { user: { select: { name: true, email: true } } } },
+          athleteProfile: { include: { user: { select: { id: true, name: true, email: true } } } },
           review: true,
         },
         orderBy: { createdAt: "asc" },
@@ -127,6 +127,9 @@ router.get("/:slotId", auth, async (req, res) => {
     participants: slot.bookings.map((b) => ({
       id: b.id,
       athleteProfileId: b.athleteProfileId,
+      // userId only exposed to the coach so they can start a 1:1 thread from
+      // the participant row. Other athletes never see each other's user ids.
+      userId: isCoach ? b.athleteProfile.user.id : undefined,
       name: b.athleteProfile.user.name,
       email: isCoach ? b.athleteProfile.user.email : undefined,
       status: b.status,
