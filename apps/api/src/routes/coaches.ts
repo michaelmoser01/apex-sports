@@ -1640,16 +1640,28 @@ router.get("/me/availability", authMiddleware(), async (req, res) => {
     }),
   ]);
 
+  // Two parallel sets so the calendar can color slots semantically:
+  //   bookedSlotIds  -> at least one confirmed/completed booking (green chip)
+  //   pendingSlotIds -> ONLY pending bookings, none confirmed yet (amber chip,
+  //                     "needs your action")
+  // A slot with both confirmed + pending counts as booked (green) so the coach
+  // doesn't lose the "this is on" signal; the pending request still surfaces
+  // in their bookings list / session detail page.
   const bookedSlotIds: string[] = [];
+  const pendingSlotIds: string[] = [];
   const isBooked = (bookings: { status: string }[]) =>
     bookings.some((b) => b.status === "confirmed" || b.status === "completed");
+  const isPendingOnly = (bookings: { status: string }[]) =>
+    bookings.length > 0 && bookings.every((b) => b.status === "pending");
   for (const r of rules) {
     for (const s of r.slots) {
       if (isBooked(s.bookings)) bookedSlotIds.push(s.id);
+      else if (isPendingOnly(s.bookings)) pendingSlotIds.push(s.id);
     }
   }
   for (const s of oneOffSlots) {
     if (isBooked(s.bookings)) bookedSlotIds.push(s.id);
+    else if (isPendingOnly(s.bookings)) pendingSlotIds.push(s.id);
   }
 
   res.json({
@@ -1680,6 +1692,7 @@ router.get("/me/availability", authMiddleware(), async (req, res) => {
       allowPrivate: s.allowPrivate,
     })),
     bookedSlotIds,
+    pendingSlotIds,
   });
 });
 

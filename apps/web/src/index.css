@@ -180,6 +180,14 @@ body {
   color: rgb(22 101 52); /* success-800 */
   border-left: 3px solid rgb(34 197 94); /* success-500 */
 }
+/* Coach availability calendar: slot with pending booking request(s) only.
+ * Amber = "needs your action" — coach hasn't confirmed yet. Flips to green
+ * (.rbc-event-booked) once they confirm. */
+.availability-calendar:not(.booking-calendar) .rbc-event-pending {
+  background: rgb(254 243 199); /* warning-100 */
+  color: rgb(146 64 14); /* warning-700 deepened */
+  border-left: 3px solid rgb(245 158 11); /* warning-500 */
+}
 
 /* Neutralize react-big-calendar's default selected-event treatment.
  *
@@ -209,6 +217,11 @@ body {
 .availability-calendar:not(.booking-calendar) .rbc-event-booked:focus {
   background: rgb(220 252 231); /* success-100 */
   color: rgb(22 101 52); /* success-800 */
+}
+.availability-calendar:not(.booking-calendar) .rbc-event-pending.rbc-selected,
+.availability-calendar:not(.booking-calendar) .rbc-event-pending:focus {
+  background: rgb(254 243 199); /* warning-100 */
+  color: rgb(146 64 14);
 }
 .availability-calendar.booking-calendar .rbc-event-booked.rbc-selected,
 .availability-calendar.booking-calendar .rbc-event-booked:focus {

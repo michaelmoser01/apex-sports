@@ -296,6 +296,9 @@ interface AvailabilityCalendarProps {
   addError?: string | null;
   /** Slot IDs with confirmed or completed bookings – show "Booked" indicator */
   bookedSlotIds?: Set<string> | ReadonlySet<string>;
+  /** Slot IDs with ONLY pending booking requests (no confirmed yet) –
+   * show amber "needs your action" indicator on the coach calendar. */
+  pendingSlotIds?: Set<string> | ReadonlySet<string>;
   /** Whether the coach has configured group pricing rates */
   hasGroupRates?: boolean;
 }
@@ -321,6 +324,7 @@ export function AvailabilityCalendar({
   isAddSubmitting = false,
   addError,
   bookedSlotIds,
+  pendingSlotIds,
   hasGroupRates = false,
 }: AvailabilityCalendarProps) {
   const isMobile = useIsMobile();
@@ -595,6 +599,7 @@ export function AvailabilityCalendar({
                     {dayEvents.map((ev) => {
                       const slotId = ev.resource?.slotId ?? ev.id;
                       const isBooked = bookedSlotIds?.has(slotId);
+                      const isPending = !isBooked && (pendingSlotIds?.has(slotId) ?? false);
                       return (
                         <li key={ev.id}>
                           <button
@@ -622,6 +627,11 @@ export function AvailabilityCalendar({
                               {isBooked && (
                                 <span className="px-2 py-0.5 text-xs font-medium rounded bg-success-100 text-success-800">
                                   Booked
+                                </span>
+                              )}
+                              {isPending && (
+                                <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-800">
+                                  Pending
                                 </span>
                               )}
                               {ev.resource?.type === "recurring" ? "Recurring" : "One-off"}
@@ -825,6 +835,7 @@ export function AvailabilityCalendar({
                   {dayEvents.map((ev) => {
                     const slotId = ev.resource?.slotId ?? ev.id;
                     const isBooked = bookedSlotIds?.has(slotId);
+                    const isPending = !isBooked && (pendingSlotIds?.has(slotId) ?? false);
                     return (
                       <li key={ev.id}>
                         <button
@@ -852,6 +863,11 @@ export function AvailabilityCalendar({
                             {isBooked && (
                               <span className="px-2 py-0.5 text-xs font-medium rounded bg-success-100 text-success-800">
                                 Booked
+                              </span>
+                            )}
+                            {isPending && (
+                              <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-800">
+                                Pending
                               </span>
                             )}
                             {ev.resource?.type === "recurring" ? "Recurring" : "One-off"}
@@ -1034,9 +1050,15 @@ export function AvailabilityCalendar({
             const isRecurring = event.resource?.type === "recurring";
             const slotId = event.resource?.slotId ?? event.id;
             const isBooked = bookedSlotIds?.has(slotId);
+            // Pending wins visually only when there's no confirmed booking
+            // (the API guarantees pendingSlotIds excludes anything in
+            // bookedSlotIds). The ?? false keeps the class off the element
+            // entirely when the prop isn't provided.
+            const isPending = !isBooked && (pendingSlotIds?.has(slotId) ?? false);
             const classes = [
               isRecurring ? "rbc-event-recurring" : "rbc-event-oneoff",
               isBooked ? "rbc-event-booked" : "",
+              isPending ? "rbc-event-pending" : "",
             ].filter(Boolean);
             return { className: classes.join(" ") };
           }}
