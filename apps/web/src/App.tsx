@@ -10,6 +10,7 @@ import Coaches from "./pages/Coaches";
 import ForCoaches from "./pages/ForCoaches";
 import StartCoaching from "./pages/StartCoaching";
 import AdminCoaches from "./pages/AdminCoaches";
+import AdminCoachDetail from "./pages/AdminCoachDetail";
 import CoachDetail from "./pages/CoachDetail";
 import CoachBook from "./pages/CoachBook";
 import CoachBookingSuccess from "./pages/CoachBookingSuccess";
@@ -62,6 +63,7 @@ function AppContent() {
         <Route path="coaches" element={<ForCoaches />} />
         <Route path="start-coaching" element={<StartCoaching />} />
         <Route path="admin/coaches" element={<AdminCoaches />} />
+        <Route path="admin/coaches/:id" element={<AdminCoachDetail />} />
         <Route path="pricing" element={<Navigate to="/coaches#pricing" replace />} />
         <Route path="find" element={<Coaches />} />
         <Route path="claim/:token" element={<Claim />} />

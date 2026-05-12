@@ -1,7 +1,32 @@
 import { useState, useEffect, useCallback } from "react";
-import { Check, X, ChevronDown, ChevronRight, Lock, Trash2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Check, X } from "lucide-react";
+import AdminAuthGate from "@/components/AdminAuthGate";
+import {
+  ADMIN_KEY_STORAGE,
+  getAdminBaseUrl,
+  getStoredAdminKey,
+  clearStoredAdminKey,
+} from "@/lib/adminApi";
 
-const STORAGE_KEY = "apex-admin-key";
+interface CoachKpis {
+  availabilityRules: number;
+  availabilitySlots: number;
+  lastAvailabilityAt: string | null;
+  bookingsPending: number;
+  bookingsConfirmed: number;
+  bookingsCompleted: number;
+  bookingsCancelled: number;
+  paymentsSucceededCents: number;
+  paymentsSucceededCount: number;
+  athletesActive: number;
+  athletesPending: number;
+  favorites: number;
+  reviews: number;
+  avgRating: number | null;
+  lastBookingAt: string | null;
+  lastActivityAt: string | null;
+}
 
 interface CoachRow {
   id: string;
@@ -16,19 +41,12 @@ interface CoachRow {
   isVerified: boolean;
   hasStripe: boolean;
   onboardingComplete: boolean;
-  bio: string | null;
-  hourlyRate: string | null;
-  phone: string | null;
-  credentials: {
-    certifications?: string[];
-    yearsExperience?: number | null;
-    playingExperience?: string;
-    education?: string;
-  } | null;
   avatarUrl: string | null;
   photoCount: number;
   reviewCount: number;
   bookingCount: number;
+  inviteSlug: string | null;
+  kpis: CoachKpis;
 }
 
 function StatusIcon({ ok }: { ok: boolean }) {
@@ -39,105 +57,27 @@ function StatusIcon({ ok }: { ok: boolean }) {
   );
 }
 
-function CoachDetailRow({ coach, onDelete }: { coach: CoachRow; onDelete: () => void }) {
-  const creds = coach.credentials;
-  const [deleting, setDeleting] = useState(false);
-
-  const handleDelete = async () => {
-    if (!window.confirm(`Delete ${coach.displayName} (${coach.email})? This cannot be undone.`)) return;
-    setDeleting(true);
-    onDelete();
-  };
-
-  return (
-    <tr>
-      <td colSpan={8} className="px-6 py-4 bg-slate-50 border-b border-slate-200">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
-          <div className="space-y-3">
-            {coach.avatarUrl && (
-              <img
-                src={coach.avatarUrl}
-                alt={coach.displayName}
-                className="w-16 h-16 rounded-full object-cover border border-slate-200"
-              />
-            )}
-            <Detail label="Bio" value={coach.bio} />
-            <Detail label="Hourly rate" value={coach.hourlyRate ? `$${coach.hourlyRate}/hr` : null} />
-            <Detail label="Phone" value={coach.phone} />
-            <Detail label="Cities" value={coach.serviceCities.join(", ") || null} />
-          </div>
-          <div className="space-y-3">
-            <Detail
-              label="Certifications"
-              value={creds?.certifications?.length ? creds.certifications.join(", ") : null}
-            />
-            <Detail
-              label="Years experience"
-              value={creds?.yearsExperience != null ? String(creds.yearsExperience) : null}
-            />
-            <Detail label="Playing experience" value={creds?.playingExperience || null} />
-            <Detail label="Education" value={creds?.education || null} />
-            <div className="flex gap-6 pt-1">
-              <Stat label="Photos" value={coach.photoCount} />
-              <Stat label="Reviews" value={coach.reviewCount} />
-              <Stat label="Bookings" value={coach.bookingCount} />
-            </div>
-          </div>
-        </div>
-        <div className="mt-4 pt-4 border-t border-slate-200">
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={deleting}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 disabled:opacity-50 transition"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            {deleting ? "Deleting..." : "Delete coach"}
-          </button>
-        </div>
-      </td>
-    </tr>
-  );
+function formatCents(cents: number): string {
+  return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
-function Detail({ label, value }: { label: string; value: string | null }) {
+function PlatformTile({ label, value, sublabel }: { label: string; value: string | number; sublabel?: string }) {
   return (
-    <div>
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3">
       <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">{label}</p>
-      {value ? (
-        <p className="text-sm text-slate-700 mt-0.5 whitespace-pre-wrap">{value}</p>
-      ) : (
-        <p className="text-sm text-slate-300 italic mt-0.5">Not set</p>
-      )}
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="text-center">
-      <p className="text-lg font-bold text-slate-900">{value}</p>
-      <p className="text-xs text-slate-400">{label}</p>
+      <p className="text-2xl font-bold text-slate-900 mt-1">{value}</p>
+      {sublabel && <p className="text-xs text-slate-400 mt-0.5">{sublabel}</p>}
     </div>
   );
 }
 
 export default function AdminCoaches() {
-  const [adminKey, setAdminKey] = useState<string | null>(() => {
-    try { return sessionStorage.getItem(STORAGE_KEY); } catch { return null; }
-  });
-  const [keyInput, setKeyInput] = useState("");
+  const [adminKey, setAdminKey] = useState<string | null>(() => getStoredAdminKey());
   const [coaches, setCoaches] = useState<CoachRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const baseUrl = (() => {
-    const url = import.meta.env.VITE_API_URL;
-    if (url) return url;
-    if (import.meta.env.DEV) return "/api";
-    return "";
-  })();
+  const baseUrl = getAdminBaseUrl();
 
   const fetchCoaches = useCallback(async (key: string) => {
     setLoading(true);
@@ -147,7 +87,7 @@ export default function AdminCoaches() {
         headers: { "X-Admin-Key": key },
       });
       if (res.status === 401) {
-        sessionStorage.removeItem(STORAGE_KEY);
+        clearStoredAdminKey();
         setAdminKey(null);
         setError("Invalid admin key.");
         return;
@@ -166,165 +106,142 @@ export default function AdminCoaches() {
     if (adminKey) fetchCoaches(adminKey);
   }, [adminKey, fetchCoaches]);
 
-  const deleteCoach = useCallback(async (id: string) => {
-    if (!adminKey) return;
-    try {
-      const res = await fetch(`${baseUrl}/admin/coaches/${id}`, {
-        method: "DELETE",
-        headers: { "X-Admin-Key": adminKey },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setCoaches((prev) => prev.filter((c) => c.id !== id));
-      setExpandedId(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete coach");
-    }
-  }, [adminKey, baseUrl]);
-
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    const key = keyInput.trim();
-    if (!key) return;
-    sessionStorage.setItem(STORAGE_KEY, key);
-    setAdminKey(key);
-  };
-
-  if (!adminKey) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <form onSubmit={handleLogin} className="bg-white rounded-xl shadow-lg p-8 w-full max-w-sm">
-          <div className="flex items-center gap-2 mb-6">
-            <Lock className="w-5 h-5 text-slate-400" />
-            <h1 className="text-lg font-bold text-slate-900">Admin Access</h1>
-          </div>
-          {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
-          <input
-            type="password"
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
-            placeholder="Admin key"
-            className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-            autoFocus
-          />
-          <button
-            type="submit"
-            className="mt-4 w-full bg-slate-900 text-white font-medium py-2.5 rounded-lg hover:bg-slate-800 transition text-sm"
-          >
-            Sign in
-          </button>
-        </form>
-      </div>
-    );
-  }
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === ADMIN_KEY_STORAGE) setAdminKey(getStoredAdminKey());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   const completed = coaches.filter((c) => c.onboardingComplete).length;
   const incomplete = coaches.length - completed;
+  const totalBookings = coaches.reduce((sum, c) => sum + c.bookingCount, 0);
+  const totalPaymentsCents = coaches.reduce((sum, c) => sum + c.kpis.paymentsSucceededCents, 0);
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">Coaches</h1>
-            <p className="text-sm text-slate-500 mt-1">
-              {coaches.length} total &middot;{" "}
-              <span className="text-emerald-600">{completed} complete</span> &middot;{" "}
-              <span className="text-amber-600">{incomplete} incomplete</span>
-            </p>
+    <AdminAuthGate adminKey={adminKey} onAuthenticated={setAdminKey} error={error}>
+      <div className="min-h-screen bg-slate-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">Coaches</h1>
+              <p className="text-sm text-slate-500 mt-1">
+                {coaches.length} total &middot;{" "}
+                <span className="text-emerald-600">{completed} complete</span> &middot;{" "}
+                <span className="text-amber-600">{incomplete} incomplete</span>
+              </p>
+            </div>
+            <button
+              onClick={() => { if (adminKey) fetchCoaches(adminKey); }}
+              className="px-3 py-1.5 text-sm font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition"
+            >
+              Refresh
+            </button>
           </div>
-          <button
-            onClick={() => { if (adminKey) fetchCoaches(adminKey); }}
-            className="px-3 py-1.5 text-sm font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition"
-          >
-            Refresh
-          </button>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            <PlatformTile label="Total coaches" value={coaches.length} />
+            <PlatformTile label="Onboarded" value={completed} sublabel={`${incomplete} incomplete`} />
+            <PlatformTile label="Total bookings" value={totalBookings} />
+            <PlatformTile label="Payments" value={formatCents(totalPaymentsCents)} sublabel="lifetime, succeeded" />
+          </div>
+
+          {loading && <p className="text-slate-500 text-sm">Loading...</p>}
+          {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+
+          {!loading && coaches.length > 0 && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/50">
+                    <th className="text-left px-6 py-3 font-semibold text-slate-600 whitespace-nowrap">Coach</th>
+                    <th className="text-left px-4 py-3 font-semibold text-slate-600 whitespace-nowrap">Sports</th>
+                    <th className="text-left px-4 py-3 font-semibold text-slate-600 whitespace-nowrap">Signed up</th>
+                    <th className="text-left px-4 py-3 font-semibold text-slate-600 whitespace-nowrap">KPIs</th>
+                    <th className="text-center px-3 py-3 font-semibold text-slate-600 whitespace-nowrap">Profile</th>
+                    <th className="text-center px-3 py-3 font-semibold text-slate-600 whitespace-nowrap">Pricing</th>
+                    <th className="text-center px-3 py-3 font-semibold text-slate-600 whitespace-nowrap">Bio</th>
+                    <th className="text-center px-3 py-3 font-semibold text-slate-600 whitespace-nowrap">Stripe</th>
+                    <th className="text-center px-3 py-3 font-semibold text-slate-600 whitespace-nowrap">Visible</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {coaches.map((coach) => (
+                    <CoachTableRow key={coach.id} coach={coach} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!loading && coaches.length === 0 && !error && (
+            <p className="text-slate-400 text-sm">No coaches found.</p>
+          )}
         </div>
-
-        {loading && <p className="text-slate-500 text-sm">Loading...</p>}
-        {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
-
-        {!loading && coaches.length > 0 && (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/50">
-                  <th className="text-left px-6 py-3 font-semibold text-slate-600 whitespace-nowrap">Coach</th>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-600 whitespace-nowrap">Sports</th>
-                  <th className="text-left px-4 py-3 font-semibold text-slate-600 whitespace-nowrap">Signed up</th>
-                  <th className="text-center px-3 py-3 font-semibold text-slate-600 whitespace-nowrap">Profile</th>
-                  <th className="text-center px-3 py-3 font-semibold text-slate-600 whitespace-nowrap">Pricing</th>
-                  <th className="text-center px-3 py-3 font-semibold text-slate-600 whitespace-nowrap">Bio</th>
-                  <th className="text-center px-3 py-3 font-semibold text-slate-600 whitespace-nowrap">Stripe</th>
-                  <th className="text-center px-3 py-3 font-semibold text-slate-600 whitespace-nowrap">Visible</th>
-                </tr>
-              </thead>
-              <tbody>
-                {coaches.map((coach) => {
-                  const isExpanded = expandedId === coach.id;
-                  return (
-                    <CoachTableRow
-                      key={coach.id}
-                      coach={coach}
-                      isExpanded={isExpanded}
-                      onToggle={() => setExpandedId(isExpanded ? null : coach.id)}
-                      onDelete={() => deleteCoach(coach.id)}
-                    />
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {!loading && coaches.length === 0 && !error && (
-          <p className="text-slate-400 text-sm">No coaches found.</p>
-        )}
       </div>
+    </AdminAuthGate>
+  );
+}
+
+function KpiBadges({ kpis }: { kpis: CoachKpis }) {
+  const items = [
+    { label: "A", value: kpis.availabilitySlots, title: `${kpis.availabilitySlots} availability slots (${kpis.availabilityRules} rules)` },
+    { label: "B", value: kpis.bookingsPending + kpis.bookingsConfirmed + kpis.bookingsCompleted, title: `${kpis.bookingsPending} pending · ${kpis.bookingsConfirmed} confirmed · ${kpis.bookingsCompleted} completed` },
+    { label: "C", value: kpis.bookingsCompleted, title: `${kpis.bookingsCompleted} completed sessions` },
+    { label: "$", value: formatCents(kpis.paymentsSucceededCents), title: `${kpis.paymentsSucceededCount} payments succeeded` },
+    { label: "AT", value: kpis.athletesActive, title: `${kpis.athletesActive} active athletes · ${kpis.athletesPending} pending` },
+  ];
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      {items.map((it, i) => (
+        <span
+          key={i}
+          title={it.title}
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded font-mono"
+        >
+          <span className="text-slate-400">{it.label}</span>
+          <span className="font-semibold">{it.value}</span>
+        </span>
+      ))}
     </div>
   );
 }
 
-function CoachTableRow({
-  coach,
-  isExpanded,
-  onToggle,
-  onDelete,
-}: {
-  coach: CoachRow;
-  isExpanded: boolean;
-  onToggle: () => void;
-  onDelete: () => void;
-}) {
+function CoachTableRow({ coach }: { coach: CoachRow }) {
+  const navigate = useNavigate();
   const date = new Date(coach.createdAt);
   const formatted = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  const Chevron = isExpanded ? ChevronDown : ChevronRight;
+
+  const goToDetail = () => navigate(`/admin/coaches/${coach.id}`);
 
   return (
-    <>
-      <tr
-        onClick={onToggle}
-        className="border-b border-slate-100 hover:bg-slate-50/50 cursor-pointer transition-colors"
-      >
-        <td className="px-6 py-3">
-          <div className="flex items-center gap-2">
-            <Chevron className="w-4 h-4 text-slate-400 flex-shrink-0" />
-            <div className="min-w-0">
-              <p className="font-medium text-slate-900 truncate">{coach.displayName}</p>
-              <p className="text-xs text-slate-400 truncate">{coach.email}</p>
-            </div>
-          </div>
-        </td>
-        <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-          {coach.sports.length ? coach.sports.join(", ") : <span className="text-slate-300">—</span>}
-        </td>
-        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{formatted}</td>
-        <td className="px-3 py-3 text-center"><StatusIcon ok={coach.hasProfile} /></td>
-        <td className="px-3 py-3 text-center"><StatusIcon ok={coach.hasHourlyRate} /></td>
-        <td className="px-3 py-3 text-center"><StatusIcon ok={coach.hasBio} /></td>
-        <td className="px-3 py-3 text-center"><StatusIcon ok={coach.hasStripe} /></td>
-        <td className="px-3 py-3 text-center"><StatusIcon ok={coach.isVerified} /></td>
-      </tr>
-      {isExpanded && <CoachDetailRow coach={coach} onDelete={onDelete} />}
-    </>
+    <tr
+      onClick={goToDetail}
+      className="border-b border-slate-100 hover:bg-slate-50/50 cursor-pointer transition-colors"
+    >
+      <td className="px-6 py-3">
+        <div className="min-w-0">
+          <Link
+            to={`/admin/coaches/${coach.id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="font-medium text-slate-900 truncate hover:text-brand-700 hover:underline"
+          >
+            {coach.displayName}
+          </Link>
+          <p className="text-xs text-slate-400 truncate">{coach.email}</p>
+        </div>
+      </td>
+      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+        {coach.sports.length ? coach.sports.join(", ") : <span className="text-slate-300">—</span>}
+      </td>
+      <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{formatted}</td>
+      <td className="px-4 py-3 whitespace-nowrap"><KpiBadges kpis={coach.kpis} /></td>
+      <td className="px-3 py-3 text-center"><StatusIcon ok={coach.hasProfile} /></td>
+      <td className="px-3 py-3 text-center"><StatusIcon ok={coach.hasHourlyRate} /></td>
+      <td className="px-3 py-3 text-center"><StatusIcon ok={coach.hasBio} /></td>
+      <td className="px-3 py-3 text-center"><StatusIcon ok={coach.hasStripe} /></td>
+      <td className="px-3 py-3 text-center"><StatusIcon ok={coach.isVerified} /></td>
+    </tr>
   );
 }
