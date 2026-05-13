@@ -148,6 +148,7 @@ model AvailabilitySlot {
   sessionStatus String   @default("available") @map("session_status")
   inviteCode    String?  @unique @map("slot_invite_code")
   lockedPrivate Boolean  @default(false) @map("slot_locked_private")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   bookings      Booking[]
   conversation  Conversation?

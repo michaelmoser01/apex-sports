@@ -354,14 +354,17 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
       GROUP BY 1
       ORDER BY 1 ASC
     `,
+    // Count slot additions per day (covers both rule-generated and one-off slots).
+    // For rule-generated slots, all slots from one rule typically share a created_at,
+    // so the chart will spike on the day the coach created the rule. For one-off
+    // slots, each shows up on the day it was added.
     prisma.$queryRaw<Array<{ day: Date; rules: bigint; slots: bigint }>>`
-      SELECT date_trunc('day', LEAST(r.created_at, NOW())) AS day,
-             COUNT(DISTINCT r.id)::bigint AS rules,
+      SELECT date_trunc('day', LEAST(s.created_at, NOW())) AS day,
+             COUNT(DISTINCT s.rule_id)::bigint AS rules,
              COUNT(s.id)::bigint AS slots
-      FROM availability_rules r
-      LEFT JOIN availability_slots s ON s.rule_id = r.id
-      WHERE r.coach_id = ${coachId}
-        AND r.created_at >= ${ninetyDaysAgo}
+      FROM availability_slots s
+      WHERE s.coach_id = ${coachId}
+        AND s.created_at >= ${ninetyDaysAgo}
       GROUP BY 1
       ORDER BY 1 ASC
     `,
@@ -378,19 +381,15 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
     prisma.availabilityRule.count({
       where: { coachId, createdAt: { gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) } },
     }),
-    prisma.$queryRaw<Array<{ count: bigint }>>`
-      SELECT COUNT(s.id)::bigint AS count
-      FROM availability_slots s
-      JOIN availability_rules r ON s.rule_id = r.id
-      WHERE s.coach_id = ${coachId}
-        AND r.created_at >= ${new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)}
-    `,
+    prisma.availabilitySlot.count({
+      where: { coachId, createdAt: { gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) } },
+    }),
   ]);
 
   // #region agent log
   let _debug: Record<string, unknown> | null = null;
   try {
-    const [rulesDiag, slotsDiag, dbTimeDiag] = await Promise.all([
+    const [rulesDiag, slotsDiag, slotSampleDiag, dbTimeDiag] = await Promise.all([
       prisma.$queryRaw<Array<{ id: string; created_at: Date | null; first_start_time: Date | null; in_window: boolean; in_future: boolean; slot_count: bigint }>>`
         SELECT r.id::text AS id,
                r.created_at,
@@ -403,13 +402,21 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
         ORDER BY r.created_at DESC NULLS LAST
         LIMIT 20
       `,
-      prisma.$queryRaw<Array<{ total: bigint; with_rule: bigint; without_rule: bigint; future: bigint }>>`
+      prisma.$queryRaw<Array<{ total: bigint; with_rule: bigint; without_rule: bigint; future: bigint; in_window: bigint }>>`
         SELECT COUNT(*)::bigint AS total,
                COUNT(*) FILTER (WHERE rule_id IS NOT NULL)::bigint AS with_rule,
                COUNT(*) FILTER (WHERE rule_id IS NULL)::bigint AS without_rule,
-               COUNT(*) FILTER (WHERE start_time > NOW())::bigint AS future
+               COUNT(*) FILTER (WHERE start_time > NOW())::bigint AS future,
+               COUNT(*) FILTER (WHERE created_at >= ${ninetyDaysAgo})::bigint AS in_window
         FROM availability_slots
         WHERE coach_id = ${coachId}
+      `,
+      prisma.$queryRaw<Array<{ id: string; start_time: Date; created_at: Date | null; rule_id: string | null }>>`
+        SELECT id::text AS id, start_time, created_at, rule_id::text AS rule_id
+        FROM availability_slots
+        WHERE coach_id = ${coachId}
+        ORDER BY start_time DESC
+        LIMIT 20
       `,
       prisma.$queryRaw<Array<{ now: Date; ninety: Date }>>`SELECT NOW() AS now, ${ninetyDaysAgo}::timestamp AS ninety`,
     ]);
@@ -419,7 +426,7 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
       nodeNow: now.toISOString(),
       ninetyDaysAgo: ninetyDaysAgo.toISOString(),
       rulesAddedLast30,
-      slotsAddedLast30Raw: slotsAddedLast30.map((r) => Number(r.count)),
+      slotsAddedLast30Raw: slotsAddedLast30,
       availabilityAddedByDayRows: availabilityAddedByDay.map((row) => ({
         day: row.day.toISOString(),
         rules: Number(row.rules),
@@ -442,6 +449,13 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
         withRule: Number(s.with_rule),
         withoutRule: Number(s.without_rule),
         future: Number(s.future),
+        inWindow: Number(s.in_window),
+      })),
+      slotSample: slotSampleDiag.map((s) => ({
+        id: s.id,
+        startTime: s.start_time?.toISOString?.() ?? null,
+        createdAt: s.created_at?.toISOString?.() ?? null,
+        ruleId: s.rule_id,
       })),
       dbTime: dbTimeDiag.map((r) => ({
         dbNow: r.now?.toISOString?.() ?? null,
@@ -511,7 +525,7 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
         ? lastRuleMax._max.createdAt.toISOString()
         : null,
       rulesAddedLast30Days: rulesAddedLast30,
-      slotsAddedLast30Days: Number(slotsAddedLast30[0]?.count ?? 0n),
+      slotsAddedLast30Days: slotsAddedLast30,
       bookingsPending: bookingByStatus["pending"] ?? 0,
       bookingsConfirmed: bookingByStatus["confirmed"] ?? 0,
       bookingsCompleted: completedCount,

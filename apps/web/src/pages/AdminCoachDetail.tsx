@@ -235,20 +235,22 @@ function AvailabilityActivityChart({ data }: { data: AvailabilityDayPoint[] }) {
     });
   }
 
-  const maxRules = Math.max(...series.map((s) => s.rules), 1);
+  const maxSlots = Math.max(...series.map((s) => s.slots), 1);
   const totalRules = series.reduce((sum, s) => sum + s.rules, 0);
   const totalSlots = series.reduce((sum, s) => sum + s.slots, 0);
-  const activeDays = series.filter((s) => s.rules > 0).length;
+  const activeDays = series.filter((s) => s.slots > 0).length;
 
   return (
     <div>
       <div className="flex items-baseline gap-4 mb-3 flex-wrap text-xs">
         <span className="text-slate-500">
-          <span className="font-semibold text-slate-900">{totalRules}</span> rules added
+          <span className="font-semibold text-slate-900">{totalSlots}</span> slots added
         </span>
-        <span className="text-slate-500">
-          <span className="font-semibold text-slate-900">{totalSlots}</span> slots created
-        </span>
+        {totalRules > 0 && (
+          <span className="text-slate-500">
+            <span className="font-semibold text-slate-900">{totalRules}</span> recurring rule{totalRules === 1 ? "" : "s"}
+          </span>
+        )}
         <span className="text-slate-500">
           <span className="font-semibold text-slate-900">{activeDays}</span> active day{activeDays === 1 ? "" : "s"}
         </span>
@@ -256,8 +258,8 @@ function AvailabilityActivityChart({ data }: { data: AvailabilityDayPoint[] }) {
       </div>
       <div className="flex items-end gap-[2px] h-24 bg-slate-50 rounded p-2">
         {series.map((s) => {
-          const pct = (s.rules / maxRules) * 100;
-          const title = `${s.date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}: ${s.rules} rule${s.rules === 1 ? "" : "s"}${s.slots > 0 ? `, ${s.slots} slots` : ""}`;
+          const pct = (s.slots / maxSlots) * 100;
+          const title = `${s.date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}: ${s.slots} slot${s.slots === 1 ? "" : "s"}${s.rules > 0 ? `, ${s.rules} rule${s.rules === 1 ? "" : "s"}` : ""}`;
           return (
             <div
               key={s.key}
@@ -266,9 +268,9 @@ function AvailabilityActivityChart({ data }: { data: AvailabilityDayPoint[] }) {
             >
               <div
                 className={`rounded-sm transition-all ${
-                  s.rules > 0 ? "bg-brand-500/80 hover:bg-brand-600" : "bg-slate-200/60"
+                  s.slots > 0 ? "bg-brand-500/80 hover:bg-brand-600" : "bg-slate-200/60"
                 }`}
-                style={{ height: s.rules > 0 ? `${Math.max(pct, 8)}%` : "2px" }}
+                style={{ height: s.slots > 0 ? `${Math.max(pct, 8)}%` : "2px" }}
               />
             </div>
           );
@@ -521,9 +523,9 @@ function CoachDetailView({
           <span className="text-xs text-slate-400">when the coach adds availability</span>
         </div>
         <p className="text-xs text-slate-500 mb-3">
-          {k.rulesAddedLast30Days > 0
-            ? <><span className="font-semibold text-slate-900">{k.rulesAddedLast30Days}</span> rule{k.rulesAddedLast30Days === 1 ? "" : "s"} added in the last 30 days
-              {k.slotsAddedLast30Days > 0 && <> ({k.slotsAddedLast30Days} slot{k.slotsAddedLast30Days === 1 ? "" : "s"} created)</>}</>
+          {k.slotsAddedLast30Days > 0
+            ? <><span className="font-semibold text-slate-900">{k.slotsAddedLast30Days}</span> slot{k.slotsAddedLast30Days === 1 ? "" : "s"} added in the last 30 days
+              {k.rulesAddedLast30Days > 0 && <> (from {k.rulesAddedLast30Days} recurring rule{k.rulesAddedLast30Days === 1 ? "" : "s"})</>}</>
             : <span className="text-amber-600">No availability added in the last 30 days.</span>}
           {k.lastAvailabilityAt && <span className="text-slate-400"> Last added {formatDate(k.lastAvailabilityAt)}.</span>}
         </p>
