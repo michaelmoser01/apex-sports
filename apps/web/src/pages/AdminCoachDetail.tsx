@@ -409,9 +409,6 @@ export default function AdminCoachDetail() {
           {error && !unauthorized && <p className="text-red-500 text-sm">{error}</p>}
 
           {data && <CoachDetailView data={data} onDelete={handleDelete} deleting={deleting} onRefresh={refresh} />}
-          {/* #region agent log */}
-          {data && <DebugForwarder data={data} />}
-          {/* #endregion */}
         </div>
       </div>
     </AdminAuthGate>
@@ -688,25 +685,3 @@ function CoachDetailView({
   );
 }
 
-// #region agent log
-function DebugForwarder({ data }: { data: CoachDetail }) {
-  useEffect(() => {
-    const dbg = (data as { _debug?: unknown })._debug;
-    if (!dbg) return;
-    fetch("http://127.0.0.1:7269/ingest/e7240c90-93c6-4283-866d-1315a70df2d4", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "09093f" },
-      body: JSON.stringify({
-        sessionId: "09093f",
-        runId: "initial",
-        hypothesisId: "H1-H5",
-        location: "AdminCoachDetail.tsx:debug",
-        message: "API _debug payload received",
-        timestamp: Date.now(),
-        data: dbg,
-      }),
-    }).catch(() => {});
-  }, [data]);
-  return null;
-}
-// #endregion

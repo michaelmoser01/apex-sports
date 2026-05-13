@@ -386,87 +386,6 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
     }),
   ]);
 
-  // #region agent log
-  let _debug: Record<string, unknown> | null = null;
-  try {
-    const [rulesDiag, slotsDiag, slotSampleDiag, dbTimeDiag] = await Promise.all([
-      prisma.$queryRaw<Array<{ id: string; created_at: Date | null; first_start_time: Date | null; in_window: boolean; in_future: boolean; slot_count: bigint }>>`
-        SELECT r.id::text AS id,
-               r.created_at,
-               r.first_start_time,
-               (r.created_at >= ${ninetyDaysAgo}) AS in_window,
-               (r.created_at > NOW()) AS in_future,
-               (SELECT COUNT(*) FROM availability_slots s WHERE s.rule_id = r.id) AS slot_count
-        FROM availability_rules r
-        WHERE r.coach_id = ${coachId}
-        ORDER BY r.created_at DESC NULLS LAST
-        LIMIT 20
-      `,
-      prisma.$queryRaw<Array<{ total: bigint; with_rule: bigint; without_rule: bigint; future: bigint; in_window: bigint }>>`
-        SELECT COUNT(*)::bigint AS total,
-               COUNT(*) FILTER (WHERE rule_id IS NOT NULL)::bigint AS with_rule,
-               COUNT(*) FILTER (WHERE rule_id IS NULL)::bigint AS without_rule,
-               COUNT(*) FILTER (WHERE start_time > NOW())::bigint AS future,
-               COUNT(*) FILTER (WHERE created_at >= ${ninetyDaysAgo})::bigint AS in_window
-        FROM availability_slots
-        WHERE coach_id = ${coachId}
-      `,
-      prisma.$queryRaw<Array<{ id: string; start_time: Date; created_at: Date | null; rule_id: string | null }>>`
-        SELECT id::text AS id, start_time, created_at, rule_id::text AS rule_id
-        FROM availability_slots
-        WHERE coach_id = ${coachId}
-        ORDER BY start_time DESC
-        LIMIT 20
-      `,
-      prisma.$queryRaw<Array<{ now: Date; ninety: Date }>>`SELECT NOW() AS now, ${ninetyDaysAgo}::timestamp AS ninety`,
-    ]);
-    _debug = {
-      coachId,
-      coachDisplayName: coach.displayName,
-      nodeNow: now.toISOString(),
-      ninetyDaysAgo: ninetyDaysAgo.toISOString(),
-      rulesAddedLast30,
-      slotsAddedLast30Raw: slotsAddedLast30,
-      availabilityAddedByDayRows: availabilityAddedByDay.map((row) => ({
-        day: row.day.toISOString(),
-        rules: Number(row.rules),
-        slots: Number(row.slots),
-      })),
-      slotsByWeekRows: slotsByWeek.map((row) => ({
-        week: row.week.toISOString(),
-        count: Number(row.count),
-      })),
-      rulesDiagnostic: rulesDiag.map((r) => ({
-        id: r.id,
-        createdAt: r.created_at?.toISOString?.() ?? null,
-        firstStartTime: r.first_start_time?.toISOString?.() ?? null,
-        inWindow: r.in_window,
-        inFuture: r.in_future,
-        slotCount: Number(r.slot_count),
-      })),
-      slotsDiagnostic: slotsDiag.map((s) => ({
-        total: Number(s.total),
-        withRule: Number(s.with_rule),
-        withoutRule: Number(s.without_rule),
-        future: Number(s.future),
-        inWindow: Number(s.in_window),
-      })),
-      slotSample: slotSampleDiag.map((s) => ({
-        id: s.id,
-        startTime: s.start_time?.toISOString?.() ?? null,
-        createdAt: s.created_at?.toISOString?.() ?? null,
-        ruleId: s.rule_id,
-      })),
-      dbTime: dbTimeDiag.map((r) => ({
-        dbNow: r.now?.toISOString?.() ?? null,
-        ninetyParam: r.ninety?.toISOString?.() ?? null,
-      })),
-    };
-  } catch (err) {
-    _debug = { error: err instanceof Error ? err.message : String(err) };
-  }
-  // #endregion
-
   const bookingByStatus: Record<string, number> = {};
   for (const b of bookingBuckets) bookingByStatus[b.status] = b._count._all;
 
@@ -596,9 +515,6 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
       invitedAt: i.invitedAt.toISOString(),
       status: i.status,
     })),
-    // #region agent log
-    _debug,
-    // #endregion
   });
 });
 
