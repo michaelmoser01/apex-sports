@@ -143,6 +143,14 @@ function daysSince(iso: string | null): number | null {
   return Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24));
 }
 
+function formatRelativeDays(days: number): string {
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days === -1) return "tomorrow";
+  if (days > 0) return `${days} days ago`;
+  return `in ${-days} days`;
+}
+
 function KpiTile({
   label,
   value,
@@ -428,7 +436,9 @@ function CoachDetailView({
 }) {
   const k = data.kpis;
   const days = daysSince(k.lastActivityAt);
+  // Treat "no activity in 14+ days" as stale; future-dated activity (negative days) is not stale.
   const staleTone: "default" | "warn" = days != null && days > 14 ? "warn" : "default";
+  const isFuture = days != null && days < 0;
 
   const bookingsMonthly = data.timeseries.bookingsByMonth.map((p) => ({
     month: p.month,
@@ -505,9 +515,9 @@ function CoachDetailView({
         {days != null && (
           <div className="mt-4 flex items-center gap-2 text-sm">
             <Calendar className="w-4 h-4 text-slate-400" />
-            <span className="text-slate-500">Last activity:</span>
+            <span className="text-slate-500">{isFuture ? "Next scheduled:" : "Last activity:"}</span>
             <span className={`font-medium ${days > 14 ? "text-amber-600" : "text-slate-700"}`}>
-              {formatDateTime(k.lastActivityAt)} ({days} day{days === 1 ? "" : "s"} ago)
+              {formatDateTime(k.lastActivityAt)} ({formatRelativeDays(days)})
             </span>
           </div>
         )}

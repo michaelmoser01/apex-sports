@@ -101,7 +101,7 @@ router.get("/coaches", async (_req: Request, res: Response) => {
     }),
     prisma.availabilitySlot.groupBy({
       by: ["coachId"],
-      _max: { startTime: true },
+      _max: { startTime: true, createdAt: true },
       _count: { _all: true },
     }),
   ]);
@@ -151,8 +151,8 @@ router.get("/coaches", async (_req: Request, res: Response) => {
 
     const lastBookingAt = lastBookingByCoach.get(c.id) ?? null;
     const lastRuleAt = lastRuleByCoach.get(c.id) ?? null;
-    const lastSlotStartAt = slotAgg?._max.startTime ?? null;
-    const lastActivityAt = maxDate(lastBookingAt, lastRuleAt, lastSlotStartAt);
+    const lastSlotCreatedAt = slotAgg?._max.createdAt ?? null;
+    const lastActivityAt = maxDate(lastBookingAt, lastRuleAt, lastSlotCreatedAt);
 
     return {
       id: c.id,
@@ -288,7 +288,7 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
     }),
     prisma.availabilitySlot.aggregate({
       where: { coachId },
-      _max: { startTime: true },
+      _max: { startTime: true, createdAt: true },
       _count: { _all: true },
     }),
     prisma.availabilitySlot.count({ where: { coachId, startTime: { gt: now } } }),
@@ -392,10 +392,12 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
   const athleteByStatus: Record<string, number> = {};
   for (const a of athleteBuckets) athleteByStatus[a.status] = a._count._all;
 
+  // "Activity" = something the coach did, not a future scheduled event.
+  // Use slot.createdAt (when they added the slot), not slot.startTime (when the session occurs).
   const lastActivityAt = maxDate(
     lastBookingMax._max.createdAt,
     lastRuleMax._max.createdAt,
-    slotAgg._max.startTime,
+    slotAgg._max.createdAt,
     lastMessageAt._max.createdAt,
   );
 
