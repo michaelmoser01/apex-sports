@@ -202,16 +202,30 @@ function AvailabilityActivityChart({ data }: { data: AvailabilityDayPoint[] }) {
   today.setHours(0, 0, 0, 0);
   const start = new Date(today.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
 
+  // Use local-date keys so they line up with the local-midnight buckets we build below.
+  // The API returns ISO timestamps in UTC; we coerce each to the local calendar day.
+  const localDayKey = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
   const byDay = new Map<string, AvailabilityDayPoint>();
   for (const d of data) {
-    const key = new Date(d.day).toISOString().slice(0, 10);
-    byDay.set(key, d);
+    const key = localDayKey(new Date(d.day));
+    const existing = byDay.get(key);
+    if (existing) {
+      byDay.set(key, {
+        day: existing.day,
+        rules: existing.rules + d.rules,
+        slots: existing.slots + d.slots,
+      });
+    } else {
+      byDay.set(key, d);
+    }
   }
 
   const series: Array<{ key: string; date: Date; rules: number; slots: number }> = [];
   for (let i = 0; i < days; i++) {
     const date = new Date(start.getTime() + i * 24 * 60 * 60 * 1000);
-    const key = date.toISOString().slice(0, 10);
+    const key = localDayKey(date);
     const point = byDay.get(key);
     series.push({
       key,

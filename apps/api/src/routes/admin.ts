@@ -355,7 +355,7 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
       ORDER BY 1 ASC
     `,
     prisma.$queryRaw<Array<{ day: Date; rules: bigint; slots: bigint }>>`
-      SELECT date_trunc('day', r.created_at) AS day,
+      SELECT date_trunc('day', LEAST(r.created_at, NOW())) AS day,
              COUNT(DISTINCT r.id)::bigint AS rules,
              COUNT(s.id)::bigint AS slots
       FROM availability_rules r
