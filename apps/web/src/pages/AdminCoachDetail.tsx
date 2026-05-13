@@ -42,6 +42,18 @@ interface CoachDetailKpis {
   lastBookingAt: string | null;
   lastMessageAt: string | null;
   lastActivityAt: string | null;
+  rulesAddedLast30Days: number;
+  slotsAddedLast30Days: number;
+}
+
+interface AvailabilityDayPoint {
+  day: string;
+  rules: number;
+  slots: number;
+}
+interface SlotsWeekPoint {
+  week: string;
+  count: number;
 }
 
 interface MonthlyBookingPoint {
@@ -104,6 +116,8 @@ interface CoachDetail {
   timeseries: {
     bookingsByMonth: MonthlyBookingPoint[];
     paymentsByMonth: MonthlyPaymentPoint[];
+    availabilityAddedByDay: AvailabilityDayPoint[];
+    slotsByWeek: SlotsWeekPoint[];
   };
   recentBookings: RecentBooking[];
   recentAthletes: RecentAthlete[];
@@ -179,6 +193,108 @@ function BookingStatusBadge({ status }: { status: string }) {
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${cls}`}>
       {status}
     </span>
+  );
+}
+
+function AvailabilityActivityChart({ data }: { data: AvailabilityDayPoint[] }) {
+  const days = 90;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start = new Date(today.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
+
+  const byDay = new Map<string, AvailabilityDayPoint>();
+  for (const d of data) {
+    const key = new Date(d.day).toISOString().slice(0, 10);
+    byDay.set(key, d);
+  }
+
+  const series: Array<{ key: string; date: Date; rules: number; slots: number }> = [];
+  for (let i = 0; i < days; i++) {
+    const date = new Date(start.getTime() + i * 24 * 60 * 60 * 1000);
+    const key = date.toISOString().slice(0, 10);
+    const point = byDay.get(key);
+    series.push({
+      key,
+      date,
+      rules: point?.rules ?? 0,
+      slots: point?.slots ?? 0,
+    });
+  }
+
+  const maxRules = Math.max(...series.map((s) => s.rules), 1);
+  const totalRules = series.reduce((sum, s) => sum + s.rules, 0);
+  const totalSlots = series.reduce((sum, s) => sum + s.slots, 0);
+  const activeDays = series.filter((s) => s.rules > 0).length;
+
+  return (
+    <div>
+      <div className="flex items-baseline gap-4 mb-3 flex-wrap text-xs">
+        <span className="text-slate-500">
+          <span className="font-semibold text-slate-900">{totalRules}</span> rules added
+        </span>
+        <span className="text-slate-500">
+          <span className="font-semibold text-slate-900">{totalSlots}</span> slots created
+        </span>
+        <span className="text-slate-500">
+          <span className="font-semibold text-slate-900">{activeDays}</span> active day{activeDays === 1 ? "" : "s"}
+        </span>
+        <span className="text-slate-400 ml-auto">last 90 days</span>
+      </div>
+      <div className="flex items-end gap-[2px] h-24 bg-slate-50 rounded p-2">
+        {series.map((s) => {
+          const pct = (s.rules / maxRules) * 100;
+          const title = `${s.date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}: ${s.rules} rule${s.rules === 1 ? "" : "s"}${s.slots > 0 ? `, ${s.slots} slots` : ""}`;
+          return (
+            <div
+              key={s.key}
+              title={title}
+              className="flex-1 flex flex-col justify-end h-full min-w-0"
+            >
+              <div
+                className={`rounded-sm transition-all ${
+                  s.rules > 0 ? "bg-brand-500/80 hover:bg-brand-600" : "bg-slate-200/60"
+                }`}
+                style={{ height: s.rules > 0 ? `${Math.max(pct, 8)}%` : "2px" }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+        <span>{start.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+        <span>{today.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+      </div>
+    </div>
+  );
+}
+
+function SlotsByWeekChart({ data }: { data: SlotsWeekPoint[] }) {
+  if (data.length === 0) {
+    return <p className="text-sm text-slate-400 italic">No upcoming availability scheduled.</p>;
+  }
+  const max = Math.max(...data.map((d) => d.count), 1);
+  return (
+    <div className="space-y-1.5">
+      {data.map((d, i) => {
+        const pct = Math.max((d.count / max) * 100, d.count > 0 ? 4 : 0);
+        const date = new Date(d.week);
+        const label = `Wk of ${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+        return (
+          <div key={i} className="flex items-center gap-2 text-xs">
+            <span className="w-24 text-slate-500 font-medium">{label}</span>
+            <div className="flex-1 bg-slate-100 rounded h-5 relative overflow-hidden">
+              <div
+                className="absolute inset-y-0 left-0 bg-emerald-500/70 rounded transition-all"
+                style={{ width: `${pct}%` }}
+              />
+              <span className="absolute inset-y-0 left-2 flex items-center text-xs font-medium text-slate-700">
+                {d.count} slot{d.count === 1 ? "" : "s"}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -379,6 +495,26 @@ function CoachDetailView({
             </span>
           </div>
         )}
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 mb-6">
+        <div className="flex items-center gap-2 mb-1">
+          <BarChart3 className="w-4 h-4 text-slate-400" />
+          <h2 className="font-semibold text-slate-900">Availability activity</h2>
+          <span className="text-xs text-slate-400">when the coach adds availability</span>
+        </div>
+        <p className="text-xs text-slate-500 mb-3">
+          {k.rulesAddedLast30Days > 0
+            ? <><span className="font-semibold text-slate-900">{k.rulesAddedLast30Days}</span> rule{k.rulesAddedLast30Days === 1 ? "" : "s"} added in the last 30 days
+              {k.slotsAddedLast30Days > 0 && <> ({k.slotsAddedLast30Days} slot{k.slotsAddedLast30Days === 1 ? "" : "s"} created)</>}</>
+            : <span className="text-amber-600">No availability added in the last 30 days.</span>}
+          {k.lastAvailabilityAt && <span className="text-slate-400"> Last added {formatDate(k.lastAvailabilityAt)}.</span>}
+        </p>
+        <AvailabilityActivityChart data={data.timeseries.availabilityAddedByDay} />
+        <div className="mt-5 pt-4 border-t border-slate-100">
+          <h3 className="text-sm font-semibold text-slate-700 mb-2">Upcoming slots by week</h3>
+          <SlotsByWeekChart data={data.timeseries.slotsByWeek} />
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">

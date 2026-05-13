@@ -220,6 +220,11 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
 
   const now = new Date();
   const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const startOfThisWeek = new Date(now);
+  startOfThisWeek.setHours(0, 0, 0, 0);
+  startOfThisWeek.setDate(startOfThisWeek.getDate() - startOfThisWeek.getDay());
+  const eightWeeksOut = new Date(startOfThisWeek.getTime() + 8 * 7 * 24 * 60 * 60 * 1000);
 
   const [
     bookingBuckets,
@@ -242,6 +247,10 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
     lastMessageAt,
     bookingsByMonth,
     paymentsByMonth,
+    availabilityAddedByDay,
+    slotsByWeek,
+    rulesAddedLast30,
+    slotsAddedLast30,
   ] = await Promise.all([
     prisma.booking.groupBy({
       by: ["status"],
@@ -345,6 +354,37 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
       GROUP BY 1
       ORDER BY 1 ASC
     `,
+    prisma.$queryRaw<Array<{ day: Date; rules: bigint; slots: bigint }>>`
+      SELECT date_trunc('day', r.created_at) AS day,
+             COUNT(DISTINCT r.id)::bigint AS rules,
+             COUNT(s.id)::bigint AS slots
+      FROM availability_rules r
+      LEFT JOIN availability_slots s ON s.rule_id = r.id
+      WHERE r.coach_id = ${coachId}
+        AND r.created_at >= ${ninetyDaysAgo}
+      GROUP BY 1
+      ORDER BY 1 ASC
+    `,
+    prisma.$queryRaw<Array<{ week: Date; count: bigint }>>`
+      SELECT date_trunc('week', start_time) AS week,
+             COUNT(*)::bigint AS count
+      FROM availability_slots
+      WHERE coach_id = ${coachId}
+        AND start_time >= ${startOfThisWeek}
+        AND start_time < ${eightWeeksOut}
+      GROUP BY 1
+      ORDER BY 1 ASC
+    `,
+    prisma.availabilityRule.count({
+      where: { coachId, createdAt: { gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) } },
+    }),
+    prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(s.id)::bigint AS count
+      FROM availability_slots s
+      JOIN availability_rules r ON s.rule_id = r.id
+      WHERE s.coach_id = ${coachId}
+        AND r.created_at >= ${new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)}
+    `,
   ]);
 
   const bookingByStatus: Record<string, number> = {};
@@ -404,6 +444,8 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
       lastAvailabilityAt: lastRuleMax._max.createdAt
         ? lastRuleMax._max.createdAt.toISOString()
         : null,
+      rulesAddedLast30Days: rulesAddedLast30,
+      slotsAddedLast30Days: Number(slotsAddedLast30[0]?.count ?? 0n),
       bookingsPending: bookingByStatus["pending"] ?? 0,
       bookingsConfirmed: bookingByStatus["confirmed"] ?? 0,
       bookingsCompleted: completedCount,
@@ -435,6 +477,15 @@ router.get("/coaches/:id", async (req: Request, res: Response) => {
       paymentsByMonth: paymentsByMonth.map((row) => ({
         month: row.month.toISOString(),
         totalCents: Number(row.total ?? 0n),
+        count: Number(row.count),
+      })),
+      availabilityAddedByDay: availabilityAddedByDay.map((row) => ({
+        day: row.day.toISOString(),
+        rules: Number(row.rules),
+        slots: Number(row.slots),
+      })),
+      slotsByWeek: slotsByWeek.map((row) => ({
+        week: row.week.toISOString(),
         count: Number(row.count),
       })),
     },
