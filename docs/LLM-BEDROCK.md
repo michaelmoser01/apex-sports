@@ -4,10 +4,12 @@ The coach onboarding flow can use Amazon Bedrock to help coaches write their "Ab
 
 ## Configuration
 
-- **BEDROCK_MODEL_ID** (default: `anthropic.claude-haiku-4-5-20251001-v1:0`) – Foundation model ID used for the bio draft. Must be an **ACTIVE** model enabled in the Bedrock console (Model access). Set in the API Lambda environment (see `serverless.yml` under `functions.api.environment`).
+- **BEDROCK_MODEL_ID** (default: `us.anthropic.claude-haiku-4-5-20251001-v1:0`) – Bedrock **inference profile** ID used for the bio draft (and coach agent / recap). Newer Claude models must use a profile ID (e.g. `us.…`), not the raw foundation-model ID. Must be **ACTIVE** and enabled in [Bedrock Model access](https://console.aws.amazon.com/bedrock/home#/modelaccess). Set in the API Lambda environment (see `serverless.yml` under `functions.api.environment`).
 - **BEDROCK_REGION** (default: `us-east-1`) – AWS region for Bedrock. Must match where the model is available.
 
-**If you see "model identifier is invalid" or "Legacy"**: Enable an active model in [Bedrock → Model access](https://console.aws.amazon.com/bedrock/home#/modelaccess). Older IDs (e.g. `anthropic.claude-3-haiku-20240307-v1:0`) are marked LEGACY and may be denied. Use an ACTIVE model such as `anthropic.claude-haiku-4-5-20251001-v1:0` or `anthropic.claude-sonnet-4-20250514-v1:0`.
+**If you see "model identifier is invalid" or "Legacy"**: Enable an active model in Bedrock Model access. Older foundation-model IDs (e.g. `anthropic.claude-3-haiku-20240307-v1:0`) are LEGACY.
+
+**If you see "on-demand throughput isn't supported"**: Use the **inference profile** ID, not the foundation-model ID — e.g. `us.anthropic.claude-haiku-4-5-20251001-v1:0` (list profiles: `aws bedrock list-inference-profiles --region us-east-1`).
 
 To use a different model when deploying:
 ```bash
@@ -18,7 +20,7 @@ Or edit `serverless.yml` and set `BEDROCK_MODEL_ID` / `BEDROCK_REGION` under `fu
 
 ## IAM
 
-The API Lambda has `bedrock:InvokeModel` on `arn:aws:bedrock:${AWS::Region}:*:foundation-model/*`. Ensure the model you use is available in the same account/region and that the Lambda execution role can reach Bedrock (e.g. if the Lambda is in a VPC, it needs a route to Bedrock or a VPC endpoint for Bedrock).
+The API Lambda has `bedrock:InvokeModel` on foundation models and `inference-profile/*` in the deploy region. Ensure the profile is available in the same account/region and that the Lambda execution role can reach Bedrock (e.g. if the Lambda is in a VPC, it needs a route to Bedrock or a VPC endpoint for Bedrock).
 
 ## API
 

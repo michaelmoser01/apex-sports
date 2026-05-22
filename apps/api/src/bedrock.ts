@@ -8,7 +8,8 @@ import {
 
 const BEDROCK_REGION = process.env.BEDROCK_REGION ?? process.env.AWS_REGION ?? "us-east-1";
 
-export const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID ?? "anthropic.claude-haiku-4-5-20251001-v1:0";
+/** Inference profile ID (newer Claude models require a profile, not raw foundation-model on-demand). */
+export const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID ?? "us.anthropic.claude-haiku-4-5-20251001-v1:0";
 
 let client: BedrockRuntimeClient | null = null;
 
