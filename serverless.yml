@@ -55,9 +55,12 @@ provider:
           Resource: "arn:aws:route53:::hostedzone/${self:custom.hostedZoneId}"
         - Effect: Allow
           Action: bedrock:InvokeModel
+          # US cross-region inference profiles (e.g. us.anthropic.claude-haiku-4-5)
+          # route to foundation models in us-east-1, us-east-2 and us-west-2, so
+          # InvokeModel must be allowed on foundation-models across regions, not just deploy region.
           Resource:
-            - !Sub "arn:aws:bedrock:${AWS::Region}:*:foundation-model/*"
-            - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*"
+            - "arn:aws:bedrock:*::foundation-model/*"
+            - !Sub "arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*"
         # Required for Bedrock Marketplace models (e.g. Anthropic Claude): subscription can be completed on first invoke
         - Effect: Allow
           Action:
