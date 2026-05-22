@@ -1,7 +1,7 @@
 /**
- * Pre-sign-up trigger. When REQUIRE_SIGNUP_VERIFICATION is not 'true', auto-confirms
- * so dev/stage skip email verification. Set REQUIRE_SIGNUP_VERIFICATION=true and
- * redeploy to test the full verification code workflow, then unset and redeploy to turn off.
+ * Pre-sign-up trigger. When REQUIRE_SIGNUP_VERIFICATION is not 'true' (default), auto-confirms
+ * and auto-verifies email so sign-up skips the verification code step.
+ * Deploy with REQUIRE_SIGNUP_VERIFICATION=true to test the full email code flow.
  */
 export const handler = async (event: {
   response: { autoConfirmUser: boolean; autoVerifyEmail: boolean };

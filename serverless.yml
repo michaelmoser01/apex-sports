@@ -209,11 +209,11 @@ functions:
 
   cognitoPreSignUp:
     handler: apps/api/src/cognito-pre-signup.handler
-    description: Auto-confirms Cognito sign-ups in dev unless REQUIRE_SIGNUP_VERIFICATION=true
+    description: Auto-confirms Cognito sign-ups unless REQUIRE_SIGNUP_VERIFICATION=true
     memorySize: 128
     timeout: 5
     environment:
-      REQUIRE_SIGNUP_VERIFICATION: ${env:REQUIRE_SIGNUP_VERIFICATION, 'true'}
+      REQUIRE_SIGNUP_VERIFICATION: ${env:REQUIRE_SIGNUP_VERIFICATION, 'false'}
 
   emailWorker:
     handler: apps/api/src/email-worker.handler
@@ -233,10 +233,6 @@ functions:
           functionResponseType: ReportBatchItemFailures
 
 resources:
-  Conditions:
-    IsDevStage:
-      !Equals ["${self:provider.stage}", "dev"]
-
   Resources:
     # VPC
     Vpc:
@@ -499,10 +495,7 @@ resources:
         AutoVerifiedAttributes:
           - email
         LambdaConfig:
-          PreSignUp: !If
-            - IsDevStage
-            - !GetAtt CognitoPreSignUpLambdaFunction.Arn
-            - !Ref AWS::NoValue
+          PreSignUp: !GetAtt CognitoPreSignUpLambdaFunction.Arn
         Schema:
           - Name: email
             Required: true
@@ -510,7 +503,6 @@ resources:
 
     CognitoPreSignUpPermission:
       Type: AWS::Lambda::Permission
-      Condition: IsDevStage
       Properties:
         FunctionName: !GetAtt CognitoPreSignUpLambdaFunction.Arn
         Action: lambda:InvokeFunction
