@@ -4,10 +4,10 @@ The coach onboarding flow can use Amazon Bedrock to help coaches write their "Ab
 
 ## Configuration
 
-- **BEDROCK_MODEL_ID** (default: `anthropic.claude-3-haiku-20240307-v1:0`) – Foundation model ID used for the bio draft. Must be a model you have **enabled** in the Bedrock console (Model access). Set in the API Lambda environment (see `serverless.yml` under `functions.api.environment`).
+- **BEDROCK_MODEL_ID** (default: `anthropic.claude-haiku-4-5-20251001-v1:0`) – Foundation model ID used for the bio draft. Must be an **ACTIVE** model enabled in the Bedrock console (Model access). Set in the API Lambda environment (see `serverless.yml` under `functions.api.environment`).
 - **BEDROCK_REGION** (default: `us-east-1`) – AWS region for Bedrock. Must match where the model is available.
 
-**If you see "The provided model identifier is invalid"**: Enable the model in [Bedrock → Model access](https://console.aws.amazon.com/bedrock/home#/modelaccess) and ensure the ID matches AWS docs (e.g. [model IDs](https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids.html)). Examples: `anthropic.claude-3-haiku-20240307-v1:0`, `anthropic.claude-3-5-haiku-20241022-v1:0`, `anthropic.claude-sonnet-4-20250514-v1:0`.
+**If you see "model identifier is invalid" or "Legacy"**: Enable an active model in [Bedrock → Model access](https://console.aws.amazon.com/bedrock/home#/modelaccess). Older IDs (e.g. `anthropic.claude-3-haiku-20240307-v1:0`) are marked LEGACY and may be denied. Use an ACTIVE model such as `anthropic.claude-haiku-4-5-20251001-v1:0` or `anthropic.claude-sonnet-4-20250514-v1:0`.
 
 To use a different model when deploying:
 ```bash

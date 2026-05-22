@@ -139,7 +139,7 @@ functions:
       ADMIN_SECRET_ARN: !Ref AdminSecret
       # Bedrock: set BEDROCK_MODEL_ID / BEDROCK_REGION when running serverless deploy to override
       BEDROCK_REGION: ${env:BEDROCK_REGION, 'us-east-1'}
-      BEDROCK_MODEL_ID: ${env:BEDROCK_MODEL_ID, 'anthropic.claude-3-haiku-20240307-v1:0'}
+      BEDROCK_MODEL_ID: ${env:BEDROCK_MODEL_ID, 'anthropic.claude-haiku-4-5-20251001-v1:0'}
       EMAIL_QUEUE_URL: !Ref EmailQueue
     package:
       patterns:
